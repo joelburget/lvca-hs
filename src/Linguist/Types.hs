@@ -1,5 +1,7 @@
+{-# LANGUAGE GADTs             #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE Rank2Types        #-}
 {-# LANGUAGE TypeOperators     #-}
 module Linguist.Types where
 
@@ -12,6 +14,7 @@ import           Data.String     (IsString(fromString))
 import           Data.Text       (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
+import Type.Reflection
 
 -- syntax charts
 
@@ -38,9 +41,22 @@ data Valence = Valence
 -- To specify an arity, the resulting sort is unnecessary. We also include
 -- variables and externals.
 data AritySpec
-  = Arity'   ![Valence]
-  | Variable !Text
-  | External !Text
+  = Arity'        ![Valence]
+  | VariableArity !Text
+  | External      !Text
+
+
+-- denotation charts
+
+newtype DenotationChart a = DenotationChart (Map Text (Denotation a))
+
+data Denotation a
+  = Variable
+  | Foreign !SomeTypeRep
+  | CBV !([Value a] -> Value a)
+  -- | Primitive !([Dynamic] -> Dynamic)
+  | Substitute !Int !Int
+
 
 -- judgements
 
@@ -135,51 +151,68 @@ instance Pretty AritySpec where
     if null valences
     then mempty
     else parens (hsep (punctuate comma (pretty <$> valences)))
-  pretty (Variable name) = pretty name
+  pretty (VariableArity name) = pretty name
   pretty (External name) = pretty name
 
 instance Pretty Valence where
   pretty (Valence boundVars result) = hsep $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
+
+-- evaluation internals
+
 data Term a
   = Term
     !Text     -- ^ name of this term
     ![Term a] -- ^ subterms
   | Var !Text
-  | Primitive !a
+  | PrimTerm !a
 
-data HoleyTerm a = HoleyTerm
-  !Text     -- ^ name of this term
-  ![Term a] -- ^ subterms before
-  ![Term a] -- ^ subterms after
+data Value a
+  = NativeValue
+    !Text    -- constructor(?) name
+    ![Value a]
+  | PrimValue !a
+  deriving Show
 
-fillHole :: HoleyTerm a -> Term a -> Term a
-fillHole (HoleyTerm name before after) tm = Term name (before ++ tm : after)
+data StackFrame a
+  = CbvFrame
+    !Text    -- ^ name of this term
+    ![Value a] -- ^ values before
+    ![Term a]  -- ^ subterms after
+    !([Value a] -> Value a)  -- ^ what to do after
+  | ValueBindingFrame
+    !(Map Text (Value a))
+  | TermBindingFrame
+    !(Map Text (Term a))
 
-data EvalContext a = EvalContext
-  ![HoleyTerm a]
-  -- This doesn't really work -- we have no way to clear bindings! We need to
-  -- associate bindings with a stack frame.
-  !(Map Text (Term a))
+findBinding :: [StackFrame a] -> Text -> Maybe (Either (Value a) (Term a))
+findBinding = undefined
 
-data StateStep = StateStep
-  !(EvalContext (Either Int String))
-  !(Term (Either Int String))
+-- fillHole :: StackFrame -> Value -> Term
+-- fillHole (CbvFrame name before after denote) tm = Term name (before ++ tm : after)
 
-  | Errored
-  | Done (Term (Either Int String))
+data StateStep a = StateStep
+  ![StackFrame a]
+  !(Either (Value a) (Term a)) -- ^ Either descending into term or ascending with value
 
-type State = ListZipper StateStep
+  | Errored !Text
+  | Done !(Value a)
+
+type State = ListZipper (StateStep (Either Int Text))
 
 type ListZipper a = Top :>> [a] :>> a
 
 next :: State -> State
-next state = case state & rightward of
-  Just state' -> state'
-  Nothing     -> state
+next state = case state ^. focus of
+  Done{} -> state
+  _      -> case state & rightward of
+    Just state' -> state'
+    Nothing     -> state
 
 prev :: State -> State
 prev state = case state & leftward of
   Just state' -> state'
   Nothing     -> state
+
+type T = Either Int Text

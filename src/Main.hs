@@ -4,7 +4,6 @@ module Main where
 import           Brick
 import           Control.Lens
 import           Control.Zipper
-import qualified Data.Map.Strict as Map
 
 import Linguist.Brick
 import Linguist.SimpleExample
@@ -28,7 +27,7 @@ natJudgements = JudgementRules
 main :: IO ()
 main = do
   _ <- defaultMain app $
-    let steps = iterate proceed $ StateStep (EvalContext [] (Map.empty)) eTerm1
+    let steps = iterate (proceed' denotation) $ StateStep [] (Right tm1)
     in zipper steps & fromWithin traverse
   pure ()
 

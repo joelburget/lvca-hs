@@ -1,9 +1,13 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
 
 import           Control.Lens
-import           Data.List       (findIndex)
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
+import qualified Data.Text as Text
+import Type.Reflection
 
 import Linguist.Types
 
@@ -15,7 +19,7 @@ eChart = SyntaxChart $ Map.fromList
     , Operator "str" (Arity' []) "strings"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "var" (Variable "x") "variable"
+    [ Operator "var" (VariableArity "x") "variable"
     , Operator "num" (External "nat") "numeral"
     , Operator "str" (External "str") "literal"
     , Operator "plus" (Arity' [Valence [] "Exp", Valence [] "Exp"]) "addition"
@@ -32,42 +36,89 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
-eTerm1, eTerm2 :: Term (Either Int String)
-eTerm1 = Term "plus"
-  [ Primitive (Left 1)
+-- toDyn :: (Typeable a, Show a) => a -> Dynamic
+-- toDyn v = Dynamic typeRep show v
+
+-- toDynF :: (Typeable a, Typeable b, Show b) => (a -> b) -> DynFun
+-- toDynF = DynFun typeRep typeRep show
+
+-- dynApply :: DynFun -> Dynamic -> Maybe Dynamic
+-- dynApply (DynFun ta tb showB f) (Dynamic ta' showA x)
+--   | Just HRefl <- ta `eqTypeRep` ta'
+--   , Just HRefl <- typeRep @Type `eqTypeRep` typeRepKind tb
+--   = Just (Dynamic tb showB (f x))
+-- dynApply _ _
+--   = Nothing
+
+tm1, tm2 :: Term T
+tm1 = Term "plus"
+  [ PrimTerm (Left 1)
   , Term "plus"
-    [ Primitive (Left 2)
-    , Primitive (Left 3)
+    [ PrimTerm (Left 2)
+    , PrimTerm (Left 3)
     ]
   ]
-eTerm2 = Term "cat" [Primitive (Right "foo"), Primitive (Right "bar")]
+tm2 = Term "cat"
+  [ PrimTerm (Right "foo")
+  , PrimTerm (Right "bar")
+  ]
 
-isValue :: Term a -> Bool
-isValue Primitive{} = True
-isValue _ = False
+denotation :: DenotationChart T
+denotation = DenotationChart $ Map.fromList
+  [ ("var", Variable)
+  , ("num", Foreign (SomeTypeRep (typeRep @Int)))
+  , ("str", Foreign (SomeTypeRep (typeRep @Text)))
+  , ("plus", CBV $ \[PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x + y)))
+  , ("times", CBV $ \[PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x * y)))
+  , ("cat", CBV $ \[PrimValue (Right x), PrimValue (Right y)] -> PrimValue (Right (x <> y)))
+  , ("len", CBV $ \[PrimValue (Right x)] -> PrimValue (Left (Text.length x)))
+  , ("let", Substitute 0 1)
+  ]
 
-proceed :: StateStep -> StateStep
-proceed (StateStep ctx@(EvalContext stack vars) tm) = case tm of
-  Term name subterms -> case findIndex (not . isValue) subterms of
-    Just pos ->
-      let (before, it:after) = splitAt pos subterms
-          hterm = HoleyTerm name before after
-      in StateStep (EvalContext (hterm:stack) vars) it
-    Nothing ->
-      let mResult = case tm of
-            Term "plus" [Primitive (Left x), Primitive (Left y)]
-              -> Just $ Primitive $ Left (x + y)
-            Term "cat" [Primitive (Right x), Primitive (Right y)]
-              -> Just $ Primitive $ Right (x ++ y)
-            _ -> Nothing
-      in case (mResult, stack) of
-        (Nothing, _) -> Errored
-        (Just result, []) -> Done result
-        (Just result, frame:frames)
-          -> StateStep (EvalContext frames vars) (fillHole frame result)
-  Var name -> case vars ^. at name of
-    Just tm' -> StateStep ctx tm'
-    Nothing  -> Errored
-  Primitive a -> StateStep ctx $ Primitive a -- complete
-proceed Errored = Errored
-proceed d@Done{} = d
+proceed' :: DenotationChart T -> StateStep T -> StateStep T
+proceed' (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
+  Term name subterms -> case chart ^. at name of
+    Just (CBV f) -> case subterms of
+      tm':tms -> StateStep
+        (CbvFrame name [] tms f : stack)
+        (Right tm')
+      _ -> Errored "1"
+
+    -- TODO: does this belong?
+    -- Just (Primitive dynF) -> case dynF subterms of
+    --   Nothing -> Errored "2"
+    --   Just result -> StateStep stack (Left (PrimValue result))
+
+    Just (Substitute _ _) -> undefined
+    Just _ -> Errored "3"
+    Nothing -> Errored "4"
+
+  Var name -> case findBinding stack name of
+    Just tmVal -> StateStep stack tmVal
+    Nothing    -> Errored "5"
+
+  PrimTerm dynVal -> case stack of
+    CbvFrame _ vals [] f : stack' ->
+      case f (PrimValue dynVal:vals) of
+        result -> StateStep stack' (Left result)
+    CbvFrame name vals (tm':tms) denote : stack' -> StateStep
+      (CbvFrame name (PrimValue dynVal : vals) tms denote : stack')
+      (Right tm')
+    ValueBindingFrame _ : stack' -> StateStep stack' (Left (PrimValue dynVal))
+    TermBindingFrame  _ : stack' -> StateStep stack' (Left (PrimValue dynVal))
+    [] -> Errored "empty stack with term"
+
+proceed' _chart (StateStep stack (Left val)) =
+  case stack of
+    [] -> Done val
+    CbvFrame _name vals []        denote : stack' -> StateStep
+      stack'
+      (Left (denote (val:vals)))
+    CbvFrame name vals (tm':tms) denote : stack' -> StateStep
+      (CbvFrame name (val:vals) tms denote : stack')
+      (Right tm')
+    ValueBindingFrame _ : stack' -> StateStep stack' (Left val)
+    TermBindingFrame  _ : stack' -> StateStep stack' (Left val)
+
+proceed' _ e@Errored{} = e
+proceed' _ d@Done{} = d

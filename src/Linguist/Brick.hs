@@ -7,7 +7,6 @@ import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Border.Style as BS
 import           Control.Lens
 import           Control.Zipper
-import qualified Data.Map.Strict as Map
 import           Data.Text       (Text)
 import qualified Graphics.Vty    as V
 
@@ -29,7 +28,10 @@ theMap = attrMap V.defAttr
   , (blueAttr, fg V.blue)
   ]
 
-handleEvent :: State -> BrickEvent () a -> EventM () (Next State)
+handleEvent
+  :: State
+  -> BrickEvent () a
+  -> EventM () (Next State)
 handleEvent g (VtyEvent (V.EvKey V.KUp []))         = continue $ prev g
 handleEvent g (VtyEvent (V.EvKey V.KDown []))       = continue $ next g
 handleEvent g (VtyEvent (V.EvKey V.KRight []))      = continue $ next g
@@ -44,37 +46,55 @@ handleEvent g _                                     = continue g
 
 drawUI :: State -> Widget ()
 drawUI state = case state ^. focus of
-  StateStep ctx tm ->
+  StateStep ctx valTm ->
     let lBox = bordered "Context" $ drawCtx ctx
-        rBox = bordered "Term" $ drawTm tm
+        rBox = bordered "Term" $ either drawVal drawTm valTm
     in lBox <+> rBox
-  Errored -> withAttr redAttr $ txt "error"
-  Done tm -> bordered "Done" $ withAttr blueAttr $ drawTm tm
+  Errored info -> withAttr redAttr $ txt "error " <+> txt info
+  Done val -> bordered "Done" $ withAttr blueAttr $ drawVal val
 
-drawCtx :: EvalContext (Either Int String) -> Widget ()
-drawCtx (EvalContext stack bindings) =
-  vBox (fmap drawStackFrame stack)
-  <=>
-  hBox (fmap drawBinding (Map.toList bindings))
+drawCtx :: [StackFrame T] -> Widget ()
+drawCtx stack = vBox (reverse $ fmap drawStackFrame stack)
 
-drawStackFrame :: HoleyTerm (Either Int String) -> Widget ()
-drawStackFrame (HoleyTerm name before after) =
-  let slots = padLeft (Pad 1) <$>
-        (const (str "_") <$> before) ++ [str "^"] ++ (const (str "_") <$> after)
-  in hBox $ txt name : slots
+drawStackFrame :: StackFrame T -> Widget ()
+drawStackFrame = \case
+  CbvFrame name before after _ ->
+    let slots = padLeft (Pad 1) <$>
+          fmap showValSlot before ++ [str "^"] ++ fmap showTermSlot after
+    in hBox $ txt name : slots
+  ValueBindingFrame _ -> error "TODO"
+  TermBindingFrame  _ -> error "TODO"
 
-drawBinding :: (Text, Term (Either Int String)) -> Widget ()
+showValSlot :: Value T -> Widget ()
+showValSlot = \case
+  NativeValue name _vals -> txt name
+  PrimValue a -> str (either show show a)
+
+showTermSlot :: Term T -> Widget ()
+showTermSlot = \case
+  Term name _ -> txt $ "[" <> name <> "]"
+  Var name -> txt name
+  PrimTerm a -> str (either show show a)
+
+drawBinding :: (Text, Term T) -> Widget ()
 drawBinding _ = txt "binding"
 
-drawTm :: Term (Either Int String) -> Widget ()
+drawTm :: Term T -> Widget ()
 drawTm = \case
   Term name subterms ->
     txt name
     <=>
     padLeft (Pad 2) (vBox (fmap drawTm subterms))
   Var name    -> txt name
-  Primitive (Left a) -> str (show a)
-  Primitive (Right a) -> str (show a)
+  PrimTerm a -> str (either show show a)
+
+drawVal :: Value T -> Widget ()
+drawVal = \case
+  NativeValue name vals ->
+    txt name
+    <=>
+    padLeft (Pad 2) (vBox (fmap drawVal vals))
+  PrimValue dyn -> str $ either show show dyn
 
 app :: App State a ()
 app = App
