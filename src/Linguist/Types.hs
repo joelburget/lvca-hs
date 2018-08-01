@@ -186,10 +186,16 @@ data StackFrame a
     !(Map Text (Term a))
 
 findBinding :: [StackFrame a] -> Text -> Maybe (Either (Value a) (Term a))
-findBinding = undefined
-
--- fillHole :: StackFrame -> Value -> Term
--- fillHole (CbvFrame name before after denote) tm = Term name (before ++ tm : after)
+findBinding [] _ = Nothing
+findBinding (ValueBindingFrame bindings : stack) name
+  = case bindings ^? ix name of
+    Just val -> Just (Left val)
+    Nothing  -> findBinding stack name
+findBinding (TermBindingFrame bindings : stack) name
+  = case bindings ^? ix name of
+    Just tm -> Just (Right tm)
+    Nothing -> findBinding stack name
+findBinding (_ : stack) name = findBinding stack name
 
 data StateStep a = StateStep
   ![StackFrame a]
