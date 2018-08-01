@@ -94,7 +94,7 @@ drawVal = \case
     txt name
     <=>
     padLeft (Pad 2) (vBox (fmap drawVal vals))
-  PrimValue dyn -> str $ either show show dyn
+  PrimValue primVal -> str $ either show show primVal
 
 app :: App State a ()
 app = App

@@ -36,20 +36,6 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
--- toDyn :: (Typeable a, Show a) => a -> Dynamic
--- toDyn v = Dynamic typeRep show v
-
--- toDynF :: (Typeable a, Typeable b, Show b) => (a -> b) -> DynFun
--- toDynF = DynFun typeRep typeRep show
-
--- dynApply :: DynFun -> Dynamic -> Maybe Dynamic
--- dynApply (DynFun ta tb showB f) (Dynamic ta' showA x)
---   | Just HRefl <- ta `eqTypeRep` ta'
---   , Just HRefl <- typeRep @Type `eqTypeRep` typeRepKind tb
---   = Just (Dynamic tb showB (f x))
--- dynApply _ _
---   = Nothing
-
 tm1, tm2 :: Term T
 tm1 = Term "plus"
   [ PrimTerm (Left 1)
@@ -84,11 +70,6 @@ proceed' (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
         (Right tm')
       _ -> Errored "1"
 
-    -- TODO: does this belong?
-    -- Just (Primitive dynF) -> case dynF subterms of
-    --   Nothing -> Errored "2"
-    --   Just result -> StateStep stack (Left (PrimValue result))
-
     Just (Substitute _ _) -> undefined
     Just _ -> Errored "3"
     Nothing -> Errored "4"
@@ -97,15 +78,15 @@ proceed' (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
     Just tmVal -> StateStep stack tmVal
     Nothing    -> Errored "5"
 
-  PrimTerm dynVal -> case stack of
+  PrimTerm primTm -> case stack of
     CbvFrame _ vals [] f : stack' ->
-      case f (PrimValue dynVal:vals) of
+      case f (PrimValue primTm:vals) of
         result -> StateStep stack' (Left result)
     CbvFrame name vals (tm':tms) denote : stack' -> StateStep
-      (CbvFrame name (PrimValue dynVal : vals) tms denote : stack')
+      (CbvFrame name (PrimValue primTm : vals) tms denote : stack')
       (Right tm')
-    ValueBindingFrame _ : stack' -> StateStep stack' (Left (PrimValue dynVal))
-    TermBindingFrame  _ : stack' -> StateStep stack' (Left (PrimValue dynVal))
+    ValueBindingFrame _ : stack' -> StateStep stack' (Left (PrimValue primTm))
+    TermBindingFrame  _ : stack' -> StateStep stack' (Left (PrimValue primTm))
     [] -> Errored "empty stack with term"
 
 proceed' _chart (StateStep stack (Left val)) =
