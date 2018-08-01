@@ -3,6 +3,7 @@
 module Linguist.Brick where
 
 import           Brick
+import           Brick.Widgets.Center (center)
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Border.Style as BS
 import           Control.Lens
@@ -47,20 +48,22 @@ handleEvent g _                                     = continue g
 drawUI :: State -> Widget ()
 drawUI state = case state ^. focus of
   StateStep ctx valTm ->
-    let lBox = bordered "Context" $ drawCtx ctx
-        rBox = bordered "Term" $ either drawVal drawTm valTm
+    let lBox = bordered "Context" $ center $ drawCtx ctx
+        rBox = bordered "Term"    $ center $ either drawVal drawTm valTm
     in lBox <+> rBox
-  Errored info -> withAttr redAttr $ txt "error " <+> txt info
-  Done val -> bordered "Done" $ withAttr blueAttr $ drawVal val
+  Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
+  Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawVal val
 
 drawCtx :: [StackFrame T] -> Widget ()
-drawCtx stack = vBox (reverse $ fmap drawStackFrame stack)
+drawCtx = \case
+  []    -> fill ' '
+  stack -> vBox (reverse $ fmap drawStackFrame stack)
 
 drawStackFrame :: StackFrame T -> Widget ()
 drawStackFrame = \case
   CbvFrame name before after _ ->
     let slots = padLeft (Pad 1) <$>
-          fmap showValSlot before ++ [str "^"] ++ fmap showTermSlot after
+          fmap showValSlot before ++ [str "_"] ++ fmap showTermSlot after
     in hBox $ txt name : slots
   ValueBindingFrame _ -> error "TODO"
   TermBindingFrame  _ -> error "TODO"
