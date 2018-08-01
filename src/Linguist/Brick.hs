@@ -12,6 +12,7 @@ import           Data.Text       (Text)
 import qualified Graphics.Vty    as V
 
 import Linguist.Types
+import Linguist.SimpleExample (T)
 
 bordered :: Text -> Widget n -> Widget n
 bordered name widget = withBorderStyle BS.unicodeBold

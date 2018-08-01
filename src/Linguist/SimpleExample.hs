@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
@@ -36,6 +37,8 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
+type T = Either Int Text
+
 tm1, tm2 :: Term T
 tm1 = Term "plus"
   [ PrimTerm (Left 1)
@@ -52,19 +55,27 @@ tm2 = Term "cat"
 denotation :: DenotationChart T
 denotation = DenotationChart $ Map.fromList
   [ ("var", Variable)
-  , ("num", Foreign (SomeTypeRep (typeRep @Int)))
-  , ("str", Foreign (SomeTypeRep (typeRep @Text)))
-  , ("plus", CBV $ \[PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x + y)))
-  , ("times", CBV $ \[PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x * y)))
-  , ("cat", CBV $ \[PrimValue (Right x), PrimValue (Right y)] -> PrimValue (Right (x <> y)))
-  , ("len", CBV $ \[PrimValue (Right x)] -> PrimValue (Left (Text.length x)))
+  , ("num", Primitive (SomeTypeRep (typeRep @Int)))
+  , ("str", Primitive (SomeTypeRep (typeRep @Text)))
+  , ("plus", CBVForeign $ \case
+    [PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x + y))
+    _ -> error "TODO")
+  , ("times", CBVForeign $ \case
+    [PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x * y))
+    _ -> error "TODO")
+  , ("cat", CBVForeign $ \case
+    [PrimValue (Right x), PrimValue (Right y)] -> PrimValue (Right (x <> y))
+    _ -> error "TODO")
+  , ("len", CBVForeign $ \case
+    [PrimValue (Right x)] -> PrimValue (Left (Text.length x))
+    _ -> error "TODO")
   , ("let", Substitute 0 1)
   ]
 
-proceed' :: DenotationChart T -> StateStep T -> StateStep T
-proceed' (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
+proceed :: DenotationChart T -> StateStep T -> StateStep T
+proceed (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
   Term name subterms -> case chart ^. at name of
-    Just (CBV f) -> case subterms of
+    Just (CBVForeign f) -> case subterms of
       tm':tms -> StateStep
         (CbvFrame name [] tms f : stack)
         (Right tm')
@@ -89,7 +100,7 @@ proceed' (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
     TermBindingFrame  _ : stack' -> StateStep stack' (Left (PrimValue primTm))
     [] -> Errored "empty stack with term"
 
-proceed' _chart (StateStep stack (Left val)) =
+proceed _chart (StateStep stack (Left val)) =
   case stack of
     [] -> Done val
     CbvFrame _name vals []        denote : stack' -> StateStep
@@ -101,5 +112,5 @@ proceed' _chart (StateStep stack (Left val)) =
     ValueBindingFrame _ : stack' -> StateStep stack' (Left val)
     TermBindingFrame  _ : stack' -> StateStep stack' (Left val)
 
-proceed' _ e@Errored{} = e
-proceed' _ d@Done{} = d
+proceed _ e@Errored{} = e
+proceed _ d@Done{} = d

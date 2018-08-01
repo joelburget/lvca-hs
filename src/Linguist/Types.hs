@@ -52,9 +52,8 @@ newtype DenotationChart a = DenotationChart (Map Text (Denotation a))
 
 data Denotation a
   = Variable
-  | Foreign !SomeTypeRep
-  | CBV !([Value a] -> Value a)
-  -- | Primitive !([Dynamic] -> Dynamic)
+  | Primitive !SomeTypeRep
+  | CBVForeign !([Value a] -> Value a)
   | Substitute !Int !Int
 
 
@@ -177,9 +176,9 @@ data Value a
 
 data StackFrame a
   = CbvFrame
-    !Text    -- ^ name of this term
-    ![Value a] -- ^ values before
-    ![Term a]  -- ^ subterms after
+    !Text                    -- ^ name of this term
+    ![Value a]               -- ^ values before
+    ![Term a]                -- ^ subterms after
     !([Value a] -> Value a)  -- ^ what to do after
   | ValueBindingFrame
     !(Map Text (Value a))
@@ -214,5 +213,3 @@ prev :: State -> State
 prev state = case state & leftward of
   Just state' -> state'
   Nothing     -> state
-
-type T = Either Int Text
