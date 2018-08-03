@@ -2,19 +2,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Linguist.Brick where
 
-import Data.Foldable (toList)
 import           Brick
-import           Brick.Widgets.Center (center)
-import qualified Brick.Widgets.Border as B
+import qualified Brick.Widgets.Border       as B
 import qualified Brick.Widgets.Border.Style as BS
+import           Brick.Widgets.Center       (center)
 import           Control.Lens
 import           Control.Zipper
-import           Data.Text       (Text)
-import qualified Graphics.Vty    as V
-import qualified Data.Map.Strict as Map
+import           Data.Foldable              (toList)
+import qualified Data.Map.Strict            as Map
+import           Data.Text                  (Text)
+import qualified Graphics.Vty               as V
 
-import Linguist.Types
-import Linguist.SimpleExample (T)
+import           Linguist.SimpleExample     (T)
+import           Linguist.Types
 
 bordered :: Text -> Widget n -> Widget n
 bordered name widget = withBorderStyle BS.unicodeBold

@@ -1,18 +1,18 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE GADTs             #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms  #-}
+{-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
 
 import           Control.Lens
 import qualified Data.Map.Strict as Map
-import           Data.Maybe (fromMaybe)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import Type.Reflection
+import           Data.Maybe      (fromMaybe)
+import           Data.Text       (Text)
+import qualified Data.Text       as Text
+import           Type.Reflection
 
-import Linguist.Types
+import           Linguist.Types
 
 eChart :: SyntaxChart
 eChart = SyntaxChart $ Map.fromList
@@ -102,7 +102,7 @@ proceed (DenotationChart chart) (StateStep stack tm) = case tm of
   Var name -> case findBinding stack name of
     Just (Left tm')  -> StateStep stack tm'
     Just (Right val) -> StateStep stack (Return val)
-    Nothing    -> Errored "5"
+    Nothing          -> Errored "5"
 
   PrimTerm primTm -> case stack of
     CbvFrame _ vals [] f : stack' ->

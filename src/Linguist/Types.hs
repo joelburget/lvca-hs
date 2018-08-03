@@ -5,17 +5,17 @@
 {-# LANGUAGE TypeOperators     #-}
 module Linguist.Types where
 
-import Data.Sequence (Seq)
 import           Control.Lens
 import           Control.Zipper
-import           Data.List       (intersperse)
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import           Data.String     (IsString(fromString))
-import           Data.Text       (Text)
+import           Data.List                 (intersperse)
+import           Data.Map.Strict           (Map)
+import qualified Data.Map.Strict           as Map
+import           Data.Sequence             (Seq)
+import           Data.String               (IsString (fromString))
+import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
-import Type.Reflection
+import           Type.Reflection
 
 -- syntax charts
 
