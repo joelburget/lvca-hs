@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeOperators     #-}
 module Linguist.Types where
 
+import Data.Sequence (Seq)
 import           Control.Lens
 import           Control.Zipper
 import           Data.List       (intersperse)
@@ -53,7 +54,7 @@ newtype DenotationChart a = DenotationChart (Map Text (Denotation a))
 data Denotation a
   = Variable
   | Primitive !SomeTypeRep
-  | CallForeign !([Value a] -> Value a)
+  | CallForeign !(Seq (Value a) -> Value a)
   | BindIn !Int !Int !Int
 
 
@@ -184,9 +185,9 @@ data Value a
 data StackFrame a
   = CbvFrame
     !Text                    -- ^ name of this term
-    ![Value a]               -- ^ values before
+    !(Seq (Value a))         -- ^ values before
     ![Term a]                -- ^ subterms after
-    !([Value a] -> Value a)  -- ^ what to do after
+    !(Seq (Value a) -> Value a)  -- ^ what to do after
   | BindingFrame
     !(Map Text (Either (Term a) (Value a)))
 

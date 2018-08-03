@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Linguist.Brick where
 
+import Data.Foldable (toList)
 import           Brick
 import           Brick.Widgets.Center (center)
 import qualified Brick.Widgets.Border as B
@@ -65,7 +66,7 @@ drawStackFrame :: StackFrame T -> Widget ()
 drawStackFrame = \case
   CbvFrame name before after _ ->
     let slots = padLeft (Pad 1) <$>
-          fmap showValSlot before ++ [str "_"] ++ fmap showTermSlot after
+          fmap showValSlot (toList before) ++ [str "_"] ++ fmap showTermSlot after
     in hBox $ txt name : slots
   BindingFrame bindings -> hBox $ Map.toList bindings <&> \(k, v) ->
     txt k <+> str ": " <+> either drawTm drawVal v

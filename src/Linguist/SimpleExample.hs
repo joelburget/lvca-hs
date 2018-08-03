@@ -67,16 +67,16 @@ denotation = DenotationChart $ Map.fromList
   , ("num", Primitive (SomeTypeRep (typeRep @Int)))
   , ("str", Primitive (SomeTypeRep (typeRep @Text)))
   , ("plus", CallForeign $ \case
-    [VI x, VI y] -> VI (x + y)
+    VI x :< VI y :< Empty -> VI (x + y)
     _ -> error "TODO")
   , ("times", CallForeign $ \case
-    [VI x, VI y] -> VI (x * y)
+    VI x :< VI y :< Empty -> VI (x * y)
     _ -> error "TODO")
   , ("cat", CallForeign $ \case
-    [VS x, VS y] -> VS (x <> y)
+    VS x :< VS y :< Empty -> VS (x <> y)
     _ -> error "TODO")
   , ("len", CallForeign $ \case
-    [VS x] -> VI (Text.length x)
+    VS x :< Empty -> VI (Text.length x)
     _ -> error "TODO")
   , ("let", BindIn 0 1 2)
   ]
@@ -86,7 +86,7 @@ proceed (DenotationChart chart) (StateStep stack tm) = case tm of
   Term name subterms -> case chart ^. at name of
     Just (CallForeign f) -> case subterms of
       tm':tms -> StateStep
-        (CbvFrame name [] tms f : stack)
+        (CbvFrame name Empty tms f : stack)
         tm'
       _ -> Errored "1"
 
@@ -106,10 +106,10 @@ proceed (DenotationChart chart) (StateStep stack tm) = case tm of
 
   PrimTerm primTm -> case stack of
     CbvFrame _ vals [] f : stack' ->
-      case f (PrimValue primTm:vals) of
+      case f (vals |> PrimValue primTm) of
         result -> StateStep stack' (Return result)
     CbvFrame name vals (tm':tms) denote : stack' -> StateStep
-      (CbvFrame name (PrimValue primTm : vals) tms denote : stack')
+      (CbvFrame name (vals |> PrimValue primTm) tms denote : stack')
       tm'
     BindingFrame  _ : stack' -> StateStep stack' tm
     [] -> Errored "empty stack with term"
@@ -118,9 +118,9 @@ proceed (DenotationChart chart) (StateStep stack tm) = case tm of
     [] -> Done val
     CbvFrame _name vals []       denote : stack' -> StateStep
       stack'
-      (Return (denote (val:vals)))
+      (Return (denote (vals |> val)))
     CbvFrame name vals (tm':tms) denote : stack' -> StateStep
-      (CbvFrame name (val:vals) tms denote : stack')
+      (CbvFrame name (vals |> val) tms denote : stack')
       tm'
     BindingFrame _ : stack' -> StateStep stack' tm
 
