@@ -10,6 +10,7 @@ import           Control.Lens
 import           Control.Zipper
 import           Data.Text       (Text)
 import qualified Graphics.Vty    as V
+import qualified Data.Map.Strict as Map
 
 import Linguist.Types
 import Linguist.SimpleExample (T)
@@ -50,7 +51,7 @@ drawUI :: State -> Widget ()
 drawUI state = case state ^. focus of
   StateStep ctx valTm ->
     let lBox = bordered "Context" $ center $ drawCtx ctx
-        rBox = bordered "Term"    $ center $ either drawVal drawTm valTm
+        rBox = bordered "Term"    $ center $ drawTm valTm
     in lBox <+> rBox
   Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
   Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawVal val
@@ -66,19 +67,21 @@ drawStackFrame = \case
     let slots = padLeft (Pad 1) <$>
           fmap showValSlot before ++ [str "_"] ++ fmap showTermSlot after
     in hBox $ txt name : slots
-  ValueBindingFrame _ -> error "TODO"
-  TermBindingFrame  _ -> error "TODO"
+  BindingFrame bindings -> hBox $ Map.toList bindings <&> \(k, v) ->
+    txt k <+> str ": " <+> either drawTm drawVal v
 
 showValSlot :: Value T -> Widget ()
 showValSlot = \case
   NativeValue name _vals -> txt name
   PrimValue a -> str (either show show a)
+  Thunk tm -> showTermSlot tm
 
 showTermSlot :: Term T -> Widget ()
 showTermSlot = \case
   Term name _ -> txt $ "[" <> name <> "]"
   Var name -> txt name
   PrimTerm a -> str (either show show a)
+  Return val -> showValSlot val
 
 drawBinding :: (Text, Term T) -> Widget ()
 drawBinding _ = txt "binding"
@@ -91,6 +94,7 @@ drawTm = \case
     padLeft (Pad 2) (vBox (fmap drawTm subterms))
   Var name    -> txt name
   PrimTerm a -> str (either show show a)
+  Return val -> str "<" <+> drawVal val <+> str ">"
 
 drawVal :: Value T -> Widget ()
 drawVal = \case
@@ -99,6 +103,7 @@ drawVal = \case
     <=>
     padLeft (Pad 2) (vBox (fmap drawVal vals))
   PrimValue primVal -> str $ either show show primVal
+  Thunk tm -> str "{" <+> drawTm tm <+> str "}"
 
 app :: App State a ()
 app = App

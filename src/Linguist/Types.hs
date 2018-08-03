@@ -53,8 +53,8 @@ newtype DenotationChart a = DenotationChart (Map Text (Denotation a))
 data Denotation a
   = Variable
   | Primitive !SomeTypeRep
-  | CBVForeign !([Value a] -> Value a)
-  | Substitute !Int !Int
+  | CallForeign !([Value a] -> Value a)
+  | BindIn !Int !Int !Int
 
 
 -- judgements
@@ -166,13 +166,20 @@ data Term a
     ![Term a] -- ^ subterms
   | Var !Text
   | PrimTerm !a
+  | Return !(Value a)
+  deriving Show
 
 data Value a
   = NativeValue
     !Text    -- constructor(?) name
     ![Value a]
   | PrimValue !a
+  | Thunk !(Term a)
   deriving Show
+
+-- thunk : computation -> value
+-- force : value -> computation
+-- return : value -> computation
 
 data StackFrame a
   = CbvFrame
@@ -180,26 +187,20 @@ data StackFrame a
     ![Value a]               -- ^ values before
     ![Term a]                -- ^ subterms after
     !([Value a] -> Value a)  -- ^ what to do after
-  | ValueBindingFrame
-    !(Map Text (Value a))
-  | TermBindingFrame
-    !(Map Text (Term a))
+  | BindingFrame
+    !(Map Text (Either (Term a) (Value a)))
 
-findBinding :: [StackFrame a] -> Text -> Maybe (Either (Value a) (Term a))
+findBinding :: [StackFrame a] -> Text -> Maybe (Either (Term a) (Value a))
 findBinding [] _ = Nothing
-findBinding (ValueBindingFrame bindings : stack) name
+findBinding (BindingFrame bindings : stack) name
   = case bindings ^? ix name of
-    Just val -> Just (Left val)
-    Nothing  -> findBinding stack name
-findBinding (TermBindingFrame bindings : stack) name
-  = case bindings ^? ix name of
-    Just tm -> Just (Right tm)
-    Nothing -> findBinding stack name
+    Just tmVal -> Just tmVal
+    Nothing    -> findBinding stack name
 findBinding (_ : stack) name = findBinding stack name
 
 data StateStep a = StateStep
   ![StackFrame a]
-  !(Either (Value a) (Term a)) -- ^ Either descending into term or ascending with value
+  !(Term a) -- ^ Either descending into term or ascending with value
 
   | Errored !Text
   | Done !(Value a)

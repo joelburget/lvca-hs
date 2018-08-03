@@ -1,11 +1,13 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms  #-}
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
 
 import           Control.Lens
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Type.Reflection
@@ -40,11 +42,12 @@ eChart = SyntaxChart $ Map.fromList
 type T = Either Int Text
 
 tm1, tm2 :: Term T
-tm1 = Term "plus"
-  [ PrimTerm (Left 1)
+tm1 = Term "let"
+  [ Var "x"
+  , PrimTerm (Left 1)
   , Term "plus"
-    [ PrimTerm (Left 2)
-    , PrimTerm (Left 3)
+    [ Var "x"
+    , PrimTerm (Left 2)
     ]
   ]
 tm2 = Term "cat"
@@ -52,65 +55,74 @@ tm2 = Term "cat"
   , PrimTerm (Right "bar")
   ]
 
+pattern VI :: Int -> Value T
+pattern VI x = PrimValue (Left x)
+
+pattern VS :: Text -> Value T
+pattern VS x = PrimValue (Right x)
+
 denotation :: DenotationChart T
 denotation = DenotationChart $ Map.fromList
   [ ("var", Variable)
   , ("num", Primitive (SomeTypeRep (typeRep @Int)))
   , ("str", Primitive (SomeTypeRep (typeRep @Text)))
-  , ("plus", CBVForeign $ \case
-    [PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x + y))
+  , ("plus", CallForeign $ \case
+    [VI x, VI y] -> VI (x + y)
     _ -> error "TODO")
-  , ("times", CBVForeign $ \case
-    [PrimValue (Left x), PrimValue (Left y)] -> PrimValue (Left (x * y))
+  , ("times", CallForeign $ \case
+    [VI x, VI y] -> VI (x * y)
     _ -> error "TODO")
-  , ("cat", CBVForeign $ \case
-    [PrimValue (Right x), PrimValue (Right y)] -> PrimValue (Right (x <> y))
+  , ("cat", CallForeign $ \case
+    [VS x, VS y] -> VS (x <> y)
     _ -> error "TODO")
-  , ("len", CBVForeign $ \case
-    [PrimValue (Right x)] -> PrimValue (Left (Text.length x))
+  , ("len", CallForeign $ \case
+    [VS x] -> VI (Text.length x)
     _ -> error "TODO")
-  , ("let", Substitute 0 1)
+  , ("let", BindIn 0 1 2)
   ]
 
 proceed :: DenotationChart T -> StateStep T -> StateStep T
-proceed (DenotationChart chart) (StateStep stack (Right tm)) = case tm of
+proceed (DenotationChart chart) (StateStep stack tm) = case tm of
   Term name subterms -> case chart ^. at name of
-    Just (CBVForeign f) -> case subterms of
+    Just (CallForeign f) -> case subterms of
       tm':tms -> StateStep
         (CbvFrame name [] tms f : stack)
-        (Right tm')
+        tm'
       _ -> Errored "1"
 
-    Just (Substitute _ _) -> undefined
+    Just (BindIn nameSlot fromSlot toSlot) -> fromMaybe (Errored "BindIn") $ do
+      Var name' <- subterms ^? ix nameSlot
+      from'     <- subterms ^? ix fromSlot
+      to'       <- subterms ^? ix toSlot
+      let frame = BindingFrame $ Map.singleton name' (Left from')
+      Just $ StateStep (frame : stack) to'
     Just _ -> Errored "3"
     Nothing -> Errored "4"
 
   Var name -> case findBinding stack name of
-    Just tmVal -> StateStep stack tmVal
+    Just (Left tm')  -> StateStep stack tm'
+    Just (Right val) -> StateStep stack (Return val)
     Nothing    -> Errored "5"
 
   PrimTerm primTm -> case stack of
     CbvFrame _ vals [] f : stack' ->
       case f (PrimValue primTm:vals) of
-        result -> StateStep stack' (Left result)
+        result -> StateStep stack' (Return result)
     CbvFrame name vals (tm':tms) denote : stack' -> StateStep
       (CbvFrame name (PrimValue primTm : vals) tms denote : stack')
-      (Right tm')
-    ValueBindingFrame _ : stack' -> StateStep stack' (Left (PrimValue primTm))
-    TermBindingFrame  _ : stack' -> StateStep stack' (Left (PrimValue primTm))
+      tm'
+    BindingFrame  _ : stack' -> StateStep stack' tm
     [] -> Errored "empty stack with term"
 
-proceed _chart (StateStep stack (Left val)) =
-  case stack of
+  Return val -> case stack of
     [] -> Done val
-    CbvFrame _name vals []        denote : stack' -> StateStep
+    CbvFrame _name vals []       denote : stack' -> StateStep
       stack'
-      (Left (denote (val:vals)))
+      (Return (denote (val:vals)))
     CbvFrame name vals (tm':tms) denote : stack' -> StateStep
       (CbvFrame name (val:vals) tms denote : stack')
-      (Right tm')
-    ValueBindingFrame _ : stack' -> StateStep stack' (Left val)
-    TermBindingFrame  _ : stack' -> StateStep stack' (Left val)
+      tm'
+    BindingFrame _ : stack' -> StateStep stack' tm
 
 proceed _ e@Errored{} = e
 proceed _ d@Done{} = d
