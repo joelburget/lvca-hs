@@ -13,7 +13,7 @@ import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
 import qualified Graphics.Vty               as V
 
-import           Linguist.SimpleExample     (T)
+import           Linguist.SimpleExample     (E)
 import           Linguist.Types
 
 bordered :: Text -> Widget n -> Widget n
@@ -57,12 +57,12 @@ drawUI state = case state ^. focus of
   Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
   Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawVal val
 
-drawCtx :: [StackFrame T] -> Widget ()
+drawCtx :: [StackFrame E] -> Widget ()
 drawCtx = \case
   []    -> fill ' '
   stack -> vBox (reverse $ fmap drawStackFrame stack)
 
-drawStackFrame :: StackFrame T -> Widget ()
+drawStackFrame :: StackFrame E -> Widget ()
 drawStackFrame = \case
   CbvFrame name before after _ ->
     let slots = padLeft (Pad 1) <$>
@@ -71,23 +71,23 @@ drawStackFrame = \case
   BindingFrame bindings -> hBox $ Map.toList bindings <&> \(k, v) ->
     txt k <+> str ": " <+> either drawTm drawVal v
 
-showValSlot :: Value T -> Widget ()
+showValSlot :: Value E -> Widget ()
 showValSlot = \case
   NativeValue name _vals -> txt name
   PrimValue a -> str (either show show a)
   Thunk tm -> showTermSlot tm
 
-showTermSlot :: Term T -> Widget ()
+showTermSlot :: Term E -> Widget ()
 showTermSlot = \case
   Term name _ -> txt $ "[" <> name <> "]"
   Var name -> txt name
   PrimTerm a -> str (either show show a)
   Return val -> showValSlot val
 
-drawBinding :: (Text, Term T) -> Widget ()
+drawBinding :: (Text, Term E) -> Widget ()
 drawBinding _ = txt "binding"
 
-drawTm :: Term T -> Widget ()
+drawTm :: Term E -> Widget ()
 drawTm = \case
   Term name subterms ->
     txt name
@@ -97,7 +97,7 @@ drawTm = \case
   PrimTerm a -> str (either show show a)
   Return val -> str "<" <+> drawVal val <+> str ">"
 
-drawVal :: Value T -> Widget ()
+drawVal :: Value E -> Widget ()
 drawVal = \case
   NativeValue name vals ->
     txt name

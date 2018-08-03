@@ -39,9 +39,9 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
-type T = Either Int Text
+type E = Either Int Text
 
-tm1, tm2 :: Term T
+tm1, tm2 :: Term E
 tm1 = Term "let"
   [ Var "x"
   , PrimTerm (Left 1)
@@ -55,13 +55,13 @@ tm2 = Term "cat"
   , PrimTerm (Right "bar")
   ]
 
-pattern VI :: Int -> Value T
+pattern VI :: Int -> Value E
 pattern VI x = PrimValue (Left x)
 
-pattern VS :: Text -> Value T
+pattern VS :: Text -> Value E
 pattern VS x = PrimValue (Right x)
 
-denotation :: DenotationChart T
+denotation :: DenotationChart E
 denotation = DenotationChart $ Map.fromList
   [ ("var", Variable)
   , ("num", Primitive (SomeTypeRep (typeRep @Int)))
@@ -81,7 +81,7 @@ denotation = DenotationChart $ Map.fromList
   , ("let", BindIn 0 1 2)
   ]
 
-proceed :: DenotationChart T -> StateStep T -> StateStep T
+proceed :: DenotationChart E -> StateStep E -> StateStep E
 proceed (DenotationChart chart) (StateStep stack tm) = case tm of
   Term name subterms -> case chart ^. at name of
     Just (CallForeign f) -> case subterms of
