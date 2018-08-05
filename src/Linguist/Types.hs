@@ -15,7 +15,6 @@ import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
-import           Type.Reflection
 
 -- syntax charts
 
@@ -49,14 +48,33 @@ data AritySpec
 
 -- denotation charts
 
-newtype DenotationChart a = DenotationChart (Map Text (Denotation a))
+newtype DenotationChart a = DenotationChart [(Pattern a, Denotation a)]
+
+data Pattern a
+  = PatternVar !Text
+  | PatternTm !Text ![Pattern a]
+  | PatternPrim !Text !Text
+  | PatternSort !Text
+  | BindingPattern !Text (Pattern a)
 
 data Denotation a
-  = Variable
-  | Primitive !SomeTypeRep
+  = Variable Text
+  | Value
   | CallForeign !(Seq (Value a) -> Value a)
   | BindIn !Int !Int !Int
 
+data Assignment a
+
+matches :: Term a -> Pattern a -> Maybe (Assignment a)
+matches = undefined -- (Var tmName) (PatternVar
+
+findMatch :: DenotationChart a -> Term a -> Maybe (Assignment a, Denotation a)
+findMatch (DenotationChart pats) tm = foldr
+  (\(pat, rhs) mat -> case matches tm pat of
+    Just assignment -> Just (assignment, rhs)
+    Nothing         -> mat)
+  Nothing
+  pats
 
 -- judgements
 

@@ -6,8 +6,10 @@ import           Control.Lens
 import           Control.Zipper
 
 import           Linguist.Brick
-import           Linguist.SimpleExample
 import           Linguist.Types
+
+import           Linguist.SimpleExample
+import           Linguist.TExample ()
 
 natJudgement :: JudgementForm
 natJudgement = JudgementForm "nat" [(In, "a")]

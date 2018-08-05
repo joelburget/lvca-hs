@@ -10,9 +10,10 @@ import qualified Data.Map.Strict as Map
 import           Data.Maybe      (fromMaybe)
 import           Data.Text       (Text)
 import qualified Data.Text       as Text
-import           Type.Reflection
 
 import           Linguist.Types
+
+type E = Either Int Text
 
 eChart :: SyntaxChart
 eChart = SyntaxChart $ Map.fromList
@@ -39,8 +40,6 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
-type E = Either Int Text
-
 tm1, tm2 :: Term E
 tm1 = Term "let"
   [ Var "x"
@@ -62,35 +61,36 @@ pattern VS :: Text -> Value E
 pattern VS x = PrimValue (Right x)
 
 denotation :: DenotationChart E
-denotation = DenotationChart $ Map.fromList
-  [ ("var", Variable)
-  , ("num", Primitive (SomeTypeRep (typeRep @Int)))
-  , ("str", Primitive (SomeTypeRep (typeRep @Text)))
-  , ("plus", CallForeign $ \case
+denotation = DenotationChart
+  [ (PatternVar "x", Variable "x")
+  , (PatternPrim "num" "n", Value)
+  , (PatternPrim "str" "s", Value)
+  , (PatternTm "plus" [PatternPrim "num" "n_1", PatternPrim "num" "n_2"], CallForeign $ \case
     VI x :< VI y :< Empty -> VI (x + y)
-    _ -> error "TODO")
-  , ("times", CallForeign $ \case
+    _ -> error "bad call to plus")
+  , (PatternTm "times" [PatternPrim "num" "n_1", PatternPrim "num" "n_2"], CallForeign $ \case
     VI x :< VI y :< Empty -> VI (x * y)
-    _ -> error "TODO")
-  , ("cat", CallForeign $ \case
+    _ -> error "bad call to times")
+  , (PatternTm "cat" [PatternPrim "str" "s_1", PatternPrim "str" "s_2"], CallForeign $ \case
     VS x :< VS y :< Empty -> VS (x <> y)
-    _ -> error "TODO")
-  , ("len", CallForeign $ \case
+    _ -> error "bad call to cat")
+  , (PatternTm "len" [PatternSort "e"], CallForeign $ \case
     VS x :< Empty -> VI (Text.length x)
-    _ -> error "TODO")
-  , ("let", BindIn 0 1 2)
+    _ -> error "bad call to len")
+  , (PatternTm "let" [PatternSort "e_1", BindingPattern "x" (PatternSort "e_2")],
+    BindIn 0 1 2)
   ]
 
 proceed :: DenotationChart E -> StateStep E -> StateStep E
-proceed (DenotationChart chart) (StateStep stack tm) = case tm of
-  Term name subterms -> case chart ^. at name of
-    Just (CallForeign f) -> case subterms of
+proceed chart (StateStep stack tm) = case tm of
+  Term name subterms -> case findMatch chart tm of
+    Just (_assignment, CallForeign f) -> case subterms of
       tm':tms -> StateStep
         (CbvFrame name Empty tms f : stack)
         tm'
       _ -> Errored "1"
 
-    Just (BindIn nameSlot fromSlot toSlot) -> fromMaybe (Errored "BindIn") $ do
+    Just (_assignment, BindIn nameSlot fromSlot toSlot) -> fromMaybe (Errored "BindIn") $ do
       Var name' <- subterms ^? ix nameSlot
       from'     <- subterms ^? ix fromSlot
       to'       <- subterms ^? ix toSlot
