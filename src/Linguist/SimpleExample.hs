@@ -5,12 +5,12 @@
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
 
-import EasyTest
 import           Control.Lens
 import qualified Data.Map.Strict as Map
 import           Data.Maybe      (fromMaybe)
 import           Data.Text       (Text)
 import qualified Data.Text       as Text
+import           EasyTest
 
 import           Linguist.Types
 
@@ -89,19 +89,19 @@ denotationTests =
       n1 = Return (PrimValue (Left 1))
       n2 = Return (PrimValue (Left 2))
       x = PatternVar "x"
-      y = PatternVar "y"
+      -- y = PatternVar "y"
   in tests
-       [ expectJust $ matches x lenStr
-       , expectJust $ matches (PatternTm "len" [x]) lenStr
-       , expectJust $ findMatch denotation lenStr
-       , expectJust $ findMatch denotation (times n1 n2)
-       , expectJust $ findMatch denotation (Term "plus" [n1, n2])
-       , expectJust $ findMatch denotation tm1
+       [ expectJust $ matches eChart "Exp" x lenStr
+       , expectJust $ matches eChart "Exp" (PatternTm "len" [x]) lenStr
+       , expectJust $ findMatch eChart "Exp" denotation lenStr
+       , expectJust $ findMatch eChart "Exp" denotation (times n1 n2)
+       , expectJust $ findMatch eChart "Exp" denotation (Term "plus" [n1, n2])
+       , expectJust $ findMatch eChart "Exp" denotation tm1
        ]
 
 proceed :: DenotationChart E -> StateStep E -> StateStep E
 proceed chart (StateStep stack tm) = case tm of
-  Term name subterms -> case findMatch chart tm of
+  Term name subterms -> case findMatch eChart "Exp" chart tm of
     Just (_assignment, CallForeign f) -> case subterms of
       tm':tms -> StateStep
         (CbvFrame name Empty tms f : stack)

@@ -1,26 +1,26 @@
-{-# LANGUAGE GADTs             #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE Rank2Types        #-}
-{-# LANGUAGE TypeOperators     #-}
-{-# LANGUAGE ScopedTypeVariables     #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeOperators       #-}
 module Linguist.Types where
 
-import           Data.Maybe (mapMaybe)
 import           Control.Lens
-import           Control.Monad (join)
+import           Control.Monad             (join)
 import           Control.Zipper
 import           Data.List                 (intersperse, mapAccumL)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Sequence             (Seq)
+import           Data.Set                  (Set)
+import qualified Data.Set                  as Set
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
-import Data.Set (Set)
-import qualified Data.Set as Set
+import           Linguist.Util
 
 -- syntax charts
 
@@ -40,8 +40,8 @@ data Operator = Operator
 toPattern :: Operator -> Maybe (Pattern a)
 toPattern (Operator name arity _desc) = case arity of
   Arity' valences -> Just $ PatternTm name $ const PatternAny <$> valences
-  VariableArity x -> Nothing
-  External name   -> Just $ PatternTm name [PatternAny]
+  VariableArity _ -> Nothing
+  External xName  -> Just $ PatternTm xName [PatternAny]
 
 data Arity = Arity
   ![Valence] -- ^ the valences
@@ -122,31 +122,23 @@ data MatchSet a = MatchSet
 makeLenses ''Sort
 makeLenses ''MatchSet
 
-pair :: [a] -> [b] -> Maybe [(a, b)]
-pair [] [] = Just []
-pair (a:as) (b:bs) = ((a, b):) <$> pair as bs
-pair _ _ = Nothing
-
-pairWith :: (a -> b -> c) -> [a] -> [b] -> Maybe [c]
-pairWith _f []     []     = Just []
-pairWith f  (a:as) (b:bs) = (f a b :) <$> pairWith f as bs
-pairWith _ _ _ = Nothing
-
-matches :: Pattern a -> Term a -> Maybe (Subst a)
-matches (PatternVar name) tm = Just $ Map.singleton name tm
-matches (PatternTm name1 subpatterns) (Term name2 subterms) =
+-- TODO: reader
+matches :: SyntaxChart -> Text -> Pattern a -> Term a -> Maybe (Subst a)
+matches _ _ (PatternVar name) tm = Just $ Map.singleton name tm
+matches chart sort (PatternTm name1 subpatterns) (Term name2 subterms) =
   if name1 /= name2
   then Nothing
-  else fmap Map.unions $ join $ fmap sequence $ pairWith matches subpatterns subterms
+  else fmap Map.unions $ join $ fmap sequence $
+    pairWith (matches chart sort) subpatterns subterms
 -- TODO: write context of var names?
-matches (PatternPrimVal _primName1 _varName) (Return (PrimValue _)) = Just Map.empty
-matches (PatternPrimTerm _primName1 _varName) (PrimTerm _) = Just Map.empty
+matches _ _ (PatternPrimVal _primName1 _varName) (Return (PrimValue _)) = Just Map.empty
+matches _ _ (PatternPrimTerm _primName1 _varName) (PrimTerm _) = Just Map.empty
 -- TODO: this piece must know the binding structure from the syntax chart
-matches (BindingPattern lnames subpat) (Binding rnames subtm) =
+matches chart sort (BindingPattern lnames subpat) (Binding rnames subtm) =
   -- XXX also match names
-  matches subpat subtm
-matches PatternAny _ = Just Map.empty
-matches _ _ = Nothing
+  matches chart sort subpat subtm
+matches _ _ PatternAny _ = Just Map.empty
+matches _ _ _ _ = Nothing
 
 patternToMatchSet :: Pattern a -> MatchSet a
 patternToMatchSet = \case
@@ -160,37 +152,39 @@ patternToMatchSet = \case
   -- not sure about this one
   BindingPattern _ pat -> patternToMatchSet pat
 
-emptyMatchSet  :: MatchSet a
-emptyMatchSet    = MatchSet Map.empty Set.empty
+emptyMatchSet :: MatchSet a
+emptyMatchSet = MatchSet Map.empty Set.empty
 
 -- TODO: make partial if we don't find the sort
 -- TODO: why not just CompleteMatchSet?
+-- TODO: reader
 mkCompleteMatchSet :: SyntaxChart -> Text -> MatchSet a
 mkCompleteMatchSet (SyntaxChart syntax) sort =
-  Map.foldlWithKey
-    (\accMS sortName (Sort _vars operators) -> foldl
-      (\ms@(MatchSet tms externals) (Operator opName arity _desc) -> case arity of
-        Arity' valences -> MatchSet
-          (Map.insert opName (const CompleteMatchSet <$> valences) tms)
-          externals
-        VariableArity name -> ms
-        External name -> MatchSet tms (Set.insert name externals)
-      )
-      accMS
-      operators
+  let (Sort _vars operators) = syntax Map.! sort
+  in foldl
+    (\ms@(MatchSet tms externals) (Operator opName arity _desc) -> case arity of
+      Arity' valences -> MatchSet
+        (Map.insert opName (const CompleteMatchSet <$> valences) tms)
+        externals
+      VariableArity name -> ms
+      External name -> MatchSet tms (Set.insert name externals)
     )
     emptyMatchSet
-    syntax
+    operators
 
-minus :: MatchSet a -> MatchSet a -> MatchSet a
-minus (MatchSet ts1 xs1) (MatchSet ts2 xs2) = MatchSet
+-- TODO: reader
+minus :: SyntaxChart -> Text -> MatchSet a -> MatchSet a -> MatchSet a
+minus chart sort (MatchSet ts1 xs1) (MatchSet ts2 xs2) = MatchSet
   -- re unionWith: we expect both sides to have the same keys
-  (Map.unionWith (zipWith minus) ts1 ts2)
+  (Map.unionWith (zipWith (minus chart sort)) ts1 ts2)
   (Set.difference xs1 xs2)
-minus (MatchSet ts1 xs1) CompleteMatchSet = undefined
-minus CompleteMatchSet (MatchSet ts2 xs2) = undefined
-minus CompleteMatchSet CompleteMatchSet = undefined
+minus chart sort ms@(MatchSet _ _) CompleteMatchSet
+  = minus chart sort ms (mkCompleteMatchSet chart sort)
+minus chart sort CompleteMatchSet ms@(MatchSet _ _)
+  = minus chart sort (mkCompleteMatchSet chart sort) ms
+minus _chart _sort CompleteMatchSet CompleteMatchSet = emptyMatchSet
 
+-- TODO: reader
 patternCheck :: forall a. Text -> SyntaxChart -> DenotationChart a -> PatternCheckResult a
 patternCheck sort syntax (DenotationChart chart) =
   let (unmatched, overlaps) = mapAccumL
@@ -203,27 +197,21 @@ patternCheck sort syntax (DenotationChart chart) =
   -- * takes the set of uncovered values
   -- * returns the (set of covered values, set of remaining uncovered values)
   where go :: MatchSet a -> Pattern a -> (MatchSet a, MatchSet a)
+        -- TODO: are these necessary?
         go _unmatched (PatternVar _) = (completeMatchSet, emptyMatchSet)
         go _unmatched PatternAny     = (completeMatchSet, emptyMatchSet)
         go unmatched pat =
           let ms = patternToMatchSet pat
-          in (ms, unmatched `minus` ms)
-        -- go unmatched (PatternTm name subterms)      =
-        -- go unmatched (PatternPrimVal sort name)     =
-        -- go unmatched (PatternPrimTerm sort name)    =
-        -- go unmatched (BindingPattern binds subterm) =
-
-        -- remove the second pattern from the first, returning the set of
-        -- values covered
-        remove :: Pattern a -> Pattern a -> (MatchSet a, [Pattern a])
-        remove = undefined
+              minus' = minus syntax sort
+          in (ms, unmatched `minus'` ms)
 
         completeMatchSet :: MatchSet a
         completeMatchSet = mkCompleteMatchSet syntax sort
 
-findMatch :: DenotationChart a -> Term a -> Maybe (Subst a, Denotation a)
-findMatch (DenotationChart pats) tm = foldr
-  (\(pat, rhs) mat -> case matches pat tm of
+-- TODO: reader
+findMatch :: SyntaxChart -> Text -> DenotationChart a -> Term a -> Maybe (Subst a, Denotation a)
+findMatch chart sort (DenotationChart pats) tm = foldr
+  (\(pat, rhs) mat -> case matches chart sort pat tm of
     Just subst -> Just (subst, rhs)
     Nothing    -> mat)
   Nothing
