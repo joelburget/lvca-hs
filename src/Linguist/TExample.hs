@@ -10,24 +10,23 @@ data T
 tChart :: SyntaxChart
 tChart = SyntaxChart $ Map.fromList
   [ ("Typ", Sort ["t"]
-    [ Operator "nat" (Arity' []) "naturals"
-    , Operator "arr" (Arity' [Valence [] "Typ", Valence [] "Typ"]) "functions"
+    [ Operator "nat" (Arity []) "naturals"
+    , Operator "arr" (Arity [Valence [] "Typ", Valence [] "Typ"]) "functions"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "var" (VariableArity "x") "variable"
-    , Operator "z" (Arity' []) "zero"
-    , Operator "s" (Arity' [Valence [] "Exp"]) "successor"
-    , Operator "rec" (Arity'
+    [ Operator "z" (Arity []) "zero"
+    , Operator "s" (Arity [Valence [] "Exp"]) "successor"
+    , Operator "rec" (Arity
       [ Valence [] "Exp"
       , Valence ["Exp", "Exp"] "Exp"
       , Valence [] "Exp"
       ])
       "recursion"
-    , Operator "lam" (Arity' [Valence [] "Typ", Valence ["Exp"] "Exp"]) "abstraction"
+    , Operator "lam" (Arity [Valence [] "Typ", Valence ["Exp"] "Exp"]) "abstraction"
     -- TODO: how to subscript?
-    -- TODO: rename Arity'
+    -- TODO: rename Arity
     -- TODO: sugar for these definitions
-    , Operator "ap" (Arity' [Valence [] "Exp", Valence [] "Exp"]) "application"
+    , Operator "ap" (Arity [Valence [] "Exp", Valence [] "Exp"]) "application"
     ])
   ]
 

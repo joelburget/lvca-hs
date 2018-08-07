@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -5,7 +6,77 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeOperators       #-}
-module Linguist.Types where
+-----------------------------------------------------------------------------
+-- |
+-- Copyright   :  (C) 2018 Joel Burget
+-- License     :  BSD-style (see the file LICENSE)
+--
+-- Maintainer  :  Joel Burget <joelburget@gmail.com>
+-- Stability   :  experimental
+-- Portability :  portable
+--
+-- Tools for defining the syntax and semantics of languages.
+
+module Linguist.Types
+  ( -- * Syntax charts
+    -- | Syntax definition.
+    SyntaxChart(..)
+  , Sort(..)
+  , Operator(..)
+  , Arity(..)
+  , Valence(..)
+  , exampleArity
+  , sortOperators
+  , sortVariables
+  , matchSetExternals
+  , matchSetTerms
+
+  -- * Denotation charts
+  -- | Denotational semantics definition.
+  , DenotationChart(..)
+  , Pattern(..)
+  , Denotation(..)
+  , Subst
+  , Term(..)
+  , Value(..)
+  , PatternCheckResult(..)
+  , MatchSet(..)
+  , applySubst
+  , toPattern
+  , toPatternTests
+  , matches
+  , patternToMatchSet
+  , emptyMatchSet
+  , mkCompleteMatchSet
+  , minus
+  , patternCheck
+  , findMatch
+  , nameSlot
+  , fromSlot
+  , toSlot
+
+  -- * Judgements
+  , InOut(..)
+  , JudgementForm(..)
+  , OperatorApplication(..)
+  , SaturatedTerm(..)
+  , JudgementClause(..)
+  , JudgementRule(..)
+  , JudgementRules(..)
+  , (@@)
+  , (@@@)
+  , (%%%)
+  , (.--)
+
+  -- * Evaluation
+  , StackFrame(..)
+  , findBinding
+  , StateStep(..)
+  , State
+  , ListZipper
+  , next
+  , prev
+  ) where
 
 import           Control.Lens
 import           Control.Monad             (join)
@@ -21,48 +92,53 @@ import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
 import           Linguist.Util
+import           EasyTest
 
 -- syntax charts
 
 newtype SyntaxChart = SyntaxChart (Map Text Sort)
 
 data Sort = Sort
-  -- !Text       -- ^ name of the sort
   { _sortVariables :: ![Text]     -- ^ set of variables
   , _sortOperators :: ![Operator] -- ^ set of operators
   }
 
 data Operator = Operator
-  !Text      -- ^ operator name
-  !AritySpec -- ^ arity
-  !Text      -- ^ description
+  { _operatorName  :: !Text  -- ^ operator name
+  , _operatorArity :: !Arity -- ^ arity
+  , _operatorDesc  :: !Text  -- ^ description
+  }
 
-toPattern :: Operator -> Maybe (Pattern a)
-toPattern (Operator name arity _desc) = case arity of
-  Arity' valences -> Just $ PatternTm name $ const PatternAny <$> valences
-  VariableArity _ -> Nothing
-  External xName  -> Just $ PatternTm xName [PatternAny]
-
-data Arity = Arity
-  ![Valence] -- ^ the valences
-  !Text      -- ^ the resulting sort
-
-data Valence = Valence
-  ![Text] -- ^ the sorts of all bound variables
-  Text    -- ^ the resulting sort
-
+-- | Arity, eg @(Exp.Exp; Nat)Exp@.
+--
 -- To specify an arity, the resulting sort is unnecessary. We also include
--- variables and externals.
-data AritySpec
-  = Arity'        ![Valence]
-  | VariableArity !Text
-  | External      !Text
+-- externals.
+data Arity
+  = Arity    ![Valence]
+  | External !Text
+
+-- | Valence, eg @Exp.Exp@.
+data Valence = Valence
+  { _valenceSorts  :: ![Text] -- ^ the sorts of all bound variables
+  , _valenceResult :: !Text   -- ^ the resulting sort
+  }
+
+-- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
+exampleArity :: Arity
+exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
 
--- denotation charts
-
+-- | Denotation charts
+--
+-- A denotation chart maps from patterns to their denotation. Patterns are
+-- checked from top to bottom.
+--
+-- We check for completeness and reduncancy using a very similar algorithm to
+-- Haskell's pattern match checks. These could also be compiled efficiently in
+-- a similar way.
 newtype DenotationChart a = DenotationChart [(Pattern a, Denotation a)]
 
+-- | A pattern matches a term
 data Pattern a
   -- | A variable pattern that matches everything, generating a substitution
   = PatternVar  !Text
@@ -71,28 +147,38 @@ data Pattern a
   | PatternTm   !Text ![Pattern a]
 
   | PatternPrimVal
-    !Text -- ^ sort, eg "str"
-    !Text -- ^ name, eg "s_1"
+    { _patternPrimSort :: !Text -- ^ sort, eg "str"
+    , _patternPrimName :: !Text -- ^ name, eg "s_1"
+    }
 
   | PatternPrimTerm
-    !Text -- ^ sort, eg "str"
-    !Text -- ^ name, eg "s_1"
+    { _patternPrimSort :: !Text -- ^ sort, eg "str"
+    , _patternPrimName :: !Text -- ^ name, eg "s_1"
+    }
 
   | BindingPattern ![Text] (Pattern a)
 
+  -- | Matches anything without binding
   | PatternAny
+  deriving Eq
 
 data Denotation a
   = Value
   | CallForeign !(Seq (Value a) -> Value a)
-  | BindIn !Int !Int !Int
+  | BindIn
+    { _nameSlot :: !Text
+    , _fromSlot :: !Text
+    , _toSlot   :: !Text
+    }
 
 type Subst a = Map Text (Term a)
 
+-- | A term, or unevaluated expression
 data Term a
   = Term
-    !Text     -- ^ name of this term
-    ![Term a] -- ^ subterms
+    { _termName :: !Text     -- ^ name of this term
+    , _subterms :: ![Term a] -- ^ subterms
+    }
   | Binding
     ![Text]
     !(Term a)
@@ -101,17 +187,20 @@ data Term a
   | Return !(Value a)
   deriving Show
 
+-- | A value, or evaluated expression
 data Value a
   = NativeValue
-    !Text    -- constructor(?) name
-    ![Value a]
+    { _valueName :: !Text    -- constructor(?) name
+    , _subValues :: ![Value a]
+    }
   | PrimValue !a
   | Thunk !(Term a)
   deriving Show
 
 data PatternCheckResult a = PatternCheckResult
-  !(MatchSet a) -- ^ uncovered patterns
-  ![MatchSet a] -- ^ overlapping patterns
+  { _uncovered   :: !(MatchSet a) -- ^ uncovered patterns
+  , _overlapping :: ![MatchSet a] -- ^ overlapping patterns
+  }
 
 -- TODO: What about different sorts?
 data MatchSet a = MatchSet
@@ -119,8 +208,46 @@ data MatchSet a = MatchSet
   , _matchSetExternals :: !(Set Text)
   } | CompleteMatchSet
 
-makeLenses ''Sort
-makeLenses ''MatchSet
+type instance Index   (Term a) = Int
+type instance IxValue (Term a) = Term a
+instance Ixed (Term a) where
+  ix k f tm = case tm of
+    Term name tms -> Term name <$> ix k f tms
+    _             -> pure tm
+
+type instance Index   (Value a) = Int
+type instance IxValue (Value a) = Value a
+instance Ixed (Value a) where
+  ix k f tm = case tm of
+    NativeValue name tms -> NativeValue name <$> ix k f tms
+    _                    -> pure tm
+
+applySubst :: Subst a -> Term a -> Term a
+applySubst subst tm = case tm of
+  Term name subtms    -> Term name (applySubst subst <$> subtms)
+  Binding names subtm -> Binding names (applySubst subst subtm)
+  _                   -> tm
+
+toPattern :: Operator -> Pattern a
+toPattern (Operator name arity _desc) = PatternTm name $ case arity of
+  Arity valences -> const PatternAny <$> valences
+  External _     -> [PatternAny]
+
+toPatternTests :: Test ()
+toPatternTests = scope "toPattern" $ tests
+  [ expect $
+    toPattern (Operator "num" (Arity []) "numbers")
+    ==
+    PatternTm "num" []
+  , expect $
+    toPattern (Operator "plus"  (Arity [Valence [] "Exp", Valence [] "Exp"]) "addition")
+    ==
+    PatternTm "plus" [PatternAny, PatternAny]
+  , expect $
+    toPattern (Operator "num" (External "nat") "numeral")
+    ==
+    PatternTm "num" [PatternAny]
+  ]
 
 -- TODO: reader
 matches :: SyntaxChart -> Text -> Pattern a -> Term a -> Maybe (Subst a)
@@ -162,11 +289,10 @@ mkCompleteMatchSet :: SyntaxChart -> Text -> MatchSet a
 mkCompleteMatchSet (SyntaxChart syntax) sort =
   let (Sort _vars operators) = syntax Map.! sort
   in foldl
-    (\ms@(MatchSet tms externals) (Operator opName arity _desc) -> case arity of
-      Arity' valences -> MatchSet
+    (\(MatchSet tms externals) (Operator opName arity _desc) -> case arity of
+      Arity valences -> MatchSet
         (Map.insert opName (const CompleteMatchSet <$> valences) tms)
         externals
-      VariableArity name -> ms
       External name -> MatchSet tms (Set.insert name externals)
     )
     emptyMatchSet
@@ -194,8 +320,8 @@ patternCheck sort syntax (DenotationChart chart) =
   in PatternCheckResult unmatched overlaps
 
   -- go
-  -- * takes the set of uncovered values
-  -- * returns the (set of covered values, set of remaining uncovered values)
+  -- . takes the set of uncovered values
+  -- . returns the (set of covered values, set of remaining uncovered values)
   where go :: MatchSet a -> Pattern a -> (MatchSet a, MatchSet a)
         -- TODO: are these necessary?
         go _unmatched (PatternVar _) = (completeMatchSet, emptyMatchSet)
@@ -209,7 +335,8 @@ patternCheck sort syntax (DenotationChart chart) =
         completeMatchSet = mkCompleteMatchSet syntax sort
 
 -- TODO: reader
-findMatch :: SyntaxChart -> Text -> DenotationChart a -> Term a -> Maybe (Subst a, Denotation a)
+findMatch
+  :: SyntaxChart -> Text -> DenotationChart a -> Term a -> Maybe (Subst a, Denotation a)
 findMatch chart sort (DenotationChart pats) tm = foldr
   (\(pat, rhs) mat -> case matches chart sort pat tm of
     Just subst -> Just (subst, rhs)
@@ -222,12 +349,14 @@ findMatch chart sort (DenotationChart pats) tm = foldr
 data InOut = In | Out
 
 data JudgementForm = JudgementForm
-  !Text            -- ^ name of the judgement
-  ![(InOut, Text)] -- ^ mode and sort of all slots
+  { _judgementName  :: !Text            -- ^ name of the judgement
+  , _judgementSlots :: ![(InOut, Text)] -- ^ mode and sort of all slots
+  }
 
 data OperatorApplication = OperatorApplication
-  !Text            -- ^ operator name
-  ![SaturatedTerm] -- applicands
+  { _operatorApName :: !Text            -- ^ operator name
+  , _applicands     :: ![SaturatedTerm] -- applicands
+  }
 
 data SaturatedTerm
   = JVariable Text
@@ -241,8 +370,9 @@ infix 2 @@
 (@@) a b = Op (OperatorApplication a b)
 
 data JudgementClause = JudgementClause
-  !Text            -- ^ head (name of judgement)
-  ![SaturatedTerm] -- ^ applicands
+  { _judgementHead       :: !Text            -- ^ head (name of judgement)
+  , _judgementApplicands :: ![SaturatedTerm] -- ^ applicands
+  }
 
 infix 2 @@@
 (@@@) :: Text -> [SaturatedTerm] -> JudgementClause
@@ -253,8 +383,9 @@ infix 2 %%%
 (%%%) = flip JudgementClause
 
 data JudgementRule = JudgementRule
-  ![JudgementClause] -- ^ assumptions
-  !JudgementClause   -- ^ conclusion
+  { _assumptions :: ![JudgementClause] -- ^ assumptions
+  , _conclusion  :: !JudgementClause   -- ^ conclusion
+  }
 
 infix 0 .--
 (.--) :: [JudgementClause] -> JudgementClause -> JudgementRule
@@ -298,19 +429,18 @@ instance Pretty Operator where
   pretty (Operator name arity _desc)
     = hsep [pretty name <> ":", pretty arity]
 
-instance Pretty Arity where
-  pretty (Arity valences result) =
-    let valences' = if null valences
-          then mempty
-          else parens (hsep (punctuate comma (pretty <$> valences)))
-    in valences' <> pretty result
+-- instance Pretty Arity where
+--   pretty (Arity valences result) =
+--     let valences' = if null valences
+--           then mempty
+--           else parens (hsep (punctuate comma (pretty <$> valences)))
+--     in valences' <> pretty result
 
-instance Pretty AritySpec where
-  pretty (Arity' valences) =
+instance Pretty Arity where
+  pretty (Arity valences) =
     if null valences
     then mempty
     else parens (hsep (punctuate comma (pretty <$> valences)))
-  pretty (VariableArity name) = pretty name
   pretty (External name) = pretty name
 
 instance Pretty Valence where
@@ -326,10 +456,11 @@ instance Pretty Valence where
 
 data StackFrame a
   = CbvFrame
-    !Text                    -- ^ name of this term
-    !(Seq (Value a))         -- ^ values before
-    ![Term a]                -- ^ subterms after
-    !(Seq (Value a) -> Value a)  -- ^ what to do after
+    { _frameName  :: !Text                    -- ^ name of this term
+    , _frameVals  :: !(Seq (Value a))         -- ^ values before
+    , _frameTerms :: ![Term a]                -- ^ subterms after
+    , _frameK     :: !(Seq (Value a) -> Value a)  -- ^ what to do after
+    }
   | BindingFrame
     !(Map Text (Either (Term a) (Value a)))
 
@@ -342,8 +473,9 @@ findBinding (BindingFrame bindings : stack) name
 findBinding (_ : stack) name = findBinding stack name
 
 data StateStep a = StateStep
-  ![StackFrame a]
-  !(Term a) -- ^ Either descending into term or ascending with value
+  { _stepFrames ::  ![StackFrame a]
+  , _stepFocus  :: !(Term a) -- ^ Either descending into term or ascending with value
+  }
 
   | Errored !Text
   | Done !(Value a)
@@ -363,3 +495,12 @@ prev :: State -> State
 prev state = case state & leftward of
   Just state' -> state'
   Nothing     -> state
+
+
+makeLenses ''Sort
+makeLenses ''Pattern
+makeLenses ''Denotation
+makeLenses ''Term
+makeLenses ''Value
+makeLenses ''PatternCheckResult
+makeLenses ''MatchSet

@@ -20,24 +20,23 @@ eChart :: SyntaxChart
 eChart = SyntaxChart $ Map.fromList
   [ ("Typ", Sort ["t"]
     -- TODO: is this the correct arity (sort)?
-    [ Operator "num" (Arity' []) "numbers"
-    , Operator "str" (Arity' []) "strings"
+    [ Operator "num" (Arity []) "numbers"
+    , Operator "str" (Arity []) "strings"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "var"   (VariableArity "x") "variable"
-    , Operator "num"   (External "nat") "numeral"
+    [ Operator "num"   (External "nat") "numeral"
     , Operator "str"   (External "str") "literal"
-    , Operator "plus"  (Arity' [Valence [] "Exp", Valence [] "Exp"]) "addition"
-    , Operator "times" (Arity' [Valence [] "Exp", Valence [] "Exp"]) "multiplication"
-    , Operator "cat"   (Arity' [Valence [] "Exp", Valence [] "Exp"]) "concatenation"
-    , Operator "len"   (Arity' [Valence [] "Exp"]) "length"
+    , Operator "plus"  (Arity [Valence [] "Exp", Valence [] "Exp"]) "addition"
+    , Operator "times" (Arity [Valence [] "Exp", Valence [] "Exp"]) "multiplication"
+    , Operator "cat"   (Arity [Valence [] "Exp", Valence [] "Exp"]) "concatenation"
+    , Operator "len"   (Arity [Valence [] "Exp"]) "length"
     -- TODO:
-    -- * the book specifies this arity as
+    -- . the book specifies this arity as
     --   - `let(e1;x.e2)`
     --   - `(Exp, Exp.Exp)Exp`
-    -- * is it known that the `x` binds `e1`?
-    -- * where is `x` specified?
-    , Operator "let"   (Arity' [Valence [] "Exp", Valence ["Exp"] "Exp"]) "definition"
+    -- . is it known that the `x` binds `e1`?
+    -- . where is `x` specified?
+    , Operator "let"   (Arity [Valence [] "Exp", Valence ["Exp"] "Exp"]) "definition"
     ])
   ]
 
@@ -79,7 +78,7 @@ denotation = DenotationChart
     VS x :< Empty -> VI (Text.length x)
     _ -> error "bad call to len")
   , (PatternTm "let" [PatternVar "e_1", BindingPattern ["x"] (PatternVar "e_2")],
-    BindIn 0 1 2)
+    BindIn "x" "e_1" "e_2")
   ]
 
 denotationTests :: Test ()
@@ -97,6 +96,9 @@ denotationTests =
        , expectJust $ findMatch eChart "Exp" denotation (times n1 n2)
        , expectJust $ findMatch eChart "Exp" denotation (Term "plus" [n1, n2])
        , expectJust $ findMatch eChart "Exp" denotation tm1
+       -- , let Just (subst, _) = findMatch eChart "Exp" denotation tm1
+       --       result = applySubst subst tm1
+       -- , expect $ result == tm1 & ix 0 .~
        ]
 
 proceed :: DenotationChart E -> StateStep E -> StateStep E
@@ -108,10 +110,10 @@ proceed chart (StateStep stack tm) = case tm of
         tm'
       _ -> Errored "1"
 
-    Just (_assignment, BindIn nameSlot fromSlot toSlot) -> fromMaybe (Errored "BindIn") $ do
-      Var name' <- subterms ^? ix nameSlot
-      from'     <- subterms ^? ix fromSlot
-      to'       <- subterms ^? ix toSlot
+    Just (_assignment, BindIn _ _ _) -> fromMaybe (Errored "BindIn") $ do
+      Var name' <- subterms ^? ix undefined -- (_ nameSlot)
+      from'     <- subterms ^? ix undefined -- (_ fromSlot)
+      to'       <- subterms ^? ix undefined -- (_ toSlot)
       let frame = BindingFrame $ Map.singleton name' (Left from')
       Just $ StateStep (frame : stack) to'
     Just _ -> Errored "3"
