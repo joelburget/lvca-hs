@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
 
+import EasyTest
 import           Control.Lens
 import qualified Data.Map.Strict as Map
 import           Data.Maybe      (fromMaybe)
@@ -23,31 +24,31 @@ eChart = SyntaxChart $ Map.fromList
     , Operator "str" (Arity' []) "strings"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "var" (VariableArity "x") "variable"
-    , Operator "num" (External "nat") "numeral"
-    , Operator "str" (External "str") "literal"
-    , Operator "plus" (Arity' [Valence [] "Exp", Valence [] "Exp"]) "addition"
+    [ Operator "var"   (VariableArity "x") "variable"
+    , Operator "num"   (External "nat") "numeral"
+    , Operator "str"   (External "str") "literal"
+    , Operator "plus"  (Arity' [Valence [] "Exp", Valence [] "Exp"]) "addition"
     , Operator "times" (Arity' [Valence [] "Exp", Valence [] "Exp"]) "multiplication"
-    , Operator "cat" (Arity' [Valence [] "Exp", Valence [] "Exp"]) "concatenation"
-    , Operator "len" (Arity' [Valence [] "Exp"]) "length"
+    , Operator "cat"   (Arity' [Valence [] "Exp", Valence [] "Exp"]) "concatenation"
+    , Operator "len"   (Arity' [Valence [] "Exp"]) "length"
     -- TODO:
     -- * the book specifies this arity as
     --   - `let(e1;x.e2)`
     --   - `(Exp, Exp.Exp)Exp`
     -- * is it known that the `x` binds `e1`?
     -- * where is `x` specified?
-    , Operator "let" (Arity' [Valence [] "Exp", Valence ["Exp"] "Exp"]) "definition"
+    , Operator "let"   (Arity' [Valence [] "Exp", Valence ["Exp"] "Exp"]) "definition"
     ])
   ]
 
 tm1, tm2 :: Term E
 tm1 = Term "let"
-  [ Var "x"
-  , PrimTerm (Left 1)
-  , Term "plus"
-    [ Var "x"
-    , PrimTerm (Left 2)
-    ]
+  [ PrimTerm (Left 1)
+  , Binding ["x"]
+    (Term "plus"
+      [ Var "x"
+      , PrimTerm (Left 2)
+      ])
   ]
 tm2 = Term "cat"
   [ PrimTerm (Right "foo")
@@ -62,24 +63,41 @@ pattern VS x = PrimValue (Right x)
 
 denotation :: DenotationChart E
 denotation = DenotationChart
-  [ (PatternVar "x", Variable "x")
-  , (PatternPrim "num" "n", Value)
-  , (PatternPrim "str" "s", Value)
-  , (PatternTm "plus" [PatternPrim "num" "n_1", PatternPrim "num" "n_2"], CallForeign $ \case
+  -- [ (PatternVar "x", Variable "x")
+  [ (PatternPrimVal "num" "n", Value)
+  , (PatternPrimVal "str" "s", Value)
+  , (PatternTm "plus" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"], CallForeign $ \case
     VI x :< VI y :< Empty -> VI (x + y)
     _ -> error "bad call to plus")
-  , (PatternTm "times" [PatternPrim "num" "n_1", PatternPrim "num" "n_2"], CallForeign $ \case
+  , (PatternTm "times" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"], CallForeign $ \case
     VI x :< VI y :< Empty -> VI (x * y)
     _ -> error "bad call to times")
-  , (PatternTm "cat" [PatternPrim "str" "s_1", PatternPrim "str" "s_2"], CallForeign $ \case
+  , (PatternTm "cat" [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"], CallForeign $ \case
     VS x :< VS y :< Empty -> VS (x <> y)
     _ -> error "bad call to cat")
-  , (PatternTm "len" [PatternSort "e"], CallForeign $ \case
+  , (PatternTm "len" [PatternVar "e"], CallForeign $ \case
     VS x :< Empty -> VI (Text.length x)
     _ -> error "bad call to len")
-  , (PatternTm "let" [PatternSort "e_1", BindingPattern "x" (PatternSort "e_2")],
+  , (PatternTm "let" [PatternVar "e_1", BindingPattern ["x"] (PatternVar "e_2")],
     BindIn 0 1 2)
   ]
+
+denotationTests :: Test ()
+denotationTests =
+  let lenStr = Term "len" [ Return (PrimValue (Right "str")) ]
+      times v1 v2 = Term "times" [v1, v2]
+      n1 = Return (PrimValue (Left 1))
+      n2 = Return (PrimValue (Left 2))
+      x = PatternVar "x"
+      y = PatternVar "y"
+  in tests
+       [ expectJust $ matches x lenStr
+       , expectJust $ matches (PatternTm "len" [x]) lenStr
+       , expectJust $ findMatch denotation lenStr
+       , expectJust $ findMatch denotation (times n1 n2)
+       , expectJust $ findMatch denotation (Term "plus" [n1, n2])
+       , expectJust $ findMatch denotation tm1
+       ]
 
 proceed :: DenotationChart E -> StateStep E -> StateStep E
 proceed chart (StateStep stack tm) = case tm of

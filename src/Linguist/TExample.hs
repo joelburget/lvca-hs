@@ -41,9 +41,9 @@ lamapp = Term "ap" [lam, sz]
 
 denotation :: DenotationChart T
 denotation = DenotationChart
-  [ (PatternVar "x", Variable "x")
-  , (PatternVar "z", Value)
-  , (PatternVar "s", Value) -- TODO: how to say "value if child is value"
+  -- [ (PatternVar "x", Variable "x")
+  [ (PatternTm "z" [], Value)
+  , (PatternTm "s" [PatternVar "x"], Value) -- TODO: how to say "value if child is value"
   -- , ("rec", )
   -- , ("lam", )
   -- , ("app", )
