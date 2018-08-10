@@ -96,8 +96,28 @@ import           EasyTest
 
 -- syntax charts
 
+-- | A syntax chart defines the abstract syntax of a language, specified by a
+-- collection of operators and their arities. The abstract syntax provides a
+-- systematic, unambiguous account of the hierarchical and binding structure of
+-- the language.
+--
+-- @
+-- Typ t ::= num                numbers
+--           str                strings
+--
+-- Exp e ::= num[n]             numeral
+--           str[s]             literal
+--           plus(Exp; Exp)     addition
+--           times(Exp; Exp)    multiplication
+--           cat(Exp; Exp)      concatenation
+--           len(Exp)           length
+--           let(Exp; Exp.Exp)  definition
+-- @
 newtype SyntaxChart = SyntaxChart (Map Text Sort)
 
+-- | Sorts divide ASTs into syntactic categories. For example, programming
+-- languages often have a syntactic distinction between expressions and
+-- commands.
 data Sort = Sort
   { _sortVariables :: ![Text]     -- ^ set of variables
   , _sortOperators :: ![Operator] -- ^ set of operators
@@ -109,7 +129,10 @@ data Operator = Operator
   , _operatorDesc  :: !Text  -- ^ description
   }
 
--- | Arity, eg @(Exp.Exp; Nat)Exp@.
+-- | An /arity/ specifies the sort of an operator and the number and valences
+-- of its arguments.
+--
+-- eg @(Exp.Exp; Nat)Exp@.
 --
 -- To specify an arity, the resulting sort is unnecessary. We also include
 -- externals.
@@ -117,7 +140,10 @@ data Arity
   = Arity    ![Valence]
   | External !Text
 
--- | Valence, eg @Exp.Exp@.
+-- | A /valence/ specifies the sort of an argument as well as the number and
+-- sorts of the variables bound within it.
+--
+-- eg @Exp.Exp@.
 data Valence = Valence
   { _valenceSorts  :: ![Text] -- ^ the sorts of all bound variables
   , _valenceResult :: !Text   -- ^ the resulting sort
@@ -146,11 +172,13 @@ data Pattern a
   -- | Matches the head of a term and any subpatterns
   | PatternTm   !Text ![Pattern a]
 
+  -- | Matches 'PrimValue'
   | PatternPrimVal
     { _patternPrimSort :: !Text -- ^ sort, eg "str"
     , _patternPrimName :: !Text -- ^ name, eg "s_1"
     }
 
+  -- | Matches 'PrimTerm'
   | PatternPrimTerm
     { _patternPrimSort :: !Text -- ^ sort, eg "str"
     , _patternPrimName :: !Text -- ^ name, eg "s_1"
