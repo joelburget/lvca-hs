@@ -42,7 +42,7 @@ denotation :: DenotationChart T
 denotation = DenotationChart
   -- [ (PatternVar "x", Variable "x")
   [ (PatternTm "z" [], Value)
-  , (PatternTm "s" [PatternVar "x"], Value) -- TODO: how to say "value if child is value"
+  , (PatternTm "s" [PatternVar (Just "x")], Value) -- TODO: how to say "value if child is value"
   -- , ("rec", )
   -- , ("lam", )
   -- , ("app", )

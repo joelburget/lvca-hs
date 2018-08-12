@@ -14,7 +14,12 @@ cabal-version:       >=1.10
 
 executable linguist
   main-is:             Main.hs
-  other-modules: Linguist.Brick, Linguist.SimpleExample, Linguist.Types, Linguist.TExample
+  other-modules:
+    Linguist.Brick,
+    Linguist.SimpleExample,
+    Linguist.Types,
+    Linguist.TExample,
+    Linguist.Util
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12, containers, text, prettyprinter, brick, vty, zippers, lens, easytest
   hs-source-dirs:      src

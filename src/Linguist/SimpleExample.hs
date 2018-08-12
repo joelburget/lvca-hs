@@ -16,42 +16,18 @@ import           Linguist.Types
 
 type E = Either Int Text
 
-eChart :: SyntaxChart
-eChart = SyntaxChart $ Map.fromList
-  [ ("Typ", Sort ["t"]
-    -- TODO: is this the correct arity (sort)?
-    [ Operator "num" (Arity []) "numbers"
-    , Operator "str" (Arity []) "strings"
-    ])
-  , ("Exp", Sort ["e"]
-    [ Operator "num"   (External "nat") "numeral"
-    , Operator "str"   (External "str") "literal"
-    , Operator "plus"  (Arity [Valence [] "Exp", Valence [] "Exp"]) "addition"
-    , Operator "times" (Arity [Valence [] "Exp", Valence [] "Exp"]) "multiplication"
-    , Operator "cat"   (Arity [Valence [] "Exp", Valence [] "Exp"]) "concatenation"
-    , Operator "len"   (Arity [Valence [] "Exp"]) "length"
-    -- TODO:
-    -- . the book specifies this arity as
-    --   - `let(e1;x.e2)`
-    --   - `(Exp, Exp.Exp)Exp`
-    -- . is it known that the `x` binds `e1`?
-    -- . where is `x` specified?
-    , Operator "let"   (Arity [Valence [] "Exp", Valence ["Exp"] "Exp"]) "definition"
-    ])
-  ]
-
 tm1, tm2 :: Term E
 tm1 = Term "let"
-  [ PrimTerm (Left 1)
+  [ Return (PrimValue (Left 1))
   , Binding ["x"]
     (Term "plus"
       [ Var "x"
-      , PrimTerm (Left 2)
+      , Return (PrimValue (Left 2))
       ])
   ]
 tm2 = Term "cat"
-  [ PrimTerm (Right "foo")
-  , PrimTerm (Right "bar")
+  [ Return (PrimValue (Right "foo"))
+  , Return (PrimValue (Right "bar"))
   ]
 
 pattern VI :: Int -> Value E
@@ -62,33 +38,40 @@ pattern VS x = PrimValue (Right x)
 
 denotation :: DenotationChart E
 denotation = DenotationChart
-  -- [ (PatternVar "x", Variable "x")
+  -- [ (PatternVar (Just "x",) Variable "x")
   [ (PatternPrimVal "num" "n", Value)
   , (PatternPrimVal "str" "s", Value)
-  , (PatternTm "plus" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"], CallForeign $ \case
-    VI x :< VI y :< Empty -> VI (x + y)
-    _ -> error "bad call to plus")
-  , (PatternTm "times" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"], CallForeign $ \case
-    VI x :< VI y :< Empty -> VI (x * y)
-    _ -> error "bad call to times")
-  , (PatternTm "cat" [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"], CallForeign $ \case
-    VS x :< VS y :< Empty -> VS (x <> y)
-    _ -> error "bad call to cat")
-  , (PatternTm "len" [PatternVar "e"], CallForeign $ \case
-    VS x :< Empty -> VI (Text.length x)
-    _ -> error "bad call to len")
-  , (PatternTm "let" [PatternVar "e_1", BindingPattern ["x"] (PatternVar "e_2")],
+  , (PatternTm "plus" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
+    CallForeign $ \case
+      VI x :< VI y :< Empty -> VI (x + y)
+      _ -> error "bad call to plus")
+  , (PatternTm "times" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
+    CallForeign $ \case
+      VI x :< VI y :< Empty -> VI (x * y)
+      _ -> error "bad call to times")
+  , (PatternTm "cat" [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"],
+    CallForeign $ \case
+      VS x :< VS y :< Empty -> VS (x <> y)
+      _ -> error "bad call to cat")
+  , (PatternTm "len" [PatternVar (Just "e")],
+    CallForeign $ \case
+      VS x :< Empty -> VI (Text.length x)
+      _ -> error "bad call to len")
+  , (PatternTm "let"
+    [PatternVar (Just "e_1"), BindingPattern ["x"] (PatternVar (Just "e_2"))],
     BindIn "x" "e_1" "e_2")
   ]
 
 denotationTests :: Test ()
 denotationTests =
-  let lenStr = Term "len" [ Return (PrimValue (Right "str")) ]
+  let
+      n1, n2, lenStr :: Term E
+      lenStr = Term "len" [ Return (PrimValue (Right "str")) ]
       times v1 v2 = Term "times" [v1, v2]
       n1 = Return (PrimValue (Left 1))
       n2 = Return (PrimValue (Left 2))
-      x = PatternVar "x"
-      -- y = PatternVar "y"
+      x = PatternVar (Just "x")
+      -- y = PatternVar (Just "y")
   in tests
        [ expectJust $ matches eChart "Exp" x lenStr
        , expectJust $ matches eChart "Exp" (PatternTm "len" [x]) lenStr
@@ -96,9 +79,15 @@ denotationTests =
        , expectJust $ findMatch eChart "Exp" denotation (times n1 n2)
        , expectJust $ findMatch eChart "Exp" denotation (Term "plus" [n1, n2])
        , expectJust $ findMatch eChart "Exp" denotation tm1
+
        -- , let Just (subst, _) = findMatch eChart "Exp" denotation tm1
        --       result = applySubst subst tm1
        -- , expect $ result == tm1 & ix 0 .~
+
+       , expectJust $
+         let pat = PatternTm "cat"
+               [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"]
+         in matches eChart "Exp" pat tm2
        ]
 
 proceed :: DenotationChart E -> StateStep E -> StateStep E
