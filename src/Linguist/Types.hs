@@ -302,7 +302,7 @@ toPatternTests = scope "toPattern" $ tests
   ]
 
 -- TODO: reader
-matches :: Show a => SyntaxChart -> Text -> Pattern -> Term a -> Maybe (Subst a)
+matches :: SyntaxChart -> Text -> Pattern -> Term a -> Maybe (Subst a)
 matches _ _ (PatternVar (Just name)) tm = Just $ Map.singleton name tm
 matches _ _ (PatternVar Nothing)     _  = Just $ Map.empty
 matches chart sort (PatternTm name1 subpatterns) (Term name2 subterms) = do
@@ -311,15 +311,17 @@ matches chart sort (PatternTm name1 subpatterns) (Term name2 subterms) = do
   else fmap Map.unions $ join $ fmap sequence $
     pairWith (matches chart sort) subpatterns subterms
 -- TODO: write context of var names?
-matches _ _ (PatternPrimVal _primName1 _varName) (Return (PrimValue _)) = Just Map.empty
-matches _ _ (PatternPrimTerm _primName1 _varName) (PrimTerm _) = Just Map.empty
+matches _ _ (PatternPrimVal _primName1 _varName) (Return (PrimValue _))
+  = Just Map.empty
+matches _ _ (PatternPrimTerm _primName1 _varName) (PrimTerm _)
+  = Just Map.empty
 -- TODO: this piece must know the binding structure from the syntax chart
-matches chart sort (BindingPattern lnames subpat) (Binding rnames subtm) =
+matches chart sort (BindingPattern lnames subpat) (Binding rnames subtm)
   -- XXX also match names
-  matches chart sort subpat subtm
+  = matches chart sort subpat subtm
 matches _ _ PatternAny _ = Just Map.empty
-matches chart sort (PatternUnion pats) tm =
-  getFirst $ fold $ First . (\p -> matches chart sort p tm) <$> pats
+matches chart sort (PatternUnion pats) tm
+  = getFirst $ fold $ First . (\p -> matches chart sort p tm) <$> pats
 matches _ _ _ _ = Nothing
 
 matchesTests :: Test ()
@@ -502,7 +504,7 @@ patternCheck sort syntax (DenotationChart chart) =
 
 -- TODO: reader
 findMatch
-  :: Show a => SyntaxChart
+  :: SyntaxChart
   -> Text
   -> DenotationChart a
   -> Term a
