@@ -626,10 +626,10 @@ instance Pretty Valence where
 
 data StackFrame a
   = CbvFrame
-    { _frameName  :: !Text                    -- ^ name of this term
-    , _frameVals  :: !(Seq (Value a))         -- ^ values before
-    , _frameTerms :: ![Term a]                -- ^ subterms after
-    , _frameK     :: !(Seq (Value a) -> Value a)  -- ^ what to do after
+    { _frameName  :: !Text                       -- ^ name of this term
+    , _frameVals  :: !(Seq (Value a))            -- ^ values before
+    , _frameTerms :: ![Term a]                   -- ^ subterms after
+    , _frameK     :: !(Seq (Value a) -> Value a) -- ^ what to do after
     }
   | BindingFrame
     !(Map Text (Either (Term a) (Value a)))

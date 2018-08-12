@@ -29,7 +29,7 @@ natJudgements = JudgementRules
 main :: IO ()
 main = do
   _ <- defaultMain app $
-    let steps = iterate (proceed denotation) $ StateStep [] tm2
+    let steps = iterate (proceed denotation) $ StateStep [] tm1
     in zipper steps & fromWithin traverse
   pure ()
 

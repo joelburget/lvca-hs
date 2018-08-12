@@ -99,11 +99,12 @@ proceed chart (StateStep stack tm) = case tm of
         tm'
       _ -> Errored "1"
 
-    Just (_assignment, BindIn _ _ _) -> fromMaybe (Errored "BindIn") $ do
-      Var name' <- subterms ^? ix undefined -- (_ nameSlot)
-      from'     <- subterms ^? ix undefined -- (_ fromSlot)
-      to'       <- subterms ^? ix undefined -- (_ toSlot)
-      let frame = BindingFrame $ Map.singleton name' (Left from')
+    Just (assignment, BindIn name from to) -> fromMaybe (Errored "BindIn") $ do
+      -- XXX we should get this from the substitution
+      -- Var name' <- subterms ^? ix (_ name) -- 1.0
+      from'     <- assignment ^? ix from
+      to'       <- assignment ^? ix to
+      let frame = BindingFrame $ Map.singleton name (Left from')
       Just $ StateStep (frame : stack) to'
     Just _ -> Errored "3"
     Nothing -> Errored "4"

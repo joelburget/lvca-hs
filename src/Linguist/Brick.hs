@@ -11,6 +11,7 @@ import           Control.Zipper
 import           Data.Foldable              (toList)
 import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
+import qualified Data.Text                  as T
 import qualified Graphics.Vty               as V
 
 import           Linguist.SimpleExample     (E)
@@ -93,6 +94,10 @@ drawTm = \case
     txt name
     <=>
     padLeft (Pad 2) (vBox (fmap drawTm subterms))
+  Binding names subterm ->
+    txt ("[" <> T.unwords names <> "]")
+    <=>
+    padLeft (Pad 2) (drawTm subterm)
   Var name    -> txt name
   PrimTerm a -> str (either show show a)
   Return val -> str "<" <+> drawVal val <+> str ">"
