@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections               #-}
 {-# LANGUAGE PatternSynonyms               #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE GADTs               #-}
@@ -63,6 +64,7 @@ module Linguist.Types
   , applySubst
   , toPattern
   , matches
+  , runMatches
   , minus
   , patternCheck
   , findMatch
@@ -99,10 +101,11 @@ module Linguist.Types
   ) where
 
 import           Control.Lens              hiding (op)
-import           Control.Monad             (join)
+import           Control.Monad.Morph
+import           Control.Monad.Reader
 import           Control.Zipper
-import           Data.Foldable             (fold, foldl')
-import           Data.List                 (intersperse, mapAccumL)
+import           Data.Foldable             (fold, foldlM)
+import           Data.List                 (intersperse)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First(First, getFirst))
@@ -301,37 +304,50 @@ toPatternTests = scope "toPattern" $ tests
     PatternTm "num" [PatternAny]
   ]
 
--- TODO: reader
-matches :: SyntaxChart -> Text -> Pattern -> Term a -> Maybe (Subst a)
-matches _ _ (PatternVar (Just name)) tm = Just $ Map.singleton name tm
-matches _ _ (PatternVar Nothing)     _  = Just $ Map.empty
-matches chart sort (PatternTm name1 subpatterns) (Term name2 subterms) = do
+data MatchesEnv = MatchesEnv
+  { _envChart :: !SyntaxChart
+  , _envSort  :: !Text
+  }
+
+matches :: Pattern -> Term a -> ReaderT MatchesEnv Maybe (Subst a)
+matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
+matches (PatternVar Nothing)     _  = pure $ Map.empty
+
+-- matches _ _ pat (Var
+
+matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   if name1 /= name2
-  then Nothing
-  else fmap Map.unions $ join $ fmap sequence $
-    pairWith (matches chart sort) subpatterns subterms
+  then lift Nothing
+  else do
+    MatchesEnv chart sort <- ask
+    mMatches <- sequence $ fmap sequence $ pairWith matches subpatterns subterms
+    Map.unions <$> lift mMatches
 -- TODO: write context of var names?
-matches _ _ (PatternPrimVal _primName1 _varName) (Return (PrimValue _))
-  = Just Map.empty
-matches _ _ (PatternPrimTerm _primName1 _varName) (PrimTerm _)
-  = Just Map.empty
+matches (PatternPrimVal _primName1 _varName) (Return (PrimValue _))
+  = pure Map.empty
+matches (PatternPrimTerm _primName1 _varName) (PrimTerm _)
+  = pure Map.empty
 -- TODO: this piece must know the binding structure from the syntax chart
-matches chart sort (BindingPattern lnames subpat) (Binding rnames subtm)
+matches (BindingPattern lnames subpat) (Binding rnames subtm)
   -- XXX also match names
-  = matches chart sort subpat subtm
-matches _ _ PatternAny _ = Just Map.empty
-matches chart sort (PatternUnion pats) tm
-  = getFirst $ fold $ First . (\p -> matches chart sort p tm) <$> pats
-matches _ _ _ _ = Nothing
+  = matches subpat subtm
+matches PatternAny _ = pure Map.empty
+matches (PatternUnion pats) tm = do
+  subMatches <- traverse (fmap Just . (`matches` tm)) pats
+  lift $ getFirst $ fold $ fmap First subMatches
+matches _ _ = lift Nothing
+
+runMatches :: SyntaxChart -> Text -> ReaderT MatchesEnv Maybe a -> Maybe a
+runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
 matchesTests :: Test ()
 matchesTests = scope "matches" $
   let foo :: Term ()
       foo = Term "foo" []
   in tests
-       [ expectJust $ matches undefined undefined (PatternVar (Just "x")) foo
-       , expectJust $ matches undefined undefined PatternAny foo
-       , expectJust $ matches undefined undefined
+       [ expectJust $ runMatches undefined undefined $ matches (PatternVar (Just "x")) foo
+       , expectJust $ runMatches undefined undefined $ matches PatternAny foo
+       , expectJust $ runMatches undefined undefined $ matches
          (PatternUnion [PatternAny, undefined]) foo
        ]
 
@@ -364,32 +380,36 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
--- TODO: make partial if we don't find the sort
--- TODO: reader
-mkCompletePattern :: SyntaxChart -> Text -> Pattern
-mkCompletePattern (SyntaxChart syntax) sort =
-  let (Sort _vars operators) = syntax Map.! sort
+getSort :: ReaderT MatchesEnv Maybe Sort
+getSort = do
+  MatchesEnv (SyntaxChart syntax) sort <- ask
+  lift $ syntax ^? ix sort
 
-      mkPat (Operator opName arity _desc) = case arity of
+completePattern :: ReaderT MatchesEnv Maybe Pattern
+completePattern = do
+  MatchesEnv _ sort    <- ask
+  Sort _vars operators <- getSort
+
+  let mkPat (Operator opName arity _desc) = case arity of
         Arity valences -> PatternTm opName (const PatternAny <$> valences)
         -- TODO: PatternPrimTerm?
         External name -> PatternPrimVal sort name
 
-  in PatternUnion $ foldr
+  pure $ PatternUnion $ foldr
     (\op pats -> mkPat op : pats)
     []
     operators
 
 mkCompletePatternTests :: Test ()
-mkCompletePatternTests = scope "mkCompletePattern" $ tests
+mkCompletePatternTests = scope "completePattern" $ tests
   [ expect $
-      mkCompletePattern eChart "Typ"
+      runMatches eChart "Typ" completePattern
       ==
-      PatternUnion [PatternTm "num" [], PatternTm "str" []]
+      Just (PatternUnion [PatternTm "num" [], PatternTm "str" []])
   , expect $
-      mkCompletePattern eChart "Exp"
+      runMatches eChart "Exp" completePattern
       ==
-      PatternUnion
+      Just (PatternUnion
         [ PatternPrimVal "Exp" "nat"
         , PatternPrimVal "Exp" "str"
         , PatternTm "plus"  [PatternAny, PatternAny]
@@ -397,55 +417,53 @@ mkCompletePatternTests = scope "mkCompletePattern" $ tests
         , PatternTm "cat"   [PatternAny, PatternAny]
         , PatternTm "len"   [PatternAny]
         , PatternTm "let"   [PatternAny, PatternAny]
-        ]
+        ])
   ]
 
--- TODO: reader
-minus :: SyntaxChart -> Text -> Pattern -> Pattern -> Pattern
-minus _ _ _ (PatternVar _) = PatternEmpty
-minus chart sort (PatternVar _) x =
-  minus chart sort (mkCompletePattern chart sort) x
+minus :: Pattern -> Pattern -> ReaderT MatchesEnv Maybe Pattern
+minus _ (PatternVar _) = pure PatternEmpty
+minus (PatternVar _) x = do
+  pat <- completePattern
+  minus pat x
 
-minus chart sort x@(PatternTm hd subpats) (PatternTm hd' subpats') =
+minus x@(PatternTm hd subpats) (PatternTm hd' subpats') =
   if hd == hd'
-  then
-    let subpats'' = zipWith (minus chart sort) subpats subpats'
-    in if all (== PatternEmpty) subpats''
+  then do
+    subpats'' <- sequence $ zipWith minus subpats subpats'
+    pure $ if all (== PatternEmpty) subpats''
        then PatternEmpty
        else PatternTm hd subpats''
-  else x
+  else pure x
 
-minus chart sort (PatternUnion pats) x = PatternUnion $
-  fmap (\y -> minus chart sort y x) pats
+minus (PatternUnion pats) x = PatternUnion <$> traverse (`minus` x) pats
 
-minus chart sort pat (PatternUnion pats) = foldl'
-  -- remove each pattern from pat one at a time
-  (minus chart sort) pat pats
+-- remove each pattern from pat one at a time
+minus pat (PatternUnion pats) = foldlM minus pat pats
 
-minus _ _ x@(PatternPrimVal sort1 _) (PatternPrimVal sort2 _) =
+minus x@(PatternPrimVal sort1 _) (PatternPrimVal sort2 _) = pure $
   if sort1 == sort2 then PatternEmpty else x
 
-minus _ _ x@(PatternPrimTerm sort1 _) (PatternPrimTerm sort2 _) =
+minus x@(PatternPrimTerm sort1 _) (PatternPrimTerm sort2 _) = pure $
   if sort1 == sort2 then PatternEmpty else x
 
-minus _ _ BindingPattern{} BindingPattern{} = error "TODO"
+minus BindingPattern{} BindingPattern{} = error "TODO"
 
 -- these all should return Nothing
-minus _ _ PatternTm{} PatternPrimVal{}       = error "illegal"
-minus _ _ PatternTm{} PatternPrimTerm{}      = error "illegal"
-minus _ _ PatternTm{} BindingPattern{}       = error "illegal"
+minus PatternTm{} PatternPrimVal{}       = error "illegal"
+minus PatternTm{} PatternPrimTerm{}      = error "illegal"
+minus PatternTm{} BindingPattern{}       = error "illegal"
 
-minus _ _ PatternPrimVal{} PatternTm{}       = error "illegal"
-minus _ _ PatternPrimVal{} PatternPrimTerm{} = error "illegal"
-minus _ _ PatternPrimVal{} BindingPattern{}  = error "illegal"
+minus PatternPrimVal{} PatternTm{}       = error "illegal"
+minus PatternPrimVal{} PatternPrimTerm{} = error "illegal"
+minus PatternPrimVal{} BindingPattern{}  = error "illegal"
 
-minus _ _ PatternPrimTerm{} PatternTm{}      = error "illegal"
-minus _ _ PatternPrimTerm{} PatternPrimVal{} = error "illegal"
-minus _ _ PatternPrimTerm{} BindingPattern{} = error "illegal"
+minus PatternPrimTerm{} PatternTm{}      = error "illegal"
+minus PatternPrimTerm{} PatternPrimVal{} = error "illegal"
+minus PatternPrimTerm{} BindingPattern{} = error "illegal"
 
-minus _ _ BindingPattern{} PatternTm{}       = error "illegal"
-minus _ _ BindingPattern{} PatternPrimVal{}  = error "illegal"
-minus _ _ BindingPattern{} PatternPrimTerm{} = error "illegal"
+minus BindingPattern{} PatternTm{}       = error "illegal"
+minus BindingPattern{} PatternPrimVal{}  = error "illegal"
+minus BindingPattern{} PatternPrimTerm{} = error "illegal"
 
 
 minusTests :: Test ()
@@ -455,18 +473,18 @@ minusTests = scope "minus" $
       nat = PatternPrimVal "Exp" "nat"
       any' = PatternAny
   in tests
-       [ expect $ minus undefined undefined x x == PatternEmpty
-       , expect $ minus undefined undefined x y == PatternEmpty
-       , expect $ minus undefined undefined x any' == PatternEmpty
-       -- , expect $ minus undefined undefined any' x == PatternEmpty
-       , expect $ minus undefined undefined any' any' == PatternEmpty
+       [ expect $ runMatches undefined undefined (minus x x) == Just PatternEmpty
+       , expect $ runMatches undefined undefined (minus x y) == Just PatternEmpty
+       , expect $ runMatches undefined undefined (minus x any') == Just PatternEmpty
+       -- , expect $ runMatches undefined undefined (minus any' x) == Just PatternEmpty
+       , expect $ runMatches undefined undefined (minus any' any') == Just PatternEmpty
        , expect $
-         minus eChart "Typ" (PatternTm "num" []) (PatternTm "num" [])
+         runMatches eChart "Typ" (minus (PatternTm "num" []) (PatternTm "num" []))
          ==
-         PatternEmpty
-       , expect $ minus eChart "Exp" nat nat == PatternEmpty
+         Just PatternEmpty
+       , expect $ runMatches eChart "Exp" (minus nat nat) == Just PatternEmpty
        , expect $
-         minus eChart "Exp"
+         runMatches eChart "Exp" (minus
            (PatternTm "plus"
              [ PatternPrimVal "Exp" "nat"
              , x
@@ -474,47 +492,43 @@ minusTests = scope "minus" $
            (PatternTm "plus"
              [ PatternPrimVal "Exp" "nat"
              , y
-             ])
+             ]))
          ==
-         PatternEmpty
+         Just PatternEmpty
        ]
 
--- TODO: reader
-patternCheck :: forall a. Text -> SyntaxChart -> DenotationChart a -> PatternCheckResult a
-patternCheck sort syntax (DenotationChart chart) =
-  let (unmatched, overlaps) = mapAccumL
-        (\unmatchedAcc (pat, _denotation) -> go unmatchedAcc pat)
-        completePattern -- everything unmatched
-        chart
-  in PatternCheckResult unmatched overlaps
+patternCheck
+  :: forall a. DenotationChart a
+  -> ReaderT MatchesEnv Maybe (PatternCheckResult a)
+patternCheck (DenotationChart chart) = do
+  unmatched <- completePattern -- everything unmatched
+  (overlaps, unmatched) <- mapAccumM
+    (\unmatchedAcc (pat, _denotation) -> go unmatchedAcc pat)
+    unmatched
+    chart
+  pure $ PatternCheckResult unmatched overlaps
 
   -- go
   -- . takes the set of uncovered values
   -- . returns the (set of covered values, set of remaining uncovered values)
-  where go :: Pattern -> Pattern -> (Pattern, Pattern)
+  where go :: Pattern -> Pattern -> ReaderT MatchesEnv Maybe (Pattern, Pattern)
         -- TODO: are these necessary?
-        go _unmatched (PatternVar _) = (completePattern, PatternEmpty)
-        go _unmatched PatternAny     = (completePattern, PatternEmpty)
-        go unmatched pat =
-          let minus' = minus syntax sort
-          in (pat, unmatched `minus'` pat)
+        go _unmatched (PatternVar _) = (, PatternEmpty) <$> completePattern
+        go _unmatched PatternAny     = (, PatternEmpty) <$> completePattern
+        go unmatched  pat            = (pat, ) <$> unmatched `minus` pat
 
-        completePattern :: Pattern
-        completePattern = mkCompletePattern syntax sort
-
--- TODO: reader
 findMatch
-  :: SyntaxChart
-  -> Text
-  -> DenotationChart a
+  :: DenotationChart a
   -> Term a
-  -> Maybe (Subst a, Denotation a)
-findMatch chart sort (DenotationChart pats) tm = foldr
-  (\(pat, rhs) mat -> case matches chart sort pat tm of
-    Just subst -> Just (subst, rhs)
-    Nothing    -> mat)
-  Nothing
-  pats
+  -> ReaderT MatchesEnv Maybe (Subst a, Denotation a)
+findMatch (DenotationChart pats) tm = do
+  MatchesEnv chart sort <- ask
+  lift $ foldr
+    (\(pat, rhs) mat -> case runMatches chart sort (matches pat tm) of
+      Just subst -> Just (subst, rhs)
+      Nothing    -> mat)
+    Nothing
+    pats
 
 -- judgements
 
