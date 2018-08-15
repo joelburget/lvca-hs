@@ -22,7 +22,8 @@
 module Linguist.Types
   ( -- * Syntax charts
     -- | Syntax definition.
-    SyntaxChart(..)
+    SortName
+  , SyntaxChart(..)
   , Sort(..)
   , sortOperators
   , sortVariables
@@ -63,6 +64,10 @@ module Linguist.Types
   -- ** Functions
   , applySubst
   , toPattern
+  , MatchesEnv(..)
+  , envChart
+  , envSort
+  , envVars
   , matches
   , runMatches
   , minus
@@ -85,6 +90,7 @@ module Linguist.Types
   -- * Evaluation
   , StackFrame(..)
   , findBinding
+  , frameVals
   , StateStep(..)
   , State
   , ListZipper
@@ -120,6 +126,8 @@ import           EasyTest
 
 -- syntax charts
 
+type SortName = Text
+
 -- | A syntax chart defines the abstract syntax of a language, specified by a
 -- collection of operators and their arities. The abstract syntax provides a
 -- systematic, unambiguous account of the hierarchical and binding structure of
@@ -137,7 +145,7 @@ import           EasyTest
 --           len(Exp)           length
 --           let(Exp; Exp.Exp)  definition
 -- @
-newtype SyntaxChart = SyntaxChart (Map Text Sort)
+newtype SyntaxChart = SyntaxChart (Map SortName Sort)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
@@ -164,15 +172,15 @@ data Operator = Operator
 -- externals.
 data Arity
   = Arity    ![Valence]
-  | External !Text
+  | External !SortName
 
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
 --
 -- eg @Exp.Exp@.
 data Valence = Valence
-  { _valenceSorts  :: ![Text] -- ^ the sorts of all bound variables
-  , _valenceResult :: !Text   -- ^ the resulting sort
+  { _valenceSorts  :: ![SortName] -- ^ the sorts of all bound variables
+  , _valenceResult :: !SortName   -- ^ the resulting sort
   }
 
 -- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
@@ -206,14 +214,14 @@ data Pattern
 
   -- | Matches 'PrimValue'
   | PatternPrimVal
-    { _patternPrimSort :: !Text -- ^ sort, eg "str"
-    , _patternPrimName :: !Text -- ^ name, eg "s_1"
+    { _patternPrimSort :: !SortName -- ^ sort, eg "str"
+    , _patternPrimName :: !Text     -- ^ name, eg "s_1"
     }
 
   -- | Matches 'PrimTerm'
   | PatternPrimTerm
-    { _patternPrimSort :: !Text -- ^ sort, eg "str"
-    , _patternPrimName :: !Text -- ^ name, eg "s_1"
+    { _patternPrimSort :: !SortName -- ^ sort, eg "str"
+    , _patternPrimName :: !Text     -- ^ name, eg "s_1"
     }
 
   -- TODO: should this exist?
@@ -304,22 +312,31 @@ toPatternTests = scope "toPattern" $ tests
     PatternTm "num" [PatternAny]
   ]
 
-data MatchesEnv = MatchesEnv
+data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
-  , _envSort  :: !Text
+  , _envSort  :: !SortName
+  , _envVars  :: !(Map Text (Either (Term a) (Value a)))
   }
 
-matches :: Pattern -> Term a -> ReaderT MatchesEnv Maybe (Subst a)
-matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
-matches (PatternVar Nothing)     _  = pure $ Map.empty
+makeLenses ''MatchesEnv
 
--- matches _ _ pat (Var
+type Matching a = ReaderT (MatchesEnv a) Maybe
+
+matches :: Pattern -> Term a -> Matching a (Subst a)
+matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
+matches (PatternVar Nothing)     _  = pure Map.empty
+
+matches pat (Var name) = do
+  mTermVal <- view $ envVars . at name
+  case mTermVal of
+    Just (Left tm)   -> matches pat tm
+    Just (Right val) -> error "TODO"
+    Nothing          -> lift Nothing
 
 matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   if name1 /= name2
   then lift Nothing
   else do
-    MatchesEnv chart sort <- ask
     mMatches <- sequence $ fmap sequence $ pairWith matches subpatterns subterms
     Map.unions <$> lift mMatches
 -- TODO: write context of var names?
@@ -337,8 +354,8 @@ matches (PatternUnion pats) tm = do
   lift $ getFirst $ fold $ fmap First subMatches
 matches _ _ = lift Nothing
 
-runMatches :: SyntaxChart -> Text -> ReaderT MatchesEnv Maybe a -> Maybe a
-runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
+runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
+runMatches chart sort = flip runReaderT (MatchesEnv chart sort Map.empty)
 
 matchesTests :: Test ()
 matchesTests = scope "matches" $
@@ -380,14 +397,14 @@ eChart = SyntaxChart $ Map.fromList
     ])
   ]
 
-getSort :: ReaderT MatchesEnv Maybe Sort
+getSort :: Matching a Sort
 getSort = do
-  MatchesEnv (SyntaxChart syntax) sort <- ask
+  MatchesEnv (SyntaxChart syntax) sort _ <- ask
   lift $ syntax ^? ix sort
 
-completePattern :: ReaderT MatchesEnv Maybe Pattern
+completePattern :: Matching a Pattern
 completePattern = do
-  MatchesEnv _ sort    <- ask
+  MatchesEnv _ sort _  <- ask
   Sort _vars operators <- getSort
 
   let mkPat (Operator opName arity _desc) = case arity of
@@ -420,7 +437,7 @@ mkCompletePatternTests = scope "completePattern" $ tests
         ])
   ]
 
-minus :: Pattern -> Pattern -> ReaderT MatchesEnv Maybe Pattern
+minus :: Pattern -> Pattern -> Matching a Pattern
 minus _ (PatternVar _) = pure PatternEmpty
 minus (PatternVar _) x = do
   pat <- completePattern
@@ -499,7 +516,7 @@ minusTests = scope "minus" $
 
 patternCheck
   :: forall a. DenotationChart a
-  -> ReaderT MatchesEnv Maybe (PatternCheckResult a)
+  -> Matching a (PatternCheckResult a)
 patternCheck (DenotationChart chart) = do
   unmatched <- completePattern -- everything unmatched
   (overlaps, unmatched) <- mapAccumM
@@ -511,37 +528,35 @@ patternCheck (DenotationChart chart) = do
   -- go
   -- . takes the set of uncovered values
   -- . returns the (set of covered values, set of remaining uncovered values)
-  where go :: Pattern -> Pattern -> ReaderT MatchesEnv Maybe (Pattern, Pattern)
+  where go :: Pattern -> Pattern -> Matching a (Pattern, Pattern)
         -- TODO: are these necessary?
         go _unmatched (PatternVar _) = (, PatternEmpty) <$> completePattern
         go _unmatched PatternAny     = (, PatternEmpty) <$> completePattern
         go unmatched  pat            = (pat, ) <$> unmatched `minus` pat
 
 findMatch
-  :: DenotationChart a
+  :: forall a. DenotationChart a
   -> Term a
-  -> ReaderT MatchesEnv Maybe (Subst a, Denotation a)
+  -> Matching a (Subst a, Denotation a)
 findMatch (DenotationChart pats) tm = do
-  MatchesEnv chart sort <- ask
-  lift $ foldr
-    (\(pat, rhs) mat -> case runMatches chart sort (matches pat tm) of
-      Just subst -> Just (subst, rhs)
-      Nothing    -> mat)
-    Nothing
-    pats
+  env <- ask
+  let results = pats <&> \(pat, rhs) ->
+        runReaderT (matches pat tm) env & _Just %~ (, rhs)
+
+  lift $ getFirst $ fold $ fmap First results
 
 -- judgements
 
 data InOut = In | Out
 
 data JudgementForm = JudgementForm
-  { _judgementName  :: !Text            -- ^ name of the judgement
-  , _judgementSlots :: ![(InOut, Text)] -- ^ mode and sort of all slots
+  { _judgementName  :: !Text                -- ^ name of the judgement
+  , _judgementSlots :: ![(InOut, SortName)] -- ^ mode and sort of all slots
   }
 
 data OperatorApplication = OperatorApplication
   { _operatorApName :: !Text            -- ^ operator name
-  , _applicands     :: ![SaturatedTerm] -- applicands
+  , _applicands     :: ![SaturatedTerm] -- ^ applicands
   }
 
 data SaturatedTerm
@@ -654,9 +669,16 @@ findBinding :: [StackFrame a] -> Text -> Maybe (Either (Term a) (Value a))
 findBinding [] _ = Nothing
 findBinding (BindingFrame bindings : stack) name
   = case bindings ^? ix name of
-    Just tmVal -> Just tmVal
-    Nothing    -> findBinding stack name
+    Just (tmVal) -> Just tmVal
+    Nothing      -> findBinding stack name
 findBinding (_ : stack) name = findBinding stack name
+
+frameVals :: [StackFrame a] -> Map Text (Either (Term a) (Value a))
+frameVals = foldl
+  (\sorts -> \case
+    CbvFrame{} -> sorts
+    BindingFrame bindings -> bindings `Map.union` sorts)
+  Map.empty
 
 data StateStep a = StateStep
   { _stepFrames ::  ![StackFrame a]

@@ -8,13 +8,13 @@ module Linguist.SimpleExample where
 import           Control.Lens    hiding (from, to)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe      (fromMaybe)
+import Control.Monad.Reader
 import           Data.Text       (Text)
 import qualified Data.Text       as Text
 import           EasyTest
 
 import           Linguist.Types
 
-import Debug.Trace
 
 type E = Either Int Text
 
@@ -99,7 +99,7 @@ denotationTests =
 
 proceed :: DenotationChart E -> StateStep E -> StateStep E
 proceed chart (StateStep stack tm) = case tm of
-  Term name subterms -> case runMatches eChart "Exp" $ findMatch chart (traceShowId tm) of
+  Term name subterms -> case flip runReaderT (MatchesEnv eChart "Exp" (frameVals stack)) $ findMatch chart tm of
     Just (_assignment, CallForeign f) -> case subterms of
       tm':tms -> StateStep
         (CbvFrame name Empty tms f : stack)
@@ -108,15 +108,15 @@ proceed chart (StateStep stack tm) = case tm of
 
     Just (assignment, BindIn name from to) -> fromMaybe (Errored "BindIn") $ do
       -- XXX we should get this from the substitution
-      -- Var name' <- subterms ^? ix (_ name) -- 1.0
+      -- Var name' <- subterms ^? ix (_ name)
       from'     <- assignment ^? ix from
       to'       <- assignment ^? ix to
-      traceM $ "from: " ++ show from'
-      traceM $ "to: " ++ show to'
-      let frame = BindingFrame $ Map.singleton name (Left from')
+      -- traceM $ "from: " ++ show from'
+      -- traceM $ "to: " ++ show to'
+      let frame = BindingFrame $ Map.singleton name $ Left from'
       Just $ StateStep (frame : stack) to'
     Just _ -> Errored "3"
-    Nothing -> Errored $ Text.pack $ show tm
+    Nothing -> Errored "4"
 
   Var name -> case findBinding stack name of
     Just (Left tm')  -> StateStep stack tm'
