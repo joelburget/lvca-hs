@@ -1,0 +1,6 @@
+resolver: lts-12.5
+packages:
+- .
+extra-deps:
+- brick-0.38
+- vty-5.22

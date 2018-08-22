@@ -17,6 +17,8 @@ executable linguist
   other-modules:
     Linguist.Brick,
     Linguist.SimpleExample,
+    Linguist.Proceed,
+    Linguist.Stlc,
     Linguist.Types,
     Linguist.TExample,
     Linguist.Util
