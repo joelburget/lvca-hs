@@ -272,15 +272,7 @@ data Term a
   | Var !Text
   | PrimTerm !a
   | Return !(Value a)
-  -- deriving Show
-
-instance Show a => Show (Term a) where
-  show = \case
-    Term a b -> "(Term " ++ show a ++ " " ++ show b ++ ")"
-    Binding a b -> "(Binding " ++ show a ++ " " ++ show b ++ ")"
-    Var a -> "(Var " ++ show a ++ ")"
-    PrimTerm a -> "(PrimTerm " ++ show a ++ ")"
-    Return a -> "(Return " ++ show a ++ ")"
+  deriving Show
 
 -- | A value, or evaluated expression
 data Value a
