@@ -56,10 +56,10 @@ drawUI :: TmShow s => State s -> Widget ()
 drawUI state = case state ^. focus of
   StateStep ctx valTm ->
     let lBox = bordered "Context" $ center $ drawCtx ctx
-        rBox = bordered "Term"    $ center $ drawTmVal valTm
+        rBox = bordered "Term"    $ center $ drawFocus valTm
     in lBox <+> rBox
   Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
-  Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawVal val
+  Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawTm val
 
 drawCtx :: TmShow a => [StackFrame a] -> Widget ()
 drawCtx = \case
@@ -67,14 +67,14 @@ drawCtx = \case
   stack -> vBox (reverse $ fmap drawStackFrame stack)
 
 drawStackFrame :: TmShow a => StackFrame a -> Widget ()
-drawStackFrame = \case
+drawStackFrame = hBox . \case
   CbvForeignFrame name before after _ ->
     let slots = padLeft (Pad 1) <$>
-          fmap showValSlot (toList before) ++ [str "_"] ++ fmap showTermSlot after
-    in hBox $ txt name : slots
-  CbvFrame varName _body -> txt $ "evaluating arg " <> varName
-  BindingFrame bindings -> hBox $ Map.toList bindings <&> \(k, v) ->
-    txt k <+> str ": " <+> drawTmVal v
+          fmap showTermSlot (toList before) ++ [str "_"] ++ fmap showTermSlot after
+    in txt name : slots
+  CbvFrame name varName _body -> [txt name, txt $ "evaluating arg " <> varName]
+  BindingFrame bindings -> Map.toList bindings <&> \(k, v) ->
+    txt k <+> str ": " <+> drawTm v
 
 class TmShow a where
   drawPrim :: a -> Widget ()
@@ -85,22 +85,18 @@ instance TmShow E where
 instance TmShow Void where
   drawPrim = str . absurd
 
-drawTmVal :: TmShow a => TmVal a -> Widget ()
-drawTmVal = either drawTm drawVal
-
-showValSlot :: TmShow a => Value a -> Widget ()
-showValSlot = \case
-  NativeValue name _vals -> txt name
-  PrimValue a            -> drawPrim a
-  Thunk tm               -> showTermSlot tm
+-- TODO: distinguish between in and out
+drawFocus :: TmShow a => Focus a -> Widget ()
+drawFocus = \case
+  Descending tm -> drawTm tm
+  Ascending  tm -> drawTm tm
 
 showTermSlot :: TmShow a => Term a -> Widget ()
 showTermSlot = \case
   Term name _ -> txt $ "[" <> name <> "]"
   Var name    -> txt name
-  PrimTerm a  -> drawPrim a -- str (either show show a)
-  Return val  -> showValSlot val
   Binding _ _ -> txt "TODO: binding"
+  PrimValue a -> drawPrim a
 
 drawBinding :: (Text, Term a) -> Widget ()
 drawBinding _ = txt "binding"
@@ -115,18 +111,8 @@ drawTm = \case
     txt ("[" <> T.unwords names <> "]")
     <=>
     padLeft (Pad 2) (drawTm subterm)
-  Var name    -> txt name
-  PrimTerm a -> drawPrim a -- str (either show show a)
-  Return val -> str "<" <+> drawVal val <+> str ">"
-
-drawVal :: TmShow a => Value a -> Widget ()
-drawVal = \case
-  NativeValue name vals ->
-    txt name
-    <=>
-    padLeft (Pad 2) (vBox (fmap drawVal vals))
+  Var name   -> txt name
   PrimValue primVal -> drawPrim primVal -- str $ either show show primVal
-  Thunk tm -> str "{" <+> drawTm tm <+> str "}"
 
 app :: TmShow s => App (State s) a ()
 app = App

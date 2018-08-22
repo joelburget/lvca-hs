@@ -19,22 +19,22 @@ type E = Either Int Text
 
 tm1, tm2 :: Term E
 tm1 = Term "let"
-  [ Return (PrimValue (Left 1))
+  [ PrimValue (Left 1)
   , Binding ["x"]
     (Term "plus"
       [ Var "x"
-      , Return (PrimValue (Left 2))
+      , PrimValue (Left 2)
       ])
   ]
 tm2 = Term "cat"
-  [ Return (PrimValue (Right "foo"))
-  , Return (PrimValue (Right "bar"))
+  [ PrimValue (Right "foo")
+  , PrimValue (Right "bar")
   ]
 
-pattern VI :: Int -> Value E
+pattern VI :: Int -> Term E
 pattern VI x = PrimValue (Left x)
 
-pattern VS :: Text -> Value E
+pattern VS :: Text -> Term E
 pattern VS x = PrimValue (Right x)
 
 denotation :: DenotationChart E
@@ -67,28 +67,28 @@ denotationTests :: Test ()
 denotationTests =
   let
       n1, n2, lenStr :: Term E
-      lenStr = Term "len" [ Return (PrimValue (Right "str")) ]
+      lenStr      = Term "len" [ PrimValue (Right "str") ]
       times v1 v2 = Term "times" [v1, v2]
-      plus v1 v2 = Term "plus" [v1, v2]
-      n1 = Return (PrimValue (Left 1))
-      n2 = Return (PrimValue (Left 2))
-      x = PatternVar (Just "x")
-      -- y = PatternVar (Just "y")
-      patCheck = runMatches eChart "Exp" $ patternCheck denotation
-      env = MatchesEnv eChart "Exp" (Map.singleton "x" (Right (PrimValue (Left 2))))
+      plus v1 v2  = Term "plus" [v1, v2]
+      n1          = PrimValue (Left 1)
+      n2          = PrimValue (Left 2)
+      x           = PatternVar (Just "x")
+      patCheck    = runMatches eChart "Exp" $ patternCheck denotation
+      env         = MatchesEnv eChart "Exp" $ Map.singleton "x" $
+        PrimValue $ Left 2
   in tests
        [ expectJust $ runMatches eChart "Exp" $ matches x
-         (Left lenStr)
+         lenStr
        , expectJust $ runMatches eChart "Exp" $ matches (PatternTm "len" [x])
-         (Left lenStr)
+         lenStr
        , expectJust $ runMatches eChart "Exp" $ findMatch denotation
-         (Left lenStr)
+         lenStr
        , expectJust $ runMatches eChart "Exp" $ findMatch denotation
-         (Left (times n1 n2))
+         (times n1 n2)
        , expectJust $ runMatches eChart "Exp" $ findMatch denotation
-         (Left (plus n1 n2))
+         (plus n1 n2)
        , expectJust $ runMatches eChart "Exp" $ findMatch denotation
-         (Left tm1)
+         tm1
 
 --        , let Just (subst, _) = findMatch eChart "Exp" denotation tm1
 --              result = applySubst subst tm1
@@ -97,20 +97,20 @@ denotationTests =
        , expectJust $
          let pat = PatternTm "cat"
                [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"]
-         in runMatches eChart "Exp" $ matches pat (Left tm2)
+         in runMatches eChart "Exp" $ matches pat tm2
        , expectJust $
          let pat = PatternPrimVal "num" "n_1"
              tm  = Var "x"
-         in flip runReaderT env $ matches pat (Left tm)
+         in flip runReaderT env $ matches pat tm
        , expectJust $
          let pat = PatternPrimVal "num" "n_2"
-             tm  = Return (VI 2)
-         in flip runReaderT env $ matches pat (Left tm)
+             tm  = VI 2
+         in flip runReaderT env $ matches pat tm
        , expectJust $
          let pat = PatternTm "plus"
                [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"]
-             tm = Term "plus" [Var "x", Return (VI 2)]
-         in flip runReaderT env $ matches pat (Left tm)
+             tm = Term "plus" [Var "x", VI 2]
+         in flip runReaderT env $ matches pat tm
 
        , expect $
          fmap isComplete patCheck

@@ -46,17 +46,9 @@ module Linguist.Types
   , Subst
 
   -- * Terms / Values
-  -- ** Terms
   , Term(..)
   , subterms
   , termName
-
-  -- ** Values
-  , Value(..)
-  , subvalues
-  , valueName
-
-  , TmVal
 
   -- * Patterns
   -- ** Pattern
@@ -100,6 +92,7 @@ module Linguist.Types
   , findBinding
   , frameVals
   , StateStep(..)
+  , Focus(..)
   , State
   , ListZipper
   , next
@@ -228,12 +221,6 @@ data Pattern
     , _patternPrimName :: !Text     -- ^ name, eg "s_1"
     }
 
-  -- | Matches 'PrimTerm'
-  | PatternPrimTerm
-    { _patternPrimSort :: !SortName -- ^ sort, eg "str"
-    , _patternPrimName :: !Text     -- ^ name, eg "s_1"
-    }
-
   -- TODO: should this exist?
   | BindingPattern ![Text] !Pattern
 
@@ -243,7 +230,7 @@ data Pattern
 
 data Denotation a
   = Value
-  | CallForeign !(Seq (Value a) -> Value a)
+  | CallForeign !(Seq (Term a) -> Term a)
   | BindIn
     { _nameSlot :: !Text
     , _fromSlot :: !Text
@@ -258,9 +245,9 @@ data Denotation a
     , _argSlot  :: !Text
     }
 
-type Subst a = Map Text (TmVal a)
+type Subst a = Map Text (Term a)
 
--- | A term, or unevaluated expression
+-- | An evaluated or unevaluated term
 data Term a
   = Term
     { _termName :: !Text     -- ^ name of this term
@@ -270,21 +257,9 @@ data Term a
     ![Text]
     !(Term a)
   | Var !Text
-  | PrimTerm !a
-  | Return !(Value a)
-  deriving Show
-
--- | A value, or evaluated expression
-data Value a
-  = NativeValue
-    { _valueName :: !Text    -- constructor(?) name
-    , _subvalues :: ![Value a]
-    }
   | PrimValue !a
-  | Thunk !(Term a)
+  -- | Return !(Value a)
   deriving Show
-
-type TmVal a = Either (Term a) (Value a)
 
 data IsRedudant = IsRedudant | IsntRedundant
   deriving Eq
@@ -300,13 +275,6 @@ instance Ixed (Term a) where
   ix k f tm = case tm of
     Term name tms -> Term name <$> ix k f tms
     _             -> pure tm
-
-type instance Index   (Value a) = Int
-type instance IxValue (Value a) = Value a
-instance Ixed (Value a) where
-  ix k f tm = case tm of
-    NativeValue name tms -> NativeValue name <$> ix k f tms
-    _                    -> pure tm
 
 isComplete :: PatternCheckResult a -> Bool
 isComplete (PatternCheckResult uc _) = uc == PatternUnion []
@@ -345,7 +313,7 @@ toPatternTests = scope "toPattern" $ tests
 data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
   , _envSort  :: !SortName
-  , _envVars  :: !(Map Text (TmVal a))
+  , _envVars  :: !(Map Text (Term a))
   }
 
 makeLenses ''MatchesEnv
@@ -356,34 +324,31 @@ noMatch, emptyMatch :: Matching a (Subst a)
 noMatch = lift Nothing
 emptyMatch = pure Map.empty
 
-matches :: Pattern -> TmVal a -> Matching a (Subst a)
-matches pat (Left (Return val))     = matches pat (Right val)
-matches pat (Right (Thunk tm))      = matches pat (Left tm)
+matches :: Pattern -> Term a -> Matching a (Subst a)
+-- matches pat (Left (Return val))     = matches pat (Right val)
 matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
 matches (PatternVar Nothing)     _  = emptyMatch
 
-matches pat (Left (Var name)) = do
+matches pat (Var name) = do
   mTermVal <- view $ envVars . at name
   case mTermVal of
     Just termVal -> matches pat termVal
     Nothing      -> noMatch
 
-matches (PatternTm name1 subpatterns) (Left (Term name2 subterms)) = do
+matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   if name1 /= name2
   then noMatch
   else do
     mMatches <- sequence $ fmap sequence $
-      pairWith matches subpatterns (fmap Left subterms)
+      pairWith matches subpatterns subterms
     Map.unions <$> lift mMatches
 -- TODO: write context of var names?
-matches (PatternPrimVal _primName1 _varName) (Right (PrimValue _))
-  = emptyMatch
-matches (PatternPrimTerm _primName1 _varName) (Left (PrimTerm _))
+matches (PatternPrimVal _primName1 _varName) (PrimValue _)
   = emptyMatch
 -- TODO: this piece must know the binding structure from the syntax chart
-matches (BindingPattern lnames subpat) (Left (Binding rnames subtm))
+matches (BindingPattern lnames subpat) (Binding rnames subtm)
   -- XXX also match names
-  = matches subpat (Left subtm)
+  = matches subpat subtm
 matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
   env <- ask
@@ -401,11 +366,11 @@ matchesTests = scope "matches" $
       foo = Term "foo" []
   in tests
        [ expectJust $ runMatches undefined undefined $ matches
-         (PatternVar (Just "x")) (Left foo)
+         (PatternVar (Just "x")) foo
        , expectJust $ runMatches undefined undefined $ matches
-         PatternAny (Left foo)
+         PatternAny foo
        , expectJust $ runMatches undefined undefined $ matches
-         (PatternUnion [PatternAny, undefined]) (Left foo)
+         (PatternUnion [PatternAny, undefined]) foo
        ]
 
 -- Chart of the language @e@. We use this for testing.
@@ -447,12 +412,10 @@ completePattern = do
   MatchesEnv _ sort _  <- ask
   Sort _vars operators <- getSort
 
-  let mkPat (Operator opName arity _desc) = case arity of
-        Arity valences -> PatternTm opName (const PatternAny <$> valences)
-        -- TODO: PatternPrimTerm?
-        External name  -> PatternPrimVal sort name
-
-  pure $ PatternUnion $ fmap mkPat operators
+  pure $ PatternUnion $ operators <&> \(Operator opName arity _desc) ->
+    case arity of
+      Arity valences -> PatternTm opName $ const PatternAny <$> valences
+      External name  -> PatternPrimVal sort name
 
 mkCompletePatternTests :: Test ()
 mkCompletePatternTests = scope "completePattern" $ tests
@@ -500,27 +463,15 @@ minus x@(PatternPrimVal sort1 name1) (PatternPrimVal sort2 name2) = pure $
   -- TODO: what if sorts not equal? is that an error?
   if sort1 == sort2 && name1 == name2 then PatternEmpty else x
 
-minus x@(PatternPrimTerm sort1 _) (PatternPrimTerm sort2 _) = pure $
-  if sort1 == sort2 then PatternEmpty else x
+minus x@PatternTm{} PatternPrimVal{}      = pure x
+minus x@PatternTm{} BindingPattern{}      = pure x
 
-minus BindingPattern{} BindingPattern{} = error "TODO"
+minus x@PatternPrimVal{} PatternTm{}      = pure x
+minus x@PatternPrimVal{} BindingPattern{} = pure x
 
--- these all should return Nothing?
-minus x@PatternTm{} PatternPrimVal{}     = pure x -- error $ "illegal: " ++ show (x, y)
-minus x@PatternTm{} y@PatternPrimTerm{}    = error $ "illegal: " ++ show (x, y)
-minus x@PatternTm{} BindingPattern{}     = pure x -- error $ "illegal: " ++ show (x, y)
-
-minus x@PatternPrimVal{} PatternTm{}       = pure x
-minus PatternPrimVal{} PatternPrimTerm{} = error "illegal"
-minus x@PatternPrimVal{} BindingPattern{}  = pure x
-
-minus PatternPrimTerm{} PatternTm{}      = error "illegal"
-minus PatternPrimTerm{} PatternPrimVal{} = error "illegal"
-minus PatternPrimTerm{} BindingPattern{} = error "illegal"
-
-minus BindingPattern{} PatternTm{}       = error "illegal"
-minus BindingPattern{} PatternPrimVal{}  = error "illegal"
-minus BindingPattern{} PatternPrimTerm{} = error "illegal"
+minus BindingPattern{} BindingPattern{}   = error "TODO"
+minus x@BindingPattern{} PatternTm{}      = pure x
+minus x@BindingPattern{} PatternPrimVal{} = pure x
 
 
 minusTests :: Test ()
@@ -594,7 +545,7 @@ patternCheck (DenotationChart chart) = do
 
 findMatch
   :: forall a. Show a => DenotationChart a
-  -> TmVal a
+  -> Term a
   -> Matching a (Subst a, Denotation a)
 findMatch (DenotationChart pats) tm = do
   env <- ask
@@ -673,33 +624,26 @@ instance Pretty JudgementRule where
     ]
 
 instance Pretty JudgementRules where
-  pretty (JudgementRules rules) = vsep (intersperse "" (pretty <$> rules))
+  pretty (JudgementRules rules) = vsep $ intersperse "" $ pretty <$> rules
 
 instance Pretty SyntaxChart where
   pretty (SyntaxChart sorts) =
     let f (title, operators) = vsep [pretty title <> " ::=", indent 2 $ pretty operators]
-    in vsep (f <$> Map.toList sorts)
+    in vsep $ f <$> Map.toList sorts
 
 instance Pretty Sort where
   pretty (Sort _vars operators)
-    = vsep (pretty <$> operators)
+    = vsep $ fmap pretty operators
 
 instance Pretty Operator where
   pretty (Operator name arity _desc)
     = hsep [pretty name <> ":", pretty arity]
 
--- instance Pretty Arity where
---   pretty (Arity valences result) =
---     let valences' = if null valences
---           then mempty
---           else parens (hsep (punctuate comma (pretty <$> valences)))
---     in valences' <> pretty result
-
 instance Pretty Arity where
   pretty (Arity valences) =
     if null valences
     then mempty
-    else parens (hsep (punctuate comma (pretty <$> valences)))
+    else parens $ hsep $ punctuate comma $ pretty <$> valences
   pretty (External name) = pretty name
 
 instance Pretty Valence where
@@ -709,35 +653,30 @@ instance Pretty Valence where
 
 -- evaluation internals
 
--- thunk  : computation -> value
--- force  : value       -> computation
--- return : value       -> computation
-
 data StackFrame a
   = CbvForeignFrame
-    { _frameName  :: !Text                       -- ^ name of this term
-    , _frameVals  :: !(Seq (Value a))            -- ^ values before
-    , _frameTerms :: ![Term a]                   -- ^ subterms after
-    , _frameK     :: !(Seq (Value a) -> Value a) -- ^ what to do after
+    { _frameName  :: !Text                     -- ^ name of this term
+    , _frameVals  :: !(Seq (Term a))           -- ^ values before
+    , _frameTerms :: ![Term a]                 -- ^ subterms after
+    , _frameK     :: !(Seq (Term a) -> Term a) -- ^ what to do after
     }
   | CbvFrame
-    -- { _cbvFrameVals  :: !(Map Text (Value a))
-    -- , _cbvFrameTerms :: !(Map Text (Term a))
-    { _cbvFrameArgName :: !Text
+    { _frameName       :: !Text
+    , _cbvFrameArgName :: !Text
     , _cbvFrameBody    :: !(Term a)
     }
   | BindingFrame
-    !(Map Text (TmVal a))
+    !(Map Text (Term a))
 
-findBinding :: [StackFrame a] -> Text -> Maybe (TmVal a)
+findBinding :: [StackFrame a] -> Text -> Maybe (Term a)
 findBinding [] _ = Nothing
 findBinding (BindingFrame bindings : stack) name
   = case bindings ^? ix name of
-    Just (tmVal) -> Just tmVal
-    Nothing      -> findBinding stack name
+    Just tm -> Just tm
+    Nothing -> findBinding stack name
 findBinding (_ : stack) name = findBinding stack name
 
-frameVals :: [StackFrame a] -> Map Text (TmVal a)
+frameVals :: [StackFrame a] -> Map Text (Term a)
 frameVals = foldl
   (\sorts -> \case
     BindingFrame bindings -> bindings `Map.union` sorts
@@ -746,11 +685,17 @@ frameVals = foldl
 
 data StateStep a = StateStep
   { _stepFrames :: ![StackFrame a]
-  , _stepFocus  :: !(TmVal a) -- ^ Either descending into term or ascending with value
+  -- | Either descending into term or ascending with value
+  , _stepFocus  :: !(Focus a)
   }
 
   | Errored !Text
-  | Done !(Value a)
+  | Done !(Term a)
+
+data Focus a
+  = Descending !(Term a)
+  | Ascending  !(Term a)
+  deriving Show
 
 type State a = ListZipper (StateStep a)
 
@@ -773,5 +718,4 @@ makeLenses ''Sort
 makeLenses ''Pattern
 makeLenses ''Denotation
 makeLenses ''Term
-makeLenses ''Value
 makeLenses ''PatternCheckResult

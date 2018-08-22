@@ -35,7 +35,7 @@ main :: IO ()
 main = do
   _ <- defaultMain app $
     let steps :: [StateStep Void]
-        steps = iterate (proceed denotation) $ StateStep [] (Left stlcTm2)
+        steps = iterate (proceed denotation) $ StateStep [] (Descending stlcTm2)
     in zipper steps & fromWithin traverse
   pure ()
 

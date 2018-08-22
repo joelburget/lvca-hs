@@ -39,10 +39,10 @@ denotation = DenotationChart
 stlcTests :: Test ()
 stlcTests = tests
   [ expectJust $ runMatches stlcChart "Exp" $ findMatch denotation
-    (Left stlcTm2)
+    stlcTm2
   , expectJust $ runMatches stlcChart "Exp" $ matches
     (PatternTm "lam" [BindingPattern ["x"] (PatternVar (Just "body"))])
-    (Left stlcTm1)
+    stlcTm1
   ]
 
 stlcTm1, stlcTm2 :: Term Void
