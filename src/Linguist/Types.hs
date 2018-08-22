@@ -1,12 +1,12 @@
-{-# LANGUAGE TupleSections               #-}
-{-# LANGUAGE PatternSynonyms               #-}
-{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 -----------------------------------------------------------------------------
 -- |
@@ -35,10 +35,14 @@ module Linguist.Types
   -- * Denotation charts
   -- | Denotational semantics definition.
   , DenotationChart(..)
+  , pattern PatternAny
+  , pattern PatternEmpty
   , Denotation(..)
   , nameSlot
   , fromSlot
   , toSlot
+  , bodySlot
+  , argSlot
   , Subst
 
   -- * Terms / Values
@@ -52,6 +56,8 @@ module Linguist.Types
   , subvalues
   , valueName
 
+  , TmVal
+
   -- * Patterns
   -- ** Pattern
   , Pattern(..)
@@ -61,6 +67,8 @@ module Linguist.Types
   , PatternCheckResult(..)
   , overlapping
   , uncovered
+  , isComplete
+  , hasRedundantPat
   -- ** Functions
   , applySubst
   , toPattern
@@ -102,7 +110,6 @@ module Linguist.Types
   , matchesTests
   , minusTests
   , mkCompletePatternTests
-  , allTests
   , eChart
   ) where
 
@@ -114,14 +121,14 @@ import           Data.Foldable             (fold, foldlM)
 import           Data.List                 (intersperse)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
-import           Data.Monoid               (First(First, getFirst))
+import           Data.Monoid               (First (First, getFirst))
 import           Data.Sequence             (Seq)
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
-import           Linguist.Util
 import           EasyTest
+import           Linguist.Util
 
 
 -- syntax charts
@@ -183,6 +190,9 @@ data Valence = Valence
   , _valenceResult :: !SortName   -- ^ the resulting sort
   }
 
+instance IsString Valence where
+  fromString = Valence [] . fromString
+
 -- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
@@ -239,8 +249,16 @@ data Denotation a
     , _fromSlot :: !Text
     , _toSlot   :: !Text
     }
+  | Cbv
+    { _bodySlot :: !Text
+    , _argSlot  :: !Text
+    }
+  | Cbn
+    { _bodySlot :: !Text
+    , _argSlot  :: !Text
+    }
 
-type Subst a = Map Text (Term a)
+type Subst a = Map Text (TmVal a)
 
 -- | A term, or unevaluated expression
 data Term a
@@ -254,7 +272,15 @@ data Term a
   | Var !Text
   | PrimTerm !a
   | Return !(Value a)
-  deriving Show
+  -- deriving Show
+
+instance Show a => Show (Term a) where
+  show = \case
+    Term a b -> "(Term " ++ show a ++ " " ++ show b ++ ")"
+    Binding a b -> "(Binding " ++ show a ++ " " ++ show b ++ ")"
+    Var a -> "(Var " ++ show a ++ ")"
+    PrimTerm a -> "(PrimTerm " ++ show a ++ ")"
+    Return a -> "(Return " ++ show a ++ ")"
 
 -- | A value, or evaluated expression
 data Value a
@@ -266,9 +292,14 @@ data Value a
   | Thunk !(Term a)
   deriving Show
 
+type TmVal a = Either (Term a) (Value a)
+
+data IsRedudant = IsRedudant | IsntRedundant
+  deriving Eq
+
 data PatternCheckResult a = PatternCheckResult
-  { _uncovered   :: !Pattern   -- ^ uncovered patterns
-  , _overlapping :: ![Pattern] -- ^ overlapping patterns
+  { _uncovered   :: !Pattern                 -- ^ uncovered patterns
+  , _overlapping :: ![(Pattern, IsRedudant)] -- ^ overlapping part, redundant?
   }
 
 type instance Index   (Term a) = Int
@@ -284,6 +315,13 @@ instance Ixed (Value a) where
   ix k f tm = case tm of
     NativeValue name tms -> NativeValue name <$> ix k f tms
     _                    -> pure tm
+
+isComplete :: PatternCheckResult a -> Bool
+isComplete (PatternCheckResult uc _) = uc == PatternUnion []
+
+hasRedundantPat :: PatternCheckResult a -> Bool
+hasRedundantPat (PatternCheckResult _ overlaps)
+  = any ((== IsRedudant) . snd) overlaps
 
 applySubst :: Subst a -> Term a -> Term a
 applySubst subst tm = case tm of
@@ -303,7 +341,7 @@ toPatternTests = scope "toPattern" $ tests
     ==
     PatternTm "num" []
   , expect $
-    toPattern (Operator "plus"  (Arity [Valence [] "Exp", Valence [] "Exp"]) "addition")
+    toPattern (Operator "plus"  (Arity ["Exp", "Exp"]) "addition")
     ==
     PatternTm "plus" [PatternAny, PatternAny]
   , expect $
@@ -315,44 +353,52 @@ toPatternTests = scope "toPattern" $ tests
 data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
   , _envSort  :: !SortName
-  , _envVars  :: !(Map Text (Either (Term a) (Value a)))
+  , _envVars  :: !(Map Text (TmVal a))
   }
 
 makeLenses ''MatchesEnv
 
 type Matching a = ReaderT (MatchesEnv a) Maybe
 
-matches :: Pattern -> Term a -> Matching a (Subst a)
-matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
-matches (PatternVar Nothing)     _  = pure Map.empty
+noMatch, emptyMatch :: Matching a (Subst a)
+noMatch = lift Nothing
+emptyMatch = pure Map.empty
 
-matches pat (Var name) = do
+matches :: Pattern -> TmVal a -> Matching a (Subst a)
+matches pat (Left (Return val))     = matches pat (Right val)
+matches pat (Right (Thunk tm))      = matches pat (Left tm)
+matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
+matches (PatternVar Nothing)     _  = emptyMatch
+
+matches pat (Left (Var name)) = do
   mTermVal <- view $ envVars . at name
   case mTermVal of
-    Just (Left tm)   -> matches pat tm
-    Just (Right val) -> error "TODO"
-    Nothing          -> lift Nothing
+    Just termVal -> matches pat termVal
+    Nothing      -> noMatch
 
-matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
+matches (PatternTm name1 subpatterns) (Left (Term name2 subterms)) = do
   if name1 /= name2
-  then lift Nothing
+  then noMatch
   else do
-    mMatches <- sequence $ fmap sequence $ pairWith matches subpatterns subterms
+    mMatches <- sequence $ fmap sequence $
+      pairWith matches subpatterns (fmap Left subterms)
     Map.unions <$> lift mMatches
 -- TODO: write context of var names?
-matches (PatternPrimVal _primName1 _varName) (Return (PrimValue _))
-  = pure Map.empty
-matches (PatternPrimTerm _primName1 _varName) (PrimTerm _)
-  = pure Map.empty
+matches (PatternPrimVal _primName1 _varName) (Right (PrimValue _))
+  = emptyMatch
+matches (PatternPrimTerm _primName1 _varName) (Left (PrimTerm _))
+  = emptyMatch
 -- TODO: this piece must know the binding structure from the syntax chart
-matches (BindingPattern lnames subpat) (Binding rnames subtm)
+matches (BindingPattern lnames subpat) (Left (Binding rnames subtm))
   -- XXX also match names
-  = matches subpat subtm
-matches PatternAny _ = pure Map.empty
+  = matches subpat (Left subtm)
+matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
-  subMatches <- traverse (fmap Just . (`matches` tm)) pats
-  lift $ getFirst $ fold $ fmap First subMatches
-matches _ _ = lift Nothing
+  env <- ask
+  lift $ getFirst $ foldMap
+    (\pat -> First $ runReaderT (pat `matches` tm) env)
+    pats
+matches _ _ = noMatch
 
 runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
 runMatches chart sort = flip runReaderT (MatchesEnv chart sort Map.empty)
@@ -362,10 +408,12 @@ matchesTests = scope "matches" $
   let foo :: Term ()
       foo = Term "foo" []
   in tests
-       [ expectJust $ runMatches undefined undefined $ matches (PatternVar (Just "x")) foo
-       , expectJust $ runMatches undefined undefined $ matches PatternAny foo
+       [ expectJust $ runMatches undefined undefined $ matches
+         (PatternVar (Just "x")) (Left foo)
        , expectJust $ runMatches undefined undefined $ matches
-         (PatternUnion [PatternAny, undefined]) foo
+         PatternAny (Left foo)
+       , expectJust $ runMatches undefined undefined $ matches
+         (PatternUnion [PatternAny, undefined]) (Left foo)
        ]
 
 -- Chart of the language @e@. We use this for testing.
@@ -377,23 +425,23 @@ eChart = SyntaxChart $ Map.fromList
     , Operator "str" (Arity []) "strings"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "num"   (External "nat") "numeral"
+    [ Operator "num"   (External "num") "numeral"
     , Operator "str"   (External "str") "literal"
     , Operator "plus"
-      (Arity [Valence [] "Exp", Valence [] "Exp"]) "addition"
+      (Arity ["Exp", "Exp"]) "addition"
     , Operator "times"
-      (Arity [Valence [] "Exp", Valence [] "Exp"]) "multiplication"
+      (Arity ["Exp", "Exp"]) "multiplication"
     , Operator "cat"
-      (Arity [Valence [] "Exp", Valence [] "Exp"]) "concatenation"
+      (Arity ["Exp", "Exp"]) "concatenation"
     , Operator "len"
-      (Arity [Valence [] "Exp"]) "length"
+      (Arity ["Exp"]) "length"
     -- TODO:
     -- . the book specifies this arity as
     --   - `let(e1;x.e2)`
     --   - `(Exp, Exp.Exp)Exp`
     -- . is it known that the `x` binds `e1`?
     -- . where is `x` specified?
-    , Operator "let"   (Arity [Valence [] "Exp", Valence ["Exp"] "Exp"]) "definition"
+    , Operator "let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
     ])
   ]
 
@@ -410,12 +458,9 @@ completePattern = do
   let mkPat (Operator opName arity _desc) = case arity of
         Arity valences -> PatternTm opName (const PatternAny <$> valences)
         -- TODO: PatternPrimTerm?
-        External name -> PatternPrimVal sort name
+        External name  -> PatternPrimVal sort name
 
-  pure $ PatternUnion $ foldr
-    (\op pats -> mkPat op : pats)
-    []
-    operators
+  pure $ PatternUnion $ fmap mkPat operators
 
 mkCompletePatternTests :: Test ()
 mkCompletePatternTests = scope "completePattern" $ tests
@@ -427,7 +472,7 @@ mkCompletePatternTests = scope "completePattern" $ tests
       runMatches eChart "Exp" completePattern
       ==
       Just (PatternUnion
-        [ PatternPrimVal "Exp" "nat"
+        [ PatternPrimVal "Exp" "num"
         , PatternPrimVal "Exp" "str"
         , PatternTm "plus"  [PatternAny, PatternAny]
         , PatternTm "times" [PatternAny, PatternAny]
@@ -452,27 +497,30 @@ minus x@(PatternTm hd subpats) (PatternTm hd' subpats') =
        else PatternTm hd subpats''
   else pure x
 
-minus (PatternUnion pats) x = PatternUnion <$> traverse (`minus` x) pats
+minus (PatternUnion pats) x = do
+  pats' <- traverse (`minus` x) pats
+  pure $ PatternUnion $ filter (/= PatternEmpty) pats'
 
 -- remove each pattern from pat one at a time
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
-minus x@(PatternPrimVal sort1 _) (PatternPrimVal sort2 _) = pure $
-  if sort1 == sort2 then PatternEmpty else x
+minus x@(PatternPrimVal sort1 name1) (PatternPrimVal sort2 name2) = pure $
+  -- TODO: what if sorts not equal? is that an error?
+  if sort1 == sort2 && name1 == name2 then PatternEmpty else x
 
 minus x@(PatternPrimTerm sort1 _) (PatternPrimTerm sort2 _) = pure $
   if sort1 == sort2 then PatternEmpty else x
 
 minus BindingPattern{} BindingPattern{} = error "TODO"
 
--- these all should return Nothing
-minus PatternTm{} PatternPrimVal{}       = error "illegal"
-minus PatternTm{} PatternPrimTerm{}      = error "illegal"
-minus PatternTm{} BindingPattern{}       = error "illegal"
+-- these all should return Nothing?
+minus x@PatternTm{} PatternPrimVal{}     = pure x -- error $ "illegal: " ++ show (x, y)
+minus x@PatternTm{} y@PatternPrimTerm{}    = error $ "illegal: " ++ show (x, y)
+minus x@PatternTm{} BindingPattern{}     = pure x -- error $ "illegal: " ++ show (x, y)
 
-minus PatternPrimVal{} PatternTm{}       = error "illegal"
+minus x@PatternPrimVal{} PatternTm{}       = pure x
 minus PatternPrimVal{} PatternPrimTerm{} = error "illegal"
-minus PatternPrimVal{} BindingPattern{}  = error "illegal"
+minus x@PatternPrimVal{} BindingPattern{}  = pure x
 
 minus PatternPrimTerm{} PatternTm{}      = error "illegal"
 minus PatternPrimTerm{} PatternPrimVal{} = error "illegal"
@@ -487,7 +535,7 @@ minusTests :: Test ()
 minusTests = scope "minus" $
   let x = PatternVar (Just "x")
       y = PatternVar (Just "y")
-      nat = PatternPrimVal "Exp" "nat"
+      num = PatternPrimVal "Exp" "num"
       any' = PatternAny
   in tests
        [ expect $ runMatches undefined undefined (minus x x) == Just PatternEmpty
@@ -499,19 +547,36 @@ minusTests = scope "minus" $
          runMatches eChart "Typ" (minus (PatternTm "num" []) (PatternTm "num" []))
          ==
          Just PatternEmpty
-       , expect $ runMatches eChart "Exp" (minus nat nat) == Just PatternEmpty
+       , expect $ runMatches eChart "Exp" (minus num num) == Just PatternEmpty
        , expect $
          runMatches eChart "Exp" (minus
            (PatternTm "plus"
-             [ PatternPrimVal "Exp" "nat"
+             [ PatternPrimVal "Exp" "num"
              , x
              ])
            (PatternTm "plus"
-             [ PatternPrimVal "Exp" "nat"
+             [ PatternPrimVal "Exp" "num"
              , y
              ]))
          ==
          Just PatternEmpty
+
+
+       -- This is wrong:
+       -- , expect $
+       --   let env = MatchesEnv eChart "Exp" $ Map.fromList
+       --         -- TODO: we should be able to do this without providing values
+       --         [ ("x", Right (PrimValue 2))
+       --         , ("y", Right (PrimValue 2))
+       --         ]
+       --   in (traceShowId $ flip runReaderT env (minus
+       --        (PatternTm "plus" [x, y])
+       --        (PatternTm "plus"
+       --          [ PatternPrimVal "Exp" "num"
+       --          , PatternPrimVal "Exp" "num"
+       --          ])))
+       --        ==
+       --        Just PatternEmpty
        ]
 
 patternCheck
@@ -519,24 +584,25 @@ patternCheck
   -> Matching a (PatternCheckResult a)
 patternCheck (DenotationChart chart) = do
   unmatched <- completePattern -- everything unmatched
-  (overlaps, unmatched) <- mapAccumM
+  (overlaps, unmatched') <- mapAccumM
     (\unmatchedAcc (pat, _denotation) -> go unmatchedAcc pat)
     unmatched
     chart
-  pure $ PatternCheckResult unmatched overlaps
+  pure $ PatternCheckResult unmatched' overlaps
 
   -- go
   -- . takes the set of uncovered values
   -- . returns the (set of covered values, set of remaining uncovered values)
-  where go :: Pattern -> Pattern -> Matching a (Pattern, Pattern)
-        -- TODO: are these necessary?
-        go _unmatched (PatternVar _) = (, PatternEmpty) <$> completePattern
-        go _unmatched PatternAny     = (, PatternEmpty) <$> completePattern
-        go unmatched  pat            = (pat, ) <$> unmatched `minus` pat
+  where go :: Pattern -> Pattern -> Matching a ((Pattern, IsRedudant), Pattern)
+        go unmatched pat = do
+          pat' <- unmatched `minus` pat
+              -- TODO: pretty sure we have to do some sort of noralization here
+          let redundant = if pat == pat' then IsRedudant else IsntRedundant
+          pure ((pat, redundant), pat')
 
 findMatch
-  :: forall a. DenotationChart a
-  -> Term a
+  :: forall a. Show a => DenotationChart a
+  -> TmVal a
   -> Matching a (Subst a, Denotation a)
 findMatch (DenotationChart pats) tm = do
   env <- ask
@@ -656,16 +722,22 @@ instance Pretty Valence where
 -- return : value       -> computation
 
 data StackFrame a
-  = CbvFrame
+  = CbvForeignFrame
     { _frameName  :: !Text                       -- ^ name of this term
     , _frameVals  :: !(Seq (Value a))            -- ^ values before
     , _frameTerms :: ![Term a]                   -- ^ subterms after
     , _frameK     :: !(Seq (Value a) -> Value a) -- ^ what to do after
     }
+  | CbvFrame
+    -- { _cbvFrameVals  :: !(Map Text (Value a))
+    -- , _cbvFrameTerms :: !(Map Text (Term a))
+    { _cbvFrameArgName :: !Text
+    , _cbvFrameBody    :: !(Term a)
+    }
   | BindingFrame
-    !(Map Text (Either (Term a) (Value a)))
+    !(Map Text (TmVal a))
 
-findBinding :: [StackFrame a] -> Text -> Maybe (Either (Term a) (Value a))
+findBinding :: [StackFrame a] -> Text -> Maybe (TmVal a)
 findBinding [] _ = Nothing
 findBinding (BindingFrame bindings : stack) name
   = case bindings ^? ix name of
@@ -673,45 +745,36 @@ findBinding (BindingFrame bindings : stack) name
     Nothing      -> findBinding stack name
 findBinding (_ : stack) name = findBinding stack name
 
-frameVals :: [StackFrame a] -> Map Text (Either (Term a) (Value a))
+frameVals :: [StackFrame a] -> Map Text (TmVal a)
 frameVals = foldl
   (\sorts -> \case
-    CbvFrame{} -> sorts
-    BindingFrame bindings -> bindings `Map.union` sorts)
+    BindingFrame bindings -> bindings `Map.union` sorts
+    _                     -> sorts)
   Map.empty
 
 data StateStep a = StateStep
-  { _stepFrames ::  ![StackFrame a]
-  , _stepFocus  :: !(Term a) -- ^ Either descending into term or ascending with value
+  { _stepFrames :: ![StackFrame a]
+  , _stepFocus  :: !(TmVal a) -- ^ Either descending into term or ascending with value
   }
 
   | Errored !Text
   | Done !(Value a)
 
-type State = ListZipper (StateStep (Either Int Text))
+type State a = ListZipper (StateStep a)
 
 type ListZipper a = Top :>> [a] :>> a
 
-next :: State -> State
+next :: State a -> State a
 next state = case state ^. focus of
   Done{} -> state
   _      -> case state & rightward of
     Just state' -> state'
     Nothing     -> state
 
-prev :: State -> State
+prev :: State a -> State a
 prev state = case state & leftward of
   Just state' -> state'
   Nothing     -> state
-
-
-allTests :: Test ()
-allTests = scope "all tests" $ tests
-  [ toPatternTests
-  , matchesTests
-  , minusTests
-  , mkCompletePatternTests
-  ]
 
 
 makeLenses ''Sort

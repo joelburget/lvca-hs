@@ -1,5 +1,7 @@
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE LambdaCase           #-}
+{-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Linguist.Brick where
 
 import           Brick
@@ -12,6 +14,7 @@ import           Data.Foldable              (toList)
 import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import           Data.Void                  (Void, absurd)
 import qualified Graphics.Vty               as V
 
 import           Linguist.SimpleExample     (E)
@@ -34,9 +37,9 @@ theMap = attrMap V.defAttr
   ]
 
 handleEvent
-  :: State
+  :: State s
   -> BrickEvent () a
-  -> EventM () (Next State)
+  -> EventM () (Next (State s))
 handleEvent g (VtyEvent (V.EvKey V.KUp []))         = continue $ prev g
 handleEvent g (VtyEvent (V.EvKey V.KDown []))       = continue $ next g
 handleEvent g (VtyEvent (V.EvKey V.KRight []))      = continue $ next g
@@ -49,69 +52,83 @@ handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt g
 handleEvent g (VtyEvent (V.EvKey V.KEsc []))        = halt g
 handleEvent g _                                     = continue g
 
-drawUI :: State -> Widget ()
+drawUI :: TmShow s => State s -> Widget ()
 drawUI state = case state ^. focus of
   StateStep ctx valTm ->
     let lBox = bordered "Context" $ center $ drawCtx ctx
-        rBox = bordered "Term"    $ center $ drawTm valTm
+        rBox = bordered "Term"    $ center $ drawTmVal valTm
     in lBox <+> rBox
   Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
   Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawVal val
 
-drawCtx :: [StackFrame E] -> Widget ()
+drawCtx :: TmShow a => [StackFrame a] -> Widget ()
 drawCtx = \case
   []    -> fill ' '
   stack -> vBox (reverse $ fmap drawStackFrame stack)
 
-drawStackFrame :: StackFrame E -> Widget ()
+drawStackFrame :: TmShow a => StackFrame a -> Widget ()
 drawStackFrame = \case
-  CbvFrame name before after _ ->
+  CbvForeignFrame name before after _ ->
     let slots = padLeft (Pad 1) <$>
           fmap showValSlot (toList before) ++ [str "_"] ++ fmap showTermSlot after
     in hBox $ txt name : slots
+  CbvFrame varName _body -> txt $ "evaluating arg " <> varName
   BindingFrame bindings -> hBox $ Map.toList bindings <&> \(k, v) ->
-    txt k <+> str ": " <+> either drawTm drawVal v
+    txt k <+> str ": " <+> drawTmVal v
 
-showValSlot :: Value E -> Widget ()
+class TmShow a where
+  drawPrim :: a -> Widget ()
+
+instance TmShow E where
+  drawPrim = str . either show show
+
+instance TmShow Void where
+  drawPrim = str . absurd
+
+drawTmVal :: TmShow a => TmVal a -> Widget ()
+drawTmVal = either drawTm drawVal
+
+showValSlot :: TmShow a => Value a -> Widget ()
 showValSlot = \case
   NativeValue name _vals -> txt name
-  PrimValue a -> str (either show show a)
-  Thunk tm -> showTermSlot tm
+  PrimValue a            -> drawPrim a
+  Thunk tm               -> showTermSlot tm
 
-showTermSlot :: Term E -> Widget ()
+showTermSlot :: TmShow a => Term a -> Widget ()
 showTermSlot = \case
   Term name _ -> txt $ "[" <> name <> "]"
-  Var name -> txt name
-  PrimTerm a -> str (either show show a)
-  Return val -> showValSlot val
+  Var name    -> txt name
+  PrimTerm a  -> drawPrim a -- str (either show show a)
+  Return val  -> showValSlot val
+  Binding _ _ -> txt "TODO: binding"
 
-drawBinding :: (Text, Term E) -> Widget ()
+drawBinding :: (Text, Term a) -> Widget ()
 drawBinding _ = txt "binding"
 
-drawTm :: Term E -> Widget ()
+drawTm :: TmShow a => Term a -> Widget ()
 drawTm = \case
-  Term name subterms ->
+  Term name subtms ->
     txt name
     <=>
-    padLeft (Pad 2) (vBox (fmap drawTm subterms))
+    padLeft (Pad 2) (vBox (fmap drawTm subtms))
   Binding names subterm ->
     txt ("[" <> T.unwords names <> "]")
     <=>
     padLeft (Pad 2) (drawTm subterm)
   Var name    -> txt name
-  PrimTerm a -> str (either show show a)
+  PrimTerm a -> drawPrim a -- str (either show show a)
   Return val -> str "<" <+> drawVal val <+> str ">"
 
-drawVal :: Value E -> Widget ()
+drawVal :: TmShow a => Value a -> Widget ()
 drawVal = \case
   NativeValue name vals ->
     txt name
     <=>
     padLeft (Pad 2) (vBox (fmap drawVal vals))
-  PrimValue primVal -> str $ either show show primVal
+  PrimValue primVal -> drawPrim primVal -- str $ either show show primVal
   Thunk tm -> str "{" <+> drawTm tm <+> str "}"
 
-app :: App State a ()
+app :: TmShow s => App (State s) a ()
 app = App
  { appDraw         = pure . drawUI
  , appChooseCursor = neverShowCursor

@@ -1,6 +1,6 @@
 module Linguist.Util where
 
-import Control.Monad.State
+import           Control.Monad.State
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]

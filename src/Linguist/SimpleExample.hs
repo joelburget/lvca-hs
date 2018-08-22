@@ -5,12 +5,11 @@
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.SimpleExample where
 
-import           Control.Lens    hiding (from, to)
-import qualified Data.Map.Strict as Map
-import           Data.Maybe      (fromMaybe)
-import Control.Monad.Reader
-import           Data.Text       (Text)
-import qualified Data.Text       as Text
+import           Control.Lens         hiding (from, to)
+import           Control.Monad.Reader
+import qualified Data.Map.Strict      as Map
+import           Data.Text            (Text)
+import qualified Data.Text            as Text
 import           EasyTest
 
 import           Linguist.Types
@@ -41,8 +40,8 @@ pattern VS x = PrimValue (Right x)
 denotation :: DenotationChart E
 denotation = DenotationChart
   -- [ (PatternVar (Just "x",) Variable "x")
-  [ (PatternPrimVal "num" "n", Value)
-  , (PatternPrimVal "str" "s", Value)
+  [ (PatternPrimVal "Exp" "num", Value)
+  , (PatternPrimVal "Exp" "str", Value)
   , (PatternTm "plus" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
     CallForeign $ \case
       VI x :< VI y :< Empty -> VI (x + y)
@@ -70,78 +69,56 @@ denotationTests =
       n1, n2, lenStr :: Term E
       lenStr = Term "len" [ Return (PrimValue (Right "str")) ]
       times v1 v2 = Term "times" [v1, v2]
+      plus v1 v2 = Term "plus" [v1, v2]
       n1 = Return (PrimValue (Left 1))
       n2 = Return (PrimValue (Left 2))
       x = PatternVar (Just "x")
       -- y = PatternVar (Just "y")
+      patCheck = runMatches eChart "Exp" $ patternCheck denotation
+      env = MatchesEnv eChart "Exp" (Map.singleton "x" (Right (PrimValue (Left 2))))
   in tests
-       [ expectJust $ runMatches eChart "Exp" $ matches x lenStr
-       , expectJust $ runMatches eChart "Exp" $ matches (PatternTm "len" [x]) lenStr
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation lenStr
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation (times n1 n2)
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation (Term "plus" [n1, n2])
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation tm1
+       [ expectJust $ runMatches eChart "Exp" $ matches x
+         (Left lenStr)
+       , expectJust $ runMatches eChart "Exp" $ matches (PatternTm "len" [x])
+         (Left lenStr)
+       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+         (Left lenStr)
+       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+         (Left (times n1 n2))
+       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+         (Left (plus n1 n2))
+       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+         (Left tm1)
 
-       -- , let Just (subst, _) = findMatch eChart "Exp" denotation tm1
-       --       result = applySubst subst tm1
-       -- , expect $ result == tm1 & ix 0 .~
+--        , let Just (subst, _) = findMatch eChart "Exp" denotation tm1
+--              result = applySubst subst tm1
+--        , expect $ result == tm1 & ix 0 .~
 
        , expectJust $
          let pat = PatternTm "cat"
                [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"]
-         in runMatches eChart "Exp" $ matches pat tm2
+         in runMatches eChart "Exp" $ matches pat (Left tm2)
+       , expectJust $
+         let pat = PatternPrimVal "num" "n_1"
+             tm  = Var "x"
+         in flip runReaderT env $ matches pat (Left tm)
+       , expectJust $
+         let pat = PatternPrimVal "num" "n_2"
+             tm  = Return (VI 2)
+         in flip runReaderT env $ matches pat (Left tm)
        , expectJust $
          let pat = PatternTm "plus"
                [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"]
              tm = Term "plus" [Var "x", Return (VI 2)]
-         in runMatches eChart "Exp" $ matches pat tm
+         in flip runReaderT env $ matches pat (Left tm)
+
+       , expect $
+         fmap isComplete patCheck
+         ==
+         Just False
+
+--        , expect $ fmap hasRedundantPat patCheck
+--          ==
+--          Just True
+
        ]
-
-proceed :: DenotationChart E -> StateStep E -> StateStep E
-proceed chart (StateStep stack tm) = case tm of
-  Term name subterms -> case flip runReaderT (MatchesEnv eChart "Exp" (frameVals stack)) $ findMatch chart tm of
-    Just (_assignment, CallForeign f) -> case subterms of
-      tm':tms -> StateStep
-        (CbvFrame name Empty tms f : stack)
-        tm'
-      _ -> Errored "1"
-
-    Just (assignment, BindIn name from to) -> fromMaybe (Errored "BindIn") $ do
-      -- XXX we should get this from the substitution
-      -- Var name' <- subterms ^? ix (_ name)
-      from'     <- assignment ^? ix from
-      to'       <- assignment ^? ix to
-      -- traceM $ "from: " ++ show from'
-      -- traceM $ "to: " ++ show to'
-      let frame = BindingFrame $ Map.singleton name $ Left from'
-      Just $ StateStep (frame : stack) to'
-    Just _ -> Errored "3"
-    Nothing -> Errored "4"
-
-  Var name -> case findBinding stack name of
-    Just (Left tm')  -> StateStep stack tm'
-    Just (Right val) -> StateStep stack (Return val)
-    Nothing          -> Errored "5"
-
-  PrimTerm primTm -> case stack of
-    CbvFrame _ vals [] f : stack' ->
-      case f (vals |> PrimValue primTm) of
-        result -> StateStep stack' (Return result)
-    CbvFrame name vals (tm':tms) denote : stack' -> StateStep
-      (CbvFrame name (vals |> PrimValue primTm) tms denote : stack')
-      tm'
-    BindingFrame  _ : stack' -> StateStep stack' tm
-    [] -> Errored "empty stack with term"
-
-  Return val -> case stack of
-    [] -> Done val
-    CbvFrame _name vals []       denote : stack' -> StateStep
-      stack'
-      (Return (denote (vals |> val)))
-    CbvFrame name vals (tm':tms) denote : stack' -> StateStep
-      (CbvFrame name (vals |> val) tms denote : stack')
-      tm'
-    BindingFrame _ : stack' -> StateStep stack' tm
-
-proceed _ e@Errored{} = e
-proceed _ d@Done{} = d
