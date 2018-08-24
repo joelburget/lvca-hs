@@ -16,11 +16,13 @@ module Linguist.SimpleExample
   , mkCompletePatternTests
   , prettySyntaxChartTests
   , prettyStaticTests
+  , matchesTests
   ) where
 
 import           Control.Lens          hiding (from, to)
 import           Control.Monad.Reader
 import qualified Data.Map.Strict       as Map
+import qualified Data.Sequence         as Seq
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import           Data.Text.Prettyprint.Doc (pretty, layoutPretty, defaultLayoutOptions)
@@ -143,7 +145,7 @@ dynamicTests =
       n2          = PrimValue (Left 2)
       x           = PatternVar (Just "x")
       patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
-      env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $
+      env         = MatchesEnv Seq.empty syntax "Exp" $ Map.singleton "x" $
         PrimValue $ Left 2
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
@@ -303,3 +305,24 @@ prettyStaticTests = tests
     , "types (len x) num"
     ]
   ]
+
+matchesTests :: Test ()
+matchesTests = scope "matches" $
+  let foo :: Term ()
+      foo = Term "foo" []
+
+  in tests
+       [ expectJust $ runMatches undefined undefined $ matches
+         (PatternVar (Just "x")) foo
+       , expectJust $ runMatches undefined undefined $ matches
+         PatternAny foo
+       , expectJust $ runMatches undefined undefined $ matches
+         (PatternUnion [PatternAny, undefined]) foo
+       , expect $
+         (runMatches syntax "Typ" $ matches
+           (BindingPattern ["y"] PatternAny)
+           (Binding ["x"] (Term "num" [])))
+         ==
+         (Just (Subst Map.empty (Map.singleton (Seq.fromList []) (["y"], ["x"])))
+           :: Maybe (Subst ()))
+       ]

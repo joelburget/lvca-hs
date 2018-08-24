@@ -14,6 +14,14 @@ pairWith _f []     []     = Just []
 pairWith f  (a:as) (b:bs) = (f a b :) <$> pairWith f as bs
 pairWith _ _ _            = Nothing
 
+-- | Like indexed 'zipWith', but lengths must match
+ipairWith :: (Int -> a -> b -> c) -> [a] -> [b] -> Maybe [c]
+ipairWith = ipairWith' 0
+  where
+  ipairWith' _ _f []     []     = Just []
+  ipairWith' i f  (a:as) (b:bs) = (f i a b :) <$> ipairWith' (succ i) f as bs
+  ipairWith' _ _ _ _            = Nothing
+
 mapAccumM
   :: (Monad m, Functor m, Traversable t)
   => (a -> b -> m (c, a))

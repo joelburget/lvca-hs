@@ -41,7 +41,7 @@ main = do
 allTests :: Test ()
 allTests = scope "all tests" $ tests
   [ "toPattern" toPatternTests
-  , "matches" matchesTests
+  , "matches" SimpleExample.matchesTests
   , "minus" SimpleExample.minusTests
   , "mkCompletePatternTests" SimpleExample.mkCompletePatternTests
   , "simple-example" SimpleExample.dynamicTests

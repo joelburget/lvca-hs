@@ -43,7 +43,7 @@ module Linguist.Types
   , toSlot
   , bodySlot
   , argSlot
-  , Subst
+  , Subst(..)
 
   -- * Terms / Values
   , Term(..)
@@ -101,7 +101,6 @@ module Linguist.Types
 
   -- * Tests
   , toPatternTests
-  , matchesTests
   ) where
 
 import           Control.Lens              hiding (op)
@@ -114,6 +113,7 @@ import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
 import           Data.Sequence             (Seq)
+import qualified Data.Sequence             as Seq
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
@@ -205,13 +205,13 @@ data Term a
 -- | A pattern matches a term
 data Pattern
   -- | Matches the head of a term and any subpatterns
-  = PatternTm   !Text ![Pattern]
+  = PatternTm !Text ![Pattern]
 
   -- TODO: should this exist?
   | BindingPattern ![Text] !Pattern
 
   -- | A variable pattern that matches everything, generating a substitution
-  | PatternVar  !(Maybe Text)
+  | PatternVar !(Maybe Text)
 
   -- | Matches 'PrimValue'
   | PatternPrimVal
@@ -256,7 +256,18 @@ data Denotation a
 -- a similar way.
 newtype DenotationChart a = DenotationChart [(Pattern, Denotation a)]
 
-type Subst a = Map Text (Term a)
+data Subst a = Subst
+  { _assignments             :: !(Map Text (Term a))
+  -- | Map from a (path to binding term / pattern) to the (pattern <-> term)
+  -- variable correspondence.
+  , _variableCorrespondences :: !(Map (Seq Int) ([Text], [Text]))
+  } deriving (Eq, Show)
+
+instance Semigroup (Subst a) where
+  Subst x1 y1 <> Subst x2 y2 = Subst (x1 <> x2) (y1 <> y2)
+
+instance Monoid (Subst a) where
+  mempty = Subst mempty mempty
 
 data IsRedudant = IsRedudant | IsntRedundant
   deriving Eq
@@ -308,7 +319,8 @@ toPatternTests = scope "toPattern" $ tests
   ]
 
 data MatchesEnv a = MatchesEnv
-  { _envChart :: !SyntaxChart
+  { _envPath  :: !(Seq Int)
+  , _envChart :: !SyntaxChart
   , _envSort  :: !SortName
   , _envVars  :: !(Map Text (Term a))
   }
@@ -318,12 +330,13 @@ makeLenses ''MatchesEnv
 type Matching a = ReaderT (MatchesEnv a) Maybe
 
 noMatch, emptyMatch :: Matching a (Subst a)
-noMatch = lift Nothing
-emptyMatch = pure Map.empty
+noMatch    = lift Nothing
+emptyMatch = pure mempty
 
 matches :: Pattern -> Term a -> Matching a (Subst a)
 -- matches pat (Left (Return val))     = matches pat (Right val)
-matches (PatternVar (Just name)) tm = pure $ Map.singleton name tm
+matches (PatternVar (Just name)) tm
+  = pure $ Subst (Map.singleton name tm) Map.empty
 matches (PatternVar Nothing)     _  = emptyMatch
 
 matches pat (Var name) = do
@@ -337,15 +350,17 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   then noMatch
   else do
     mMatches <- sequence $ fmap sequence $
-      pairWith matches subpatterns subterms
-    Map.unions <$> lift mMatches
+      ipairWith (\i pat tm -> local (envPath %~ (|> i)) (matches pat tm))
+        subpatterns subterms
+    mconcat <$> lift mMatches
 -- TODO: write context of var names?
 matches (PatternPrimVal _primName1 _varName) (PrimValue _)
   = emptyMatch
 -- TODO: this piece must know the binding structure from the syntax chart
-matches (BindingPattern lnames subpat) (Binding rnames subtm)
-  -- XXX also match names
-  = matches subpat subtm
+matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
+  path <- view envPath
+  let subst = Subst Map.empty (Map.singleton path (lnames, rnames))
+  fmap (subst <>) $ matches subpat subtm
 matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
   env <- ask
@@ -355,38 +370,18 @@ matches (PatternUnion pats) tm = do
 matches _ _ = noMatch
 
 runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
-runMatches chart sort = flip runReaderT (MatchesEnv chart sort Map.empty)
-
-matchesTests :: Test ()
-matchesTests = scope "matches" $
-  let foo :: Term ()
-      foo = Term "foo" []
-
-  in tests
-       [ expectJust $ runMatches undefined undefined $ matches
-         (PatternVar (Just "x")) foo
-       , expectJust $ runMatches undefined undefined $ matches
-         PatternAny foo
-       , expectJust $ runMatches undefined undefined $ matches
-         (PatternUnion [PatternAny, undefined]) foo
-       , expect $
-         (runMatches undefined undefined $ matches
-           (BindingPattern ["y"] PatternAny)
-           (Binding ["x"] foo))
-         ==
-         -- XXX need (x <-> y)
-         Just Map.empty
-       ]
+runMatches chart sort
+  = flip runReaderT (MatchesEnv Seq.empty chart sort Map.empty)
 
 getSort :: Matching a Sort
 getSort = do
-  MatchesEnv (SyntaxChart syntax) sort _ <- ask
+  MatchesEnv _ (SyntaxChart syntax) sort _ <- ask
   lift $ syntax ^? ix sort
 
 completePattern :: Matching a Pattern
 completePattern = do
-  MatchesEnv _ sort _  <- ask
-  Sort _vars operators <- getSort
+  MatchesEnv _ _ sort _ <- ask
+  Sort _vars operators  <- getSort
 
   pure $ PatternUnion $ operators <&> \(Operator opName arity _desc) ->
     case arity of

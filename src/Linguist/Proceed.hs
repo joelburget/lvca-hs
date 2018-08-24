@@ -9,6 +9,7 @@ import           Control.Lens         hiding (from, to)
 import           Control.Monad.Reader
 import qualified Data.Map.Strict      as Map
 import           Data.Maybe           (fromMaybe)
+import qualified Data.Sequence        as Seq
 import qualified Data.Text            as Text
 
 import           Linguist.Types
@@ -17,7 +18,7 @@ import           Linguist.Types
 proceed :: Show a => SyntaxChart -> DenotationChart a -> StateStep a -> StateStep a
 proceed sChart dChart (StateStep stack tmVal) = case tmVal of
   Descending tm@(Term name subtms) ->
-    let env = MatchesEnv sChart "Exp" $ frameVals stack
+    let env = MatchesEnv Seq.empty sChart "Exp" $ frameVals stack
     in case runReaderT (findMatch dChart tm) env of
       Just (_assignment, CallForeign f) -> case subtms of
         tm':tms -> StateStep
@@ -25,7 +26,7 @@ proceed sChart dChart (StateStep stack tmVal) = case tmVal of
           (Descending tm')
         _ -> Errored "1"
 
-      Just (assignment, BindIn name' from to) ->
+      Just (Subst assignment _, BindIn name' from to) ->
         fromMaybe (Errored "BindIn") $ do
           -- XXX we should get this from the substitution
           -- Var name' <- subtms ^? ix (_ name')
@@ -35,12 +36,12 @@ proceed sChart dChart (StateStep stack tmVal) = case tmVal of
           -- traceM $ "to: " ++ show to'
           let frame = BindingFrame $ Map.singleton name' from'
           Just $ StateStep (frame : stack) (Descending to')
-      Just (assignment, Cbv body arg) ->
+      Just (Subst assignment _, Cbv body arg) ->
         fromMaybe (Errored "Cbv") $ do
           body' <- assignment ^? ix body
           arg'  <- assignment ^? ix arg
           Just $ StateStep (CbvFrame name arg body' : stack) (Descending arg')
-      Just (assignment, Cbn body arg) ->
+      Just (Subst assignment _, Cbn body arg) ->
         fromMaybe (Errored "Cbn") $ do
           body' <- assignment ^? ix body
           arg'  <- assignment ^? ix arg
