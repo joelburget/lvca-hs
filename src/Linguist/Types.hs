@@ -512,26 +512,26 @@ newtype JudgementRules = JudgementRules [JudgementRule]
 
 instance Pretty OperatorApplication where
   pretty (OperatorApplication hd applicands)
-    = pretty hd PP.<+> hsep (pretty <$> applicands)
+    = pretty hd PP.<+> hsep (fmap pretty applicands)
 
 instance Pretty SaturatedTerm where
   pretty = \case
     JVariable name -> pretty name
-    Op opAp        -> pretty opAp
+    Op opAp        -> parens $ pretty opAp
 
 instance Pretty JudgementClause where
   pretty (JudgementClause hd applicands)
-    = pretty hd PP.<+> hsep (pretty <$> applicands)
+    = pretty hd PP.<+> hsep (fmap pretty applicands)
 
 instance Pretty JudgementRule where
   pretty (JudgementRule assumptions conclusion) = vsep
-    [ hsep (pretty <$> assumptions)
+    [ hsep $ punctuate comma $ fmap pretty assumptions
     , "------"
     , pretty conclusion
     ]
 
 instance Pretty JudgementRules where
-  pretty (JudgementRules rules) = vsep $ intersperse "" $ pretty <$> rules
+  pretty (JudgementRules rules) = vsep $ intersperse "" $ fmap pretty rules
 
 instance Pretty SyntaxChart where
   pretty (SyntaxChart sorts) =
@@ -551,7 +551,7 @@ instance Pretty Arity where
   pretty (Arity valences) =
     if null valences
     then mempty
-    else parens $ hsep $ punctuate semi $ pretty <$> valences
+    else parens $ hsep $ punctuate semi $ fmap pretty valences
   pretty (External name) = pretty name
 
 instance Pretty Valence where

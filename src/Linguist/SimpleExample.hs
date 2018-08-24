@@ -15,6 +15,7 @@ module Linguist.SimpleExample
   , minusTests
   , mkCompletePatternTests
   , prettySyntaxChartTests
+  , prettyStaticTests
   ) where
 
 import           Control.Lens          hiding (from, to)
@@ -276,5 +277,29 @@ prettySyntaxChartTests = tests
     , "Typ ::="
     , "  num"
     , "  str"
+    ]
+  ]
+
+prettyStaticTests :: Test ()
+prettyStaticTests = tests
+  [ expect $
+    renderStrict (layoutPretty defaultLayoutOptions (pretty statics))
+    ==
+    Text.intercalate "\n"
+    [ "types x num, types y num"
+    , "------"
+    , "types (plus x y) num"
+    , ""
+    , "types x num, types y num"
+    , "------"
+    , "types (times x y) num"
+    , ""
+    , "types x str, types y str"
+    , "------"
+    , "types (cat x y) str"
+    , ""
+    , "types x str"
+    , "------"
+    , "types (len x) num"
     ]
   ]

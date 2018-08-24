@@ -45,7 +45,8 @@ allTests = scope "all tests" $ tests
   , "minus" SimpleExample.minusTests
   , "mkCompletePatternTests" SimpleExample.mkCompletePatternTests
   , "simple-example" SimpleExample.dynamicTests
-  , "syntax-chart" SimpleExample.prettySyntaxChartTests
+  , "pretty-syntax" SimpleExample.prettySyntaxChartTests
+  , "syntax-statics" SimpleExample.prettyStaticTests
   , "stlc" stlcTests
   ]
 
