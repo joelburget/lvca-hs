@@ -14,13 +14,16 @@ module Linguist.SimpleExample
   , dynamicTests
   , minusTests
   , mkCompletePatternTests
+  , prettySyntaxChartTests
   ) where
 
-import           Control.Lens         hiding (from, to)
+import           Control.Lens          hiding (from, to)
 import           Control.Monad.Reader
-import qualified Data.Map.Strict      as Map
-import           Data.Text            (Text)
-import qualified Data.Text            as Text
+import qualified Data.Map.Strict       as Map
+import           Data.Text             (Text)
+import qualified Data.Text             as Text
+import           Data.Text.Prettyprint.Doc (pretty, layoutPretty, defaultLayoutOptions)
+import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           EasyTest
 
 import           Linguist.Types
@@ -255,3 +258,23 @@ minusTests = scope "minus" $
        --        ==
        --        Just PatternEmpty
        ]
+
+prettySyntaxChartTests :: Test ()
+prettySyntaxChartTests = tests
+  [ expect $
+    renderStrict (layoutPretty defaultLayoutOptions (pretty syntax))
+    ==
+    Text.intercalate "\n"
+    [ "Exp ::="
+    , "  num: num"
+    , "  str: str"
+    , "  plus: (Exp; Exp)"
+    , "  times: (Exp; Exp)"
+    , "  cat: (Exp; Exp)"
+    , "  len: (Exp)"
+    , "  let: (Exp; Exp.Exp)"
+    , "Typ ::="
+    , "  num"
+    , "  str"
+    ]
+  ]

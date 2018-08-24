@@ -189,29 +189,29 @@ exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
 
--- | Denotation charts
---
--- A denotation chart maps from patterns to their denotation. Patterns are
--- checked from top to bottom.
---
--- We check for completeness and reduncancy using a very similar algorithm to
--- Haskell's pattern match checks. These could also be compiled efficiently in
--- a similar way.
-newtype DenotationChart a = DenotationChart [(Pattern, Denotation a)]
-
-pattern PatternAny :: Pattern
-pattern PatternAny = PatternVar Nothing
-
-pattern PatternEmpty :: Pattern
-pattern PatternEmpty = PatternUnion []
+-- | An evaluated or unevaluated term
+data Term a
+  = Term
+    { _termName :: !Text     -- ^ name of this term
+    , _subterms :: ![Term a] -- ^ subterms
+    }
+  | Binding
+    ![Text]
+    !(Term a)
+  | Var !Text
+  | PrimValue !a
+  deriving (Eq, Show)
 
 -- | A pattern matches a term
 data Pattern
-  -- | A variable pattern that matches everything, generating a substitution
-  = PatternVar  !(Maybe Text)
-
   -- | Matches the head of a term and any subpatterns
-  | PatternTm   !Text ![Pattern]
+  = PatternTm   !Text ![Pattern]
+
+  -- TODO: should this exist?
+  | BindingPattern ![Text] !Pattern
+
+  -- | A variable pattern that matches everything, generating a substitution
+  | PatternVar  !(Maybe Text)
 
   -- | Matches 'PrimValue'
   | PatternPrimVal
@@ -219,12 +219,15 @@ data Pattern
     , _patternPrimName :: !Text     -- ^ name, eg "s_1"
     }
 
-  -- TODO: should this exist?
-  | BindingPattern ![Text] !Pattern
-
   -- | The union of patterns
   | PatternUnion ![Pattern]
   deriving (Eq, Show)
+
+pattern PatternAny :: Pattern
+pattern PatternAny = PatternVar Nothing
+
+pattern PatternEmpty :: Pattern
+pattern PatternEmpty = PatternUnion []
 
 data Denotation a
   = Value
@@ -243,21 +246,17 @@ data Denotation a
     , _argSlot  :: !Text
     }
 
-type Subst a = Map Text (Term a)
+-- | Denotation charts
+--
+-- A denotation chart maps from patterns to their denotation. Patterns are
+-- checked from top to bottom.
+--
+-- We check for completeness and reduncancy using a very similar algorithm to
+-- Haskell's pattern match checks. These could also be compiled efficiently in
+-- a similar way.
+newtype DenotationChart a = DenotationChart [(Pattern, Denotation a)]
 
--- | An evaluated or unevaluated term
-data Term a
-  = Term
-    { _termName :: !Text     -- ^ name of this term
-    , _subterms :: ![Term a] -- ^ subterms
-    }
-  | Binding
-    ![Text]
-    !(Term a)
-  | Var !Text
-  | PrimValue !a
-  -- | Return !(Value a)
-  deriving Show
+type Subst a = Map Text (Term a)
 
 data IsRedudant = IsRedudant | IsntRedundant
   deriving Eq
@@ -362,6 +361,7 @@ matchesTests :: Test ()
 matchesTests = scope "matches" $
   let foo :: Term ()
       foo = Term "foo" []
+
   in tests
        [ expectJust $ runMatches undefined undefined $ matches
          (PatternVar (Just "x")) foo
@@ -369,6 +369,13 @@ matchesTests = scope "matches" $
          PatternAny foo
        , expectJust $ runMatches undefined undefined $ matches
          (PatternUnion [PatternAny, undefined]) foo
+       , expect $
+         (runMatches undefined undefined $ matches
+           (BindingPattern ["y"] PatternAny)
+           (Binding ["x"] foo))
+         ==
+         -- XXX need (x <-> y)
+         Just Map.empty
        ]
 
 getSort :: Matching a Sort
@@ -536,18 +543,19 @@ instance Pretty Sort where
     = vsep $ fmap pretty operators
 
 instance Pretty Operator where
-  pretty (Operator name arity _desc)
-    = hsep [pretty name <> ":", pretty arity]
+  pretty (Operator name arity _desc) = case arity of
+    Arity [] -> pretty name
+    _        -> hsep [pretty name <> ":", pretty arity]
 
 instance Pretty Arity where
   pretty (Arity valences) =
     if null valences
     then mempty
-    else parens $ hsep $ punctuate comma $ pretty <$> valences
+    else parens $ hsep $ punctuate semi $ pretty <$> valences
   pretty (External name) = pretty name
 
 instance Pretty Valence where
-  pretty (Valence boundVars result) = hsep $
+  pretty (Valence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
 
