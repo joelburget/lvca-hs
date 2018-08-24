@@ -70,6 +70,7 @@ module Linguist.Types
   , envVars
   , matches
   , runMatches
+  , completePattern
   , minus
   , patternCheck
   , findMatch
@@ -101,9 +102,6 @@ module Linguist.Types
   -- * Tests
   , toPatternTests
   , matchesTests
-  , minusTests
-  , mkCompletePatternTests
-  , eChart
   ) where
 
 import           Control.Lens              hiding (op)
@@ -373,35 +371,6 @@ matchesTests = scope "matches" $
          (PatternUnion [PatternAny, undefined]) foo
        ]
 
--- Chart of the language @e@. We use this for testing.
-eChart :: SyntaxChart
-eChart = SyntaxChart $ Map.fromList
-  [ ("Typ", Sort ["t"]
-    -- TODO: is this the correct arity (sort)?
-    [ Operator "num" (Arity []) "numbers"
-    , Operator "str" (Arity []) "strings"
-    ])
-  , ("Exp", Sort ["e"]
-    [ Operator "num"   (External "num") "numeral"
-    , Operator "str"   (External "str") "literal"
-    , Operator "plus"
-      (Arity ["Exp", "Exp"]) "addition"
-    , Operator "times"
-      (Arity ["Exp", "Exp"]) "multiplication"
-    , Operator "cat"
-      (Arity ["Exp", "Exp"]) "concatenation"
-    , Operator "len"
-      (Arity ["Exp"]) "length"
-    -- TODO:
-    -- . the book specifies this arity as
-    --   - `let(e1;x.e2)`
-    --   - `(Exp, Exp.Exp)Exp`
-    -- . is it known that the `x` binds `e1`?
-    -- . where is `x` specified?
-    , Operator "let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
-    ])
-  ]
-
 getSort :: Matching a Sort
 getSort = do
   MatchesEnv (SyntaxChart syntax) sort _ <- ask
@@ -416,26 +385,6 @@ completePattern = do
     case arity of
       Arity valences -> PatternTm opName $ const PatternAny <$> valences
       External name  -> PatternPrimVal sort name
-
-mkCompletePatternTests :: Test ()
-mkCompletePatternTests = scope "completePattern" $ tests
-  [ expect $
-      runMatches eChart "Typ" completePattern
-      ==
-      Just (PatternUnion [PatternTm "num" [], PatternTm "str" []])
-  , expect $
-      runMatches eChart "Exp" completePattern
-      ==
-      Just (PatternUnion
-        [ PatternPrimVal "Exp" "num"
-        , PatternPrimVal "Exp" "str"
-        , PatternTm "plus"  [PatternAny, PatternAny]
-        , PatternTm "times" [PatternAny, PatternAny]
-        , PatternTm "cat"   [PatternAny, PatternAny]
-        , PatternTm "len"   [PatternAny]
-        , PatternTm "let"   [PatternAny, PatternAny]
-        ])
-  ]
 
 minus :: Pattern -> Pattern -> Matching a Pattern
 minus _ (PatternVar _) = pure PatternEmpty
@@ -472,55 +421,6 @@ minus x@PatternPrimVal{} BindingPattern{} = pure x
 minus BindingPattern{} BindingPattern{}   = error "TODO"
 minus x@BindingPattern{} PatternTm{}      = pure x
 minus x@BindingPattern{} PatternPrimVal{} = pure x
-
-
-minusTests :: Test ()
-minusTests = scope "minus" $
-  let x = PatternVar (Just "x")
-      y = PatternVar (Just "y")
-      num = PatternPrimVal "Exp" "num"
-      any' = PatternAny
-  in tests
-       [ expect $ runMatches undefined undefined (minus x x) == Just PatternEmpty
-       , expect $ runMatches undefined undefined (minus x y) == Just PatternEmpty
-       , expect $ runMatches undefined undefined (minus x any') == Just PatternEmpty
-       -- , expect $ runMatches undefined undefined (minus any' x) == Just PatternEmpty
-       , expect $ runMatches undefined undefined (minus any' any') == Just PatternEmpty
-       , expect $
-         runMatches eChart "Typ" (minus (PatternTm "num" []) (PatternTm "num" []))
-         ==
-         Just PatternEmpty
-       , expect $ runMatches eChart "Exp" (minus num num) == Just PatternEmpty
-       , expect $
-         runMatches eChart "Exp" (minus
-           (PatternTm "plus"
-             [ PatternPrimVal "Exp" "num"
-             , x
-             ])
-           (PatternTm "plus"
-             [ PatternPrimVal "Exp" "num"
-             , y
-             ]))
-         ==
-         Just PatternEmpty
-
-
-       -- This is wrong:
-       -- , expect $
-       --   let env = MatchesEnv eChart "Exp" $ Map.fromList
-       --         -- TODO: we should be able to do this without providing values
-       --         [ ("x", Right (PrimValue 2))
-       --         , ("y", Right (PrimValue 2))
-       --         ]
-       --   in (traceShowId $ flip runReaderT env (minus
-       --        (PatternTm "plus" [x, y])
-       --        (PatternTm "plus"
-       --          [ PatternPrimVal "Exp" "num"
-       --          , PatternPrimVal "Exp" "num"
-       --          ])))
-       --        ==
-       --        Just PatternEmpty
-       ]
 
 patternCheck
   :: forall a. DenotationChart a

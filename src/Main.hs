@@ -10,11 +10,9 @@ import           Linguist.Brick
 import           Linguist.Proceed
 import           Linguist.Types
 
-import           Linguist.SimpleExample (denotationTests)
+import qualified Linguist.SimpleExample as SimpleExample
 import           Linguist.Stlc
 import           Linguist.TExample ()
-
-import Data.Void (Void)
 
 natJudgement :: JudgementForm
 natJudgement = JudgementForm "nat" [(In, "a")]
@@ -34,8 +32,9 @@ natJudgements = JudgementRules
 main :: IO ()
 main = do
   _ <- defaultMain app $
-    let steps :: [StateStep Void]
-        steps = iterate (proceed denotation) $ StateStep [] (Descending stlcTm2)
+    let steps :: [StateStep SimpleExample.E]
+        steps = iterate (proceed SimpleExample.syntax SimpleExample.dynamics) $
+          StateStep [] (Descending SimpleExample.tm1)
     in zipper steps & fromWithin traverse
   pure ()
 
@@ -43,9 +42,9 @@ allTests :: Test ()
 allTests = scope "all tests" $ tests
   [ "toPattern" toPatternTests
   , "matches" matchesTests
-  , "minus" minusTests
-  , "mkCompletePatternTests" mkCompletePatternTests
-  , "simple-example" denotationTests
+  , "minus" SimpleExample.minusTests
+  , "mkCompletePatternTests" SimpleExample.mkCompletePatternTests
+  , "simple-example" SimpleExample.dynamicTests
   , "stlc" stlcTests
   ]
 

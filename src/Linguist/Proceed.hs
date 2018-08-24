@@ -14,11 +14,11 @@ import qualified Data.Text            as Text
 import           Linguist.Types
 
 
-proceed :: Show a => DenotationChart a -> StateStep a -> StateStep a
-proceed chart (StateStep stack tmVal) = case tmVal of
+proceed :: Show a => SyntaxChart -> DenotationChart a -> StateStep a -> StateStep a
+proceed sChart dChart (StateStep stack tmVal) = case tmVal of
   Descending tm@(Term name subtms) ->
-    let env = MatchesEnv eChart "Exp" $ frameVals stack
-    in case runReaderT (findMatch chart tm) env of
+    let env = MatchesEnv sChart "Exp" $ frameVals stack
+    in case runReaderT (findMatch dChart tm) env of
       Just (_assignment, CallForeign f) -> case subtms of
         tm':tms -> StateStep
           (CbvForeignFrame name Empty tms f : stack)
@@ -57,7 +57,7 @@ proceed chart (StateStep stack tmVal) = case tmVal of
   Descending (Binding _ _) -> error "TODO"
 
   -- reverse direction and return this value
-  Descending val -> proceed chart (StateStep stack (Ascending val))
+  Descending val -> proceed sChart dChart (StateStep stack (Ascending val))
 
   Ascending val -> case stack of
     [] -> Done val
@@ -72,5 +72,5 @@ proceed chart (StateStep stack tmVal) = case tmVal of
       (Descending body)
     BindingFrame _ : stack' -> StateStep stack' tmVal
 
-proceed _ e@Errored{} = e
-proceed _ d@Done{} = d
+proceed _ _ e@Errored{} = e
+proceed _ _ d@Done{}    = d

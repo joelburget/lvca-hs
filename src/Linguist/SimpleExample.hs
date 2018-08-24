@@ -3,7 +3,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE TypeApplications  #-}
-module Linguist.SimpleExample where
+module Linguist.SimpleExample
+  ( syntax
+  , dynamics
+  , statics
+  , typingJudgement
+  , E
+  , tm1
+  , tm2
+  , dynamicTests
+  , minusTests
+  , mkCompletePatternTests
+  ) where
 
 import           Control.Lens         hiding (from, to)
 import           Control.Monad.Reader
@@ -16,6 +27,35 @@ import           Linguist.Types
 
 
 type E = Either Int Text
+
+-- Chart of the language @e@. We use this for testing.
+syntax :: SyntaxChart
+syntax = SyntaxChart $ Map.fromList
+  [ ("Typ", Sort ["t"]
+    -- TODO: is this the correct arity (sort)?
+    [ Operator "num" (Arity []) "numbers"
+    , Operator "str" (Arity []) "strings"
+    ])
+  , ("Exp", Sort ["e"]
+    [ Operator "num"   (External "num") "numeral"
+    , Operator "str"   (External "str") "literal"
+    , Operator "plus"
+      (Arity ["Exp", "Exp"]) "addition"
+    , Operator "times"
+      (Arity ["Exp", "Exp"]) "multiplication"
+    , Operator "cat"
+      (Arity ["Exp", "Exp"]) "concatenation"
+    , Operator "len"
+      (Arity ["Exp"]) "length"
+    -- TODO:
+    -- . the book specifies this arity as
+    --   - `let(e1;x.e2)`
+    --   - `(Exp, Exp.Exp)Exp`
+    -- . is it known that the `x` binds `e1`?
+    -- . where is `x` specified?
+    , Operator "let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
+    ])
+  ]
 
 tm1, tm2 :: Term E
 tm1 = Term "let"
@@ -37,8 +77,8 @@ pattern VI x = PrimValue (Left x)
 pattern VS :: Text -> Term E
 pattern VS x = PrimValue (Right x)
 
-denotation :: DenotationChart E
-denotation = DenotationChart
+dynamics :: DenotationChart E
+dynamics = DenotationChart
   -- [ (PatternVar (Just "x",) Variable "x")
   [ (PatternPrimVal "Exp" "num", Value)
   , (PatternPrimVal "Exp" "str", Value)
@@ -63,8 +103,33 @@ denotation = DenotationChart
     BindIn "x" "e_1" "e_2")
   ]
 
-denotationTests :: Test ()
-denotationTests =
+typingJudgement :: JudgementForm
+typingJudgement = JudgementForm "types" [(In, "Exp"), (In, "Typ")]
+
+statics :: JudgementRules
+statics =
+  let tm -: ty = [tm, ty] %%% "types"
+  in JudgementRules
+  [ ["x" -: "num", "y" -: "num"]
+    .--
+    ("plus" @@ ["x", "y"]) -: "num"
+  , ["x" -: "num", "y" -: "num"]
+    .--
+    ("times" @@ ["x", "y"]) -: "num"
+  , ["x" -: "str", "y" -: "str"]
+    .--
+    ("cat" @@ ["x", "y"]) -: "str"
+  , ["x" -: "str"]
+    .--
+    ("len" @@ ["x"]) -: "num"
+  -- TODO: how to do assumptions?
+  -- , ["x" -: "a"]
+  --   .--
+  --   ("let" @@ ["x", _]) -: "a"
+  ]
+
+dynamicTests :: Test ()
+dynamicTests =
   let
       n1, n2, lenStr :: Term E
       lenStr      = Term "len" [ PrimValue (Right "str") ]
@@ -73,31 +138,31 @@ denotationTests =
       n1          = PrimValue (Left 1)
       n2          = PrimValue (Left 2)
       x           = PatternVar (Just "x")
-      patCheck    = runMatches eChart "Exp" $ patternCheck denotation
-      env         = MatchesEnv eChart "Exp" $ Map.singleton "x" $
+      patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
+      env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $
         PrimValue $ Left 2
   in tests
-       [ expectJust $ runMatches eChart "Exp" $ matches x
+       [ expectJust $ runMatches syntax "Exp" $ matches x
          lenStr
-       , expectJust $ runMatches eChart "Exp" $ matches (PatternTm "len" [x])
+       , expectJust $ runMatches syntax "Exp" $ matches (PatternTm "len" [x])
          lenStr
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+       , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
          lenStr
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+       , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
          (times n1 n2)
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+       , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
          (plus n1 n2)
-       , expectJust $ runMatches eChart "Exp" $ findMatch denotation
+       , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
          tm1
 
---        , let Just (subst, _) = findMatch eChart "Exp" denotation tm1
+--        , let Just (subst, _) = findMatch syntax "Exp" dynamics tm1
 --              result = applySubst subst tm1
 --        , expect $ result == tm1 & ix 0 .~
 
        , expectJust $
          let pat = PatternTm "cat"
                [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"]
-         in runMatches eChart "Exp" $ matches pat tm2
+         in runMatches syntax "Exp" $ matches pat tm2
        , expectJust $
          let pat = PatternPrimVal "num" "n_1"
              tm  = Var "x"
@@ -121,4 +186,72 @@ denotationTests =
 --          ==
 --          Just True
 
+       ]
+
+mkCompletePatternTests :: Test ()
+mkCompletePatternTests = scope "completePattern" $ tests
+  [ expect $
+      runMatches syntax "Typ" completePattern
+      ==
+      Just (PatternUnion [PatternTm "num" [], PatternTm "str" []])
+  , expect $
+      runMatches syntax "Exp" completePattern
+      ==
+      Just (PatternUnion
+        [ PatternPrimVal "Exp" "num"
+        , PatternPrimVal "Exp" "str"
+        , PatternTm "plus"  [PatternAny, PatternAny]
+        , PatternTm "times" [PatternAny, PatternAny]
+        , PatternTm "cat"   [PatternAny, PatternAny]
+        , PatternTm "len"   [PatternAny]
+        , PatternTm "let"   [PatternAny, PatternAny]
+        ])
+  ]
+
+minusTests :: Test ()
+minusTests = scope "minus" $
+  let x = PatternVar (Just "x")
+      y = PatternVar (Just "y")
+      num = PatternPrimVal "Exp" "num"
+      any' = PatternAny
+  in tests
+       [ expect $ runMatches undefined undefined (minus x x) == Just PatternEmpty
+       , expect $ runMatches undefined undefined (minus x y) == Just PatternEmpty
+       , expect $ runMatches undefined undefined (minus x any') == Just PatternEmpty
+       -- , expect $ runMatches undefined undefined (minus any' x) == Just PatternEmpty
+       , expect $ runMatches undefined undefined (minus any' any') == Just PatternEmpty
+       , expect $
+         runMatches syntax "Typ" (minus (PatternTm "num" []) (PatternTm "num" []))
+         ==
+         Just PatternEmpty
+       , expect $ runMatches syntax "Exp" (minus num num) == Just PatternEmpty
+       , expect $
+         runMatches syntax "Exp" (minus
+           (PatternTm "plus"
+             [ PatternPrimVal "Exp" "num"
+             , x
+             ])
+           (PatternTm "plus"
+             [ PatternPrimVal "Exp" "num"
+             , y
+             ]))
+         ==
+         Just PatternEmpty
+
+
+       -- This is wrong:
+       -- , expect $
+       --   let env = MatchesEnv syntax "Exp" $ Map.fromList
+       --         -- TODO: we should be able to do this without providing values
+       --         [ ("x", Right (PrimValue 2))
+       --         , ("y", Right (PrimValue 2))
+       --         ]
+       --   in (traceShowId $ flip runReaderT env (minus
+       --        (PatternTm "plus" [x, y])
+       --        (PatternTm "plus"
+       --          [ PatternPrimVal "Exp" "num"
+       --          , PatternPrimVal "Exp" "num"
+       --          ])))
+       --        ==
+       --        Just PatternEmpty
        ]
