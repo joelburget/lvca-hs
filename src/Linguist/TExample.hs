@@ -1,49 +1,75 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE EmptyCase #-}
 module Linguist.TExample where
 
+import           Prelude         hiding (succ)
 import qualified Data.Map.Strict as Map
+import           EasyTest
 
+import           Linguist.Proceed      (eval)
 import           Linguist.Types
+
 
 data T
 
-tChart :: SyntaxChart
-tChart = SyntaxChart $ Map.fromList
+instance Show T where show = \case
+instance Eq   T where (==) = \case
+
+syntax :: SyntaxChart
+syntax = SyntaxChart $ Map.fromList
   [ ("Typ", Sort ["t"]
-    [ Operator "nat" (Arity []) "naturals"
-    , Operator "arr" (Arity [Valence [] "Typ", Valence [] "Typ"]) "functions"
+    [ Operator "nat" [] "naturals"
+    , Operator "arr" [Valence [] "Typ", Valence [] "Typ"] "functions"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "z" (Arity []) "zero"
-    , Operator "s" (Arity [Valence [] "Exp"]) "successor"
-    , Operator "rec" (Arity
+    [ Operator "z" [] "zero"
+    , Operator "s" [Valence [] "Exp"] "successor"
+    , Operator "rec"
       [ Valence [] "Exp"
       , Valence ["Exp", "Exp"] "Exp"
       , Valence [] "Exp"
-      ])
+      ]
       "recursion"
-    , Operator "lam" (Arity [Valence [] "Typ", Valence ["Exp"] "Exp"]) "abstraction"
+    , Operator "lam" [Valence [] "Typ", Valence ["Exp"] "Exp"] "abstraction"
     -- TODO: how to subscript?
-    -- TODO: rename Arity
     -- TODO: sugar for these definitions
-    , Operator "ap" (Arity [Valence [] "Exp", Valence [] "Exp"]) "application"
+    , Operator "ap" [Valence [] "Exp", Valence [] "Exp"] "application"
     ])
   ]
 
-z, sz, pos, lam, lamapp :: Term T
+z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
 z = Term "z" []
 sz = Term "s" [z]
+ssz = Term "s" [sz]
 pos = Term "rec" [sz, z, sz]
--- TODO: how to refer to variable?
-lam = Term "lam" [Term "nat" [], z]
-lamapp = Term "ap" [lam, sz]
+succ = Term "lam" [Term "nat" [], Binding ["x"] (Term "s" [Var "x"])]
+lamapp = Term "ap" [succ, z]
+lamapp2 = Term "ap" [succ, lamapp]
 
-denotation :: DenotationChart T
-denotation = DenotationChart
+dynamics :: DenotationChart T
+dynamics = DenotationChart
   -- [ (PatternVar "x", Variable "x")
   [ (PatternTm "z" [], Value)
-  , (PatternTm "s" [PatternVar (Just "x")], Value) -- TODO: how to say "value if child is value"
+  -- TODO: how to say "value if child is value"?
+  , (PatternTm "s" [PatternVar (Just "x")], Value)
   -- , ("rec", )
-  -- , ("lam", )
-  -- , ("app", )
+  , (PatternTm "ap"
+    [PatternTm "lam"
+      -- TODO:
+      -- # which of these is more expressive?
+      -- # change stlc if we go the uncommented route
+      -- [PatternAny, BindingPattern ["x"] (PatternVar (Just "body"))]
+      [PatternAny, PatternVar (Just "body")]
+    , PatternVar (Just "applicand")
+    ], Cbv "body" ["applicand"])
+  ]
+
+evalTests :: Test ()
+evalTests = tests
+  [ expect $ eval "Exp" syntax dynamics z       == Right z
+  , expect $ eval "Exp" syntax dynamics sz      == Right sz
+  , expect $ eval "Exp" syntax dynamics lamapp  == Right sz
+  , expect $ eval "Exp" syntax dynamics lamapp2 == Right ssz
   ]

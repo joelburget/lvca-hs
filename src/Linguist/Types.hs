@@ -38,11 +38,10 @@ module Linguist.Types
   , pattern PatternAny
   , pattern PatternEmpty
   , Denotation(..)
-  , nameSlot
-  , fromSlot
+  , fromSlots
   , toSlot
   , bodySlot
-  , argSlot
+  , argSlots
   , Subst(..)
 
   -- * Terms / Values
@@ -113,12 +112,12 @@ import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
 import           Data.Sequence             (Seq)
-import qualified Data.Sequence             as Seq
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
-import           EasyTest
+import           EasyTest                  hiding (pair)
+import           GHC.Exts                  (IsList(..))
 import           Linguist.Util
 
 
@@ -171,6 +170,13 @@ data Operator = Operator
 data Arity
   = Arity    ![Valence]
   | External !SortName
+
+instance IsList Arity where
+  type Item Arity = Valence
+  fromList = Arity
+  toList = \case
+    Arity l -> l
+    External _ -> error "toList called on external arity"
 
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
@@ -233,17 +239,16 @@ data Denotation a
   = Value
   | CallForeign !(Seq (Term a) -> Term a)
   | BindIn
-    { _nameSlot :: !Text
-    , _fromSlot :: !Text
-    , _toSlot   :: !Text
+    { _fromSlots :: ![(Text, Text)]
+    , _toSlot    :: !Text
     }
   | Cbv
     { _bodySlot :: !Text
-    , _argSlot  :: !Text
+    , _argSlots :: ![Text]
     }
   | Cbn
     { _bodySlot :: !Text
-    , _argSlot  :: !Text
+    , _argSlots :: ![Text]
     }
 
 -- | Denotation charts
@@ -258,9 +263,8 @@ newtype DenotationChart a = DenotationChart [(Pattern, Denotation a)]
 
 data Subst a = Subst
   { _assignments             :: !(Map Text (Term a))
-  -- | Map from a (path to binding term / pattern) to the (pattern <-> term)
-  -- variable correspondence.
-  , _variableCorrespondences :: !(Map (Seq Int) ([Text], [Text]))
+  -- | pattern <-> term variable correspondences.
+  , _variableCorrespondences :: ![(Text, Text)]
   } deriving (Eq, Show)
 
 instance Semigroup (Subst a) where
@@ -319,8 +323,7 @@ toPatternTests = scope "toPattern" $ tests
   ]
 
 data MatchesEnv a = MatchesEnv
-  { _envPath  :: !(Seq Int)
-  , _envChart :: !SyntaxChart
+  { _envChart :: !SyntaxChart
   , _envSort  :: !SortName
   , _envVars  :: !(Map Text (Term a))
   }
@@ -336,7 +339,7 @@ emptyMatch = pure mempty
 matches :: Pattern -> Term a -> Matching a (Subst a)
 -- matches pat (Left (Return val))     = matches pat (Right val)
 matches (PatternVar (Just name)) tm
-  = pure $ Subst (Map.singleton name tm) Map.empty
+  = pure $ Subst (Map.singleton name tm) []
 matches (PatternVar Nothing)     _  = emptyMatch
 
 matches pat (Var name) = do
@@ -350,16 +353,14 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   then noMatch
   else do
     mMatches <- sequence $ fmap sequence $
-      ipairWith (\i pat tm -> local (envPath %~ (|> i)) (matches pat tm))
-        subpatterns subterms
+      pairWith matches subpatterns subterms
     mconcat <$> lift mMatches
 -- TODO: write context of var names?
 matches (PatternPrimVal _primName1 _varName) (PrimValue _)
   = emptyMatch
 -- TODO: this piece must know the binding structure from the syntax chart
 matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
-  path <- view envPath
-  let subst = Subst Map.empty (Map.singleton path (lnames, rnames))
+  subst <- Subst Map.empty <$> lift (pair lnames rnames)
   fmap (subst <>) $ matches subpat subtm
 matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
@@ -371,16 +372,16 @@ matches _ _ = noMatch
 
 runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
 runMatches chart sort
-  = flip runReaderT (MatchesEnv Seq.empty chart sort Map.empty)
+  = flip runReaderT (MatchesEnv chart sort Map.empty)
 
 getSort :: Matching a Sort
 getSort = do
-  MatchesEnv _ (SyntaxChart syntax) sort _ <- ask
+  MatchesEnv (SyntaxChart syntax) sort _ <- ask
   lift $ syntax ^? ix sort
 
 completePattern :: Matching a Pattern
 completePattern = do
-  MatchesEnv _ _ sort _ <- ask
+  MatchesEnv _ sort _ <- ask
   Sort _vars operators  <- getSort
 
   pure $ PatternUnion $ operators <&> \(Operator opName arity _desc) ->
@@ -435,18 +436,17 @@ patternCheck (DenotationChart chart) = do
     chart
   pure $ PatternCheckResult unmatched' overlaps
 
-  -- go
-  -- . takes the set of uncovered values
-  -- . returns the (set of covered values, set of remaining uncovered values)
+  -- go:
+  -- - takes the set of uncovered values
+  -- - returns the (set of covered values, set of remaining uncovered values)
   where go :: Pattern -> Pattern -> Matching a ((Pattern, IsRedudant), Pattern)
         go unmatched pat = do
           pat' <- unmatched `minus` pat
-              -- TODO: pretty sure we have to do some sort of noralization here
           let redundant = if pat == pat' then IsRedudant else IsntRedundant
           pure ((pat, redundant), pat')
 
 findMatch
-  :: forall a. Show a => DenotationChart a
+  :: DenotationChart a
   -> Term a
   -> Matching a (Subst a, Denotation a)
 findMatch (DenotationChart pats) tm = do
@@ -564,9 +564,11 @@ data StackFrame a
     , _frameK     :: !(Seq (Term a) -> Term a) -- ^ what to do after
     }
   | CbvFrame
-    { _frameName       :: !Text
-    , _cbvFrameArgName :: !Text
-    , _cbvFrameBody    :: !(Term a)
+    { _frameName        :: !Text
+    , _cbvFrameArgNames :: ![Text]
+    , _cbvFrameVals     :: !(Seq (Term a))
+    , _cbvFrameTerms    :: ![Term a]
+    , _cbvFrameBody     :: !(Term a)
     }
   | BindingFrame
     !(Map Text (Term a))

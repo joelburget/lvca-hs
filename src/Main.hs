@@ -12,7 +12,7 @@ import           Linguist.Types
 
 import qualified Linguist.SimpleExample as SimpleExample
 import           Linguist.Stlc
-import           Linguist.TExample ()
+import qualified Linguist.TExample      as TExample
 
 natJudgement :: JudgementForm
 natJudgement = JudgementForm "nat" [(In, "a")]
@@ -40,14 +40,16 @@ main = do
 
 allTests :: Test ()
 allTests = scope "all tests" $ tests
-  [ "toPattern" toPatternTests
-  , "matches" SimpleExample.matchesTests
-  , "minus" SimpleExample.minusTests
+  [ "toPattern"              toPatternTests
+  , "stlc"                   stlcTests
+  , "matches"                SimpleExample.matchesTests
+  , "minus"                  SimpleExample.minusTests
   , "mkCompletePatternTests" SimpleExample.mkCompletePatternTests
-  , "simple-example" SimpleExample.dynamicTests
-  , "pretty-syntax" SimpleExample.prettySyntaxChartTests
-  , "syntax-statics" SimpleExample.prettyStaticTests
-  , "stlc" stlcTests
+  , "simple-example"         SimpleExample.dynamicTests
+  , "pretty-syntax"          SimpleExample.prettySyntaxChartTests
+  , "syntax-statics"         SimpleExample.prettyStaticTests
+  , "simple-example.eval"    SimpleExample.evalTests
+  , "t-example.eval"         TExample.evalTests
   ]
 
 -- main :: IO ()

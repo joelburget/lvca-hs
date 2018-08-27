@@ -1,6 +1,7 @@
 module Linguist.Util where
 
-import           Control.Monad.State
+import           Control.Monad.Except (MonadError, throwError)
+import           Control.Monad.State  (StateT(..))
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]
@@ -29,3 +30,9 @@ mapAccumM
   -> t b
   -> m (t c, a)
 mapAccumM f = flip (runStateT . (traverse (StateT . (flip f))))
+
+infix 0 ??
+
+(??) :: MonadError e m => Maybe a -> e -> m a
+(Just a) ?? _  = pure a
+Nothing ?? err = throwError err

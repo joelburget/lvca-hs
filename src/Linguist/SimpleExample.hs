@@ -17,18 +17,19 @@ module Linguist.SimpleExample
   , prettySyntaxChartTests
   , prettyStaticTests
   , matchesTests
+  , evalTests
   ) where
 
 import           Control.Lens          hiding (from, to)
 import           Control.Monad.Reader
 import qualified Data.Map.Strict       as Map
-import qualified Data.Sequence         as Seq
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import           Data.Text.Prettyprint.Doc (pretty, layoutPretty, defaultLayoutOptions)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           EasyTest
 
+import           Linguist.Proceed      (eval)
 import           Linguist.Types
 
 
@@ -38,7 +39,6 @@ type E = Either Int Text
 syntax :: SyntaxChart
 syntax = SyntaxChart $ Map.fromList
   [ ("Typ", Sort ["t"]
-    -- TODO: is this the correct arity (sort)?
     [ Operator "num" (Arity []) "numbers"
     , Operator "str" (Arity []) "strings"
     ])
@@ -54,11 +54,8 @@ syntax = SyntaxChart $ Map.fromList
     , Operator "len"
       (Arity ["Exp"]) "length"
     -- TODO:
-    -- . the book specifies this arity as
-    --   - `let(e1;x.e2)`
-    --   - `(Exp, Exp.Exp)Exp`
-    -- . is it known that the `x` binds `e1`?
-    -- . where is `x` specified?
+    --   Check for anything matching this that it has a binding pattern in the
+    --   second slot
     , Operator "let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
     ])
   ]
@@ -91,7 +88,7 @@ dynamics = DenotationChart
   , (PatternTm "plus" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
     CallForeign $ \case
       VI x :< VI y :< Empty -> VI (x + y)
-      _ -> error "bad call to plus")
+      args -> error $ "bad call to plus: " ++ show args)
   , (PatternTm "times" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
     CallForeign $ \case
       VI x :< VI y :< Empty -> VI (x * y)
@@ -105,8 +102,8 @@ dynamics = DenotationChart
       VS x :< Empty -> VI (Text.length x)
       _ -> error "bad call to len")
   , (PatternTm "let"
-    [PatternVar (Just "e_1"), BindingPattern ["x"] (PatternVar (Just "e_2"))],
-    BindIn "x" "e_1" "e_2")
+    [PatternVar (Just "e_1"), BindingPattern ["v"] (PatternVar (Just "e_2"))],
+    BindIn [("v", "e_1")] "e_2")
   ]
 
 typingJudgement :: JudgementForm
@@ -145,7 +142,7 @@ dynamicTests =
       n2          = PrimValue (Left 2)
       x           = PatternVar (Just "x")
       patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
-      env         = MatchesEnv Seq.empty syntax "Exp" $ Map.singleton "x" $
+      env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $
         PrimValue $ Left 2
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
@@ -311,6 +308,8 @@ matchesTests = scope "matches" $
   let foo :: Term ()
       foo = Term "foo" []
 
+  -- We intentionally include these `undefined`s to check that we don't depend
+  -- on the syntax / sort.
   in tests
        [ expectJust $ runMatches undefined undefined $ matches
          (PatternVar (Just "x")) foo
@@ -323,6 +322,14 @@ matchesTests = scope "matches" $
            (BindingPattern ["y"] PatternAny)
            (Binding ["x"] (Term "num" [])))
          ==
-         (Just (Subst Map.empty (Map.singleton (Seq.fromList []) (["y"], ["x"])))
+         (Just (Subst Map.empty [("y", "x")])
            :: Maybe (Subst ()))
+       ]
+
+evalTests :: Test ()
+evalTests =
+  let
+  in tests
+       [ expect $ eval "Exp" syntax dynamics tm1 == Right (PrimValue (Left 3))
+       , expect $ eval "Exp" syntax dynamics tm2 == Right (PrimValue (Right "foobar"))
        ]

@@ -72,7 +72,11 @@ drawStackFrame = hBox . \case
     let slots = padLeft (Pad 1) <$>
           fmap showTermSlot (toList before) ++ [str "_"] ++ fmap showTermSlot after
     in txt name : slots
-  CbvFrame name varName _body -> [txt name, txt $ "evaluating arg " <> varName]
+  -- TODO: show var names
+  CbvFrame name _varNames vals tms _body ->
+    let slots = padLeft (Pad 1) <$>
+          fmap showTermSlot (toList vals) ++ [str "_"] ++ fmap showTermSlot tms
+    in txt name : slots
   BindingFrame bindings -> Map.toList bindings <&> \(k, v) ->
     txt k <+> str ": " <+> drawTm v
 

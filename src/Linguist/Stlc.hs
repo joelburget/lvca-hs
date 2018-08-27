@@ -31,9 +31,9 @@ denotation :: DenotationChart Void
 denotation = DenotationChart
   [ (PatternTm "ap"
     [ PatternTm "lam" [BindingPattern ["x"] (PatternVar (Just "body"))]
-    , PatternVar (Just "x")
+    , PatternVar (Just "applicand")
     ],
-    Cbn "body" "x")
+    Cbn "body" ["applicand"])
   ]
 
 stlcTests :: Test ()
