@@ -68,24 +68,28 @@ eval' sort = \case
       Just (_, Value) -> pure tm
 
       Just (Subst assignment _, Cbv fun argSlots') -> do
-        fun' <- assignment ^? ix fun ?? "TODO 1"
-        -- TODO: generalize to multiple args
+        fun' <- assignment ^? ix fun ??
+          ("couldn't find function " ++ show fun)
         (varNames, body) <- case fun' of
           Binding varNames body -> pure (varNames, body)
           tm'                   -> throwError $ show tm'
-        args   <- for argSlots' $ \argSlot -> assignment ^? ix argSlot ?? "TODO 3"
+        args   <- for argSlots' $ \argSlot -> assignment ^? ix argSlot ??
+          ("couldn't find arg " ++ show argSlot)
         argTms <- traverse (eval' sort) args
-        varVals <- pair varNames argTms ?? "TODO X"
+        varVals <- pair varNames argTms ??
+          "mismatched lengths for vars and args"
         eval' sort $ substIn (Map.fromList varVals) body
 
       Just (Subst assignment _, Cbn fun argSlots') -> do
-        fun' <- assignment ^? ix fun ?? "TODO 4"
-        -- TODO: generalize to multiple args
+        fun' <- assignment ^? ix fun ??
+          ("couldn't find function " ++ show fun)
         (varNames, body) <- case fun' of
           Binding varNames body -> pure (varNames, body)
           tm'                   -> throwError $ show tm'
-        args  <- for argSlots' $ \argSlot -> assignment ^? ix argSlot ?? "TODO 6"
-        varTms <- pair varNames args ?? "TODO X2"
+        args  <- for argSlots' $ \argSlot -> assignment ^? ix argSlot ??
+          ("couldn't find arg " ++ show argSlot)
+        varTms <- pair varNames args ??
+          "mismatched lengths for vars and args"
         eval' sort $ substIn (Map.fromList varTms) body
 
       Nothing -> throwError $ "cound't find match for term " ++ show tm
@@ -123,7 +127,7 @@ proceed (StateStep stack tmVal) = case tmVal of
         tm':tms -> StateStep
           (CbvForeignFrame name Empty tms f : stack)
           (Descending tm')
-        _ -> Errored "1"
+        [] -> StateStep stack (Ascending (f Empty))
 
       Just (Subst assignment correspondences, BindIn bindings toSlot') ->
         fromMaybe (Errored "BindIn") $ do
@@ -151,17 +155,17 @@ proceed (StateStep stack tmVal) = case tmVal of
           Just $ StateStep (BindingFrame argVals : stack)
             (Descending body')
 
-      Just _ -> Errored "3"
+      Just (Subst{}, Value) -> StateStep stack (Ascending tm)
       Nothing -> Errored $ Text.pack $ show tmVal
 
   Descending (Var name) -> pure $ case findBinding stack name of
     Just tmVal' -> StateStep stack (Descending tmVal')
     Nothing     -> Errored $ "couldn't find var: " <> name
 
-  Descending (Binding _ _) -> error "TODO"
+  Descending (Binding _ _) -> pure $ Errored "can't evaluate exposed binding"
 
   -- reverse direction and return this value
-  Descending val -> proceed (StateStep stack (Ascending val))
+  Descending val@PrimValue{} -> proceed (StateStep stack (Ascending val))
 
   Ascending val -> pure $ case stack of
     [] -> Done val
