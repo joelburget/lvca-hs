@@ -46,6 +46,7 @@ module Linguist.Types
 
   -- * Terms / Values
   , Term(..)
+  , TmShow(..)
   , subterms
   , termName
 
@@ -102,6 +103,7 @@ module Linguist.Types
   , toPatternTests
   ) where
 
+import           Brick                     (Widget, str)
 import           Control.Lens              hiding (op)
 import           Control.Monad.Morph
 import           Control.Monad.Reader
@@ -116,6 +118,7 @@ import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
+import           Data.Void                 (Void, absurd)
 import           EasyTest                  hiding (pair)
 import           GHC.Exts                  (IsList(..))
 import           Linguist.Util
@@ -207,6 +210,21 @@ data Term a
   | Var !Text
   | PrimValue !a
   deriving (Eq, Show)
+
+class TmShow a where
+  drawPrim :: a -> Widget ()
+
+instance (TmShow a, TmShow b) => TmShow (Either a b) where
+  drawPrim = either drawPrim drawPrim
+
+instance TmShow Void where
+  drawPrim = str . absurd
+
+instance TmShow Int where
+  drawPrim = str . show
+
+instance TmShow Text where
+  drawPrim = str . show
 
 -- | A pattern matches a term
 data Pattern

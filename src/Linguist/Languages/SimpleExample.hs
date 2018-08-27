@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE TypeApplications  #-}
-module Linguist.SimpleExample
+module Linguist.Languages.SimpleExample
   ( syntax
   , dynamics
   , statics

@@ -10,9 +10,9 @@ import           Linguist.Brick
 import           Linguist.Proceed
 import           Linguist.Types
 
-import qualified Linguist.SimpleExample as SimpleExample
-import           Linguist.Stlc
-import qualified Linguist.TExample      as TExample
+import qualified Linguist.Languages.SimpleExample as SimpleExample
+import qualified Linguist.Languages.Stlc          as Stlc
+import qualified Linguist.Languages.TExample      as TExample
 
 natJudgement :: JudgementForm
 natJudgement = JudgementForm "nat" [(In, "a")]
@@ -41,7 +41,7 @@ main = do
 allTests :: Test ()
 allTests = scope "all tests" $ tests
   [ "toPattern"              toPatternTests
-  , "stlc"                   stlcTests
+  , "stlc"                   Stlc.stlcTests
   , "matches"                SimpleExample.matchesTests
   , "minus"                  SimpleExample.minusTests
   , "mkCompletePatternTests" SimpleExample.mkCompletePatternTests

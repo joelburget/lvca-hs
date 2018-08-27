@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE EmptyCase #-}
-module Linguist.TExample where
+module Linguist.Languages.TExample where
 
 import           Prelude         hiding (succ)
 import qualified Data.Map.Strict as Map

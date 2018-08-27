@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE TypeApplications  #-}
-module Linguist.Stlc where
+module Linguist.Languages.Stlc where
 
 import qualified Data.Map.Strict as Map
 import           Data.Void       (Void)

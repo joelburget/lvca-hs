@@ -16,12 +16,12 @@ executable linguist
   main-is:             Main.hs
   other-modules:
     Linguist.Brick,
-    Linguist.SimpleExample,
     Linguist.Proceed,
-    Linguist.Stlc,
     Linguist.Types,
-    Linguist.TExample,
-    Linguist.Util
+    Linguist.Util,
+    Linguist.Languages.SimpleExample,
+    Linguist.Languages.Stlc,
+    Linguist.Languages.TExample
   -- other-extensions:
   build-depends:
     base >=4.11 && <4.12,

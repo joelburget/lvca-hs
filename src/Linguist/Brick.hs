@@ -1,7 +1,5 @@
-{-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 module Linguist.Brick where
 
 import           Brick
@@ -14,10 +12,8 @@ import           Data.Foldable              (toList)
 import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
-import           Data.Void                  (Void, absurd)
 import qualified Graphics.Vty               as V
 
-import           Linguist.SimpleExample     (E)
 import           Linguist.Types
 
 bordered :: Text -> Widget n -> Widget n
@@ -79,15 +75,6 @@ drawStackFrame = hBox . \case
     in txt name : slots
   BindingFrame bindings -> Map.toList bindings <&> \(k, v) ->
     txt k <+> str ": " <+> drawTm v
-
-class TmShow a where
-  drawPrim :: a -> Widget ()
-
-instance TmShow E where
-  drawPrim = str . either show show
-
-instance TmShow Void where
-  drawPrim = str . absurd
 
 -- TODO: distinguish between in and out
 drawFocus :: TmShow a => Focus a -> Widget ()
