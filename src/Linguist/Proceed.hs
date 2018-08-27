@@ -98,6 +98,7 @@ eval' sort = \case
       Nothing -> throwError $ "unable to look up var " ++ Text.unpack name
   tm@PrimValue{} -> pure tm
 
+-- Only to be used in evaluation -- not proceed.
 substIn :: Map Text (Term a) -> Term a -> Term a
 substIn vals tm = case tm of
   Term name subtms -> Term name $ substIn vals <$> subtms
@@ -110,11 +111,14 @@ substIn vals tm = case tm of
     | otherwise          -> tm
   PrimValue{} -> tm
 
-proceed :: Show a => SyntaxChart -> DenotationChart a -> StateStep a -> StateStep a
-proceed sChart dChart (StateStep stack tmVal) = case tmVal of
-  Descending tm@(Term name subtms) ->
+type ProceedEnv a = (SyntaxChart, DenotationChart a)
+
+proceed :: Show a => StateStep a -> Reader (ProceedEnv a) (StateStep a)
+proceed (StateStep stack tmVal) = case tmVal of
+  Descending tm@(Term name subtms) -> do
+    (sChart, dChart) <- ask
     let env = MatchesEnv sChart "Exp" $ frameVals stack
-    in case runReaderT (findMatch dChart tm) env of
+    pure $ case runReaderT (findMatch dChart tm) env of
       Just (_assignment, CallForeign f) -> case subtms of
         tm':tms -> StateStep
           (CbvForeignFrame name Empty tms f : stack)
@@ -150,16 +154,16 @@ proceed sChart dChart (StateStep stack tmVal) = case tmVal of
       Just _ -> Errored "3"
       Nothing -> Errored $ Text.pack $ show tmVal
 
-  Descending (Var name) -> case findBinding stack name of
+  Descending (Var name) -> pure $ case findBinding stack name of
     Just tmVal' -> StateStep stack (Descending tmVal')
     Nothing     -> Errored $ "couldn't find var: " <> name
 
   Descending (Binding _ _) -> error "TODO"
 
   -- reverse direction and return this value
-  Descending val -> proceed sChart dChart (StateStep stack (Ascending val))
+  Descending val -> proceed (StateStep stack (Ascending val))
 
-  Ascending val -> case stack of
+  Ascending val -> pure $ case stack of
     [] -> Done val
     CbvForeignFrame _name vals []       denote : stack' -> StateStep
       stack'
@@ -175,5 +179,5 @@ proceed sChart dChart (StateStep stack tmVal) = case tmVal of
       (Descending tm')
     BindingFrame _ : stack' -> StateStep stack' tmVal
 
-proceed _ _ e@Errored{} = e
-proceed _ _ d@Done{}    = d
+proceed e@Errored{} = pure e
+proceed d@Done{}    = pure d

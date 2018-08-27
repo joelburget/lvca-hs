@@ -3,6 +3,7 @@ module Main where
 
 import           Brick
 import           Control.Lens
+import           Control.Monad.Reader
 import           Control.Zipper
 import           EasyTest
 
@@ -32,8 +33,9 @@ natJudgements = JudgementRules
 main :: IO ()
 main = do
   _ <- defaultMain app $
-    let steps :: [StateStep SimpleExample.E]
-        steps = iterate (proceed SimpleExample.syntax SimpleExample.dynamics) $
+    let env = (SimpleExample.syntax, SimpleExample.dynamics)
+        steps :: [StateStep SimpleExample.E]
+        steps = iterate (\tm -> runReader (proceed tm) env) $
           StateStep [] (Descending SimpleExample.tm1)
     in zipper steps & fromWithin traverse
   pure ()
