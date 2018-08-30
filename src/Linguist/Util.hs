@@ -1,7 +1,9 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Linguist.Util where
 
+import           Control.Lens         (FunctorWithIndex, imap)
 import           Control.Monad.Except (MonadError, throwError)
-import           Control.Monad.State  (StateT(..))
+import           Control.Monad.State  (StateT (..))
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]
@@ -36,3 +38,7 @@ infix 0 ??
 (??) :: MonadError e m => Maybe a -> e -> m a
 (Just a) ?? _  = pure a
 Nothing ?? err = throwError err
+
+infixl 1 <@&>
+(<@&>) :: FunctorWithIndex i f => f a -> (i -> a -> b) -> f b
+(<@&>) = flip imap

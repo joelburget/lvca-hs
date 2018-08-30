@@ -16,6 +16,7 @@ executable linguist
   main-is:             Main.hs
   other-modules:
     Linguist.Brick,
+    Linguist.Parse,
     Linguist.Proceed,
     Linguist.Types,
     Linguist.Util,
@@ -34,6 +35,7 @@ executable linguist
     zippers,
     lens,
     easytest,
-    mmorph
+    mmorph,
+    megaparsec
   hs-source-dirs:      src
   default-language:    Haskell2010

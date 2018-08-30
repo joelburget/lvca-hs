@@ -18,18 +18,26 @@ module Linguist.Languages.SimpleExample
   , prettyStaticTests
   , matchesTests
   , evalTests
+  , parseTests
   ) where
 
-import           Control.Lens          hiding (from, to)
+import           Control.Applicative                   ((<|>))
+import           Control.Lens                          hiding (from, to)
+-- import           Control.Monad.Combinators
 import           Control.Monad.Reader
-import qualified Data.Map.Strict       as Map
-import           Data.Text             (Text)
-import qualified Data.Text             as Text
-import           Data.Text.Prettyprint.Doc (pretty, layoutPretty, defaultLayoutOptions)
+import qualified Data.Map.Strict                       as Map
+import           Data.Text                             (Text)
+import qualified Data.Text                             as Text
+import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
+                                                        layoutPretty, pretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
-import           EasyTest
+import           EasyTest                              hiding (char)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer            as L
 
-import           Linguist.Proceed      (eval)
+import           Linguist.Parse
+import           Linguist.Proceed                      (eval)
 import           Linguist.Types
 
 
@@ -333,3 +341,39 @@ evalTests =
        [ expect $ eval "Exp" syntax dynamics tm1 == Right (PrimValue (Left 3))
        , expect $ eval "Exp" syntax dynamics tm2 == Right (PrimValue (Right "foobar"))
        ]
+
+parseTests :: Test ()
+parseTests =
+  let primParser =
+        Left <$> (L.decimal :: Parser Int) <|>
+        -- TODO: better string literal
+        Right <$> (char '"' >> manyTill L.charLiteral (char '"'))
+      parser = standardParser primParser
+      runP str = runReader (runParserT parser "(test)" str) (syntax, "Exp")
+      expectParse str tm = case runP str of
+        Left err       -> fail $ parseErrorPretty err
+        Right parsedTm -> expectEq parsedTm tm
+  in tests
+  [ expectParse
+      "plus(1; 2)"
+      (Term "plus" [PrimValue (Left 1), PrimValue (Left 2)])
+  , expectParse
+      "cat(\"abc\"; \"def\")"
+      (Term "cat" [PrimValue (Right "abc"), PrimValue (Right "def")])
+
+  -- Note this doesn't check but it should still parse
+  , expectParse
+      "cat(\"abc\"; 1)"
+      (Term "cat" [PrimValue (Right "abc"), PrimValue (Left 1)])
+
+  , expectParse
+     "let(1; x. plus(x; 2))"
+     (Term "let"
+       [ PrimValue (Left 1)
+       , Binding ["x"]
+         (Term "plus"
+           [ Var "x"
+           , PrimValue (Left 2)
+           ])
+       ])
+  ]

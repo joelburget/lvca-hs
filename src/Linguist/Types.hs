@@ -120,7 +120,7 @@ import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
 import           Data.Void                 (Void, absurd)
 import           EasyTest                  hiding (pair)
-import           GHC.Exts                  (IsList(..))
+import           GHC.Exts                  (IsList (..))
 import           Linguist.Util
 
 
@@ -188,7 +188,7 @@ instance IsList Arity where
 data Valence = Valence
   { _valenceSorts  :: ![SortName] -- ^ the sorts of all bound variables
   , _valenceResult :: !SortName   -- ^ the resulting sort
-  }
+  } deriving Show
 
 instance IsString Valence where
   fromString = Valence [] . fromString
