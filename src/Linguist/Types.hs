@@ -29,8 +29,9 @@ module Linguist.Types
   , sortVariables
   , Operator(..)
   , Arity(..)
-  , Valence(..)
+  , pattern ExternalArity
   , exampleArity
+  , Valence(..)
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -174,15 +175,12 @@ data Operator = Operator
 -- externals.
 data Arity
   = Arity    ![Valence]
-  | External !SortName
   deriving (Eq, Show)
 
 instance IsList Arity where
-  type Item Arity = Valence
-  fromList = Arity
-  toList = \case
-    Arity l -> l
-    External _ -> error "toList called on external arity"
+  type Item Arity  = Valence
+  fromList         = Arity
+  toList (Arity l) = l
 
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
@@ -191,10 +189,16 @@ instance IsList Arity where
 data Valence = Valence
   { _valenceSorts  :: ![SortName] -- ^ the sorts of all bound variables
   , _valenceResult :: !SortName   -- ^ the resulting sort
-  } deriving (Eq, Show)
+  }
+  | External !SortName
+  deriving (Eq, Show)
 
 instance IsString Valence where
+  -- TODO: should we return an External when you pass "[nat]"?
   fromString = Valence [] . fromString
+
+pattern ExternalArity :: SortName -> Arity
+pattern ExternalArity name = Arity [External name]
 
 -- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
 exampleArity :: Arity
@@ -323,9 +327,8 @@ applySubst subst tm = case tm of
   _                   -> tm
 
 toPattern :: Operator -> Pattern
-toPattern (Operator name arity _desc) = PatternTm name $ case arity of
-  Arity valences -> const PatternAny <$> valences
-  External _     -> [PatternAny]
+toPattern (Operator name (Arity valences) _desc)
+  = PatternTm name $ const PatternAny <$> valences
 
 toPatternTests :: Test ()
 toPatternTests = scope "toPattern" $ tests
@@ -338,7 +341,7 @@ toPatternTests = scope "toPattern" $ tests
     ==
     PatternTm "plus" [PatternAny, PatternAny]
   , expect $
-    toPattern (Operator "num" (External "nat") "numeral")
+    toPattern (Operator "num" (ExternalArity "nat") "numeral")
     ==
     PatternTm "num" [PatternAny]
   ]
@@ -402,13 +405,15 @@ getSort = do
 
 completePattern :: Matching a Pattern
 completePattern = do
-  MatchesEnv _ sort _ <- ask
-  Sort _vars operators  <- getSort
+  MatchesEnv _ sort _  <- ask
+  Sort _vars operators <- getSort
 
-  pure $ PatternUnion $ operators <&> \(Operator opName arity _desc) ->
-    case arity of
-      Arity valences -> PatternTm opName $ const PatternAny <$> valences
-      External name  -> PatternPrimVal sort name
+  pure $ PatternUnion $ operators <&>
+    \(Operator opName (Arity valences) _desc) -> PatternTm opName $
+      valences <&> \case
+        -- TODO: get rid of sort here
+        External name -> PatternPrimVal sort name
+        _valence      -> PatternAny
 
 minus :: Pattern -> Pattern -> Matching a Pattern
 minus _ (PatternVar _) = pure PatternEmpty
@@ -568,11 +573,11 @@ instance Pretty Arity where
     if null valences
     then mempty
     else parens $ hsep $ punctuate semi $ fmap pretty valences
-  pretty (External name) = brackets $ pretty name
 
 instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
+  pretty (External name) = brackets (pretty name)
 
 
 -- evaluation internals

@@ -48,12 +48,28 @@ stlcTests = tests
   , expectJust $ runMatches stlcChart "Exp" $ matches
     (PatternTm "lam" [BindingPattern ["x"] (PatternVar (Just "body"))])
     stlcTm1
-  , let result = runParser parseSyntaxDescription "(test)"
+  , "parsing chart" $
+    let result = runParser parseSyntaxDescription "(test)"
           [text|
             Typ ::= nat               "natural numbers"
                     arr(Typ; Typ)     "arrows"
             Exp ::= lam(Typ; Exp.Exp) "abstraction"
                     ap(Exp; Exp)      "application"
+          |]
+    in case result of
+         Left err     -> crash $ pack $ parseErrorPretty err
+         Right parsed -> expectEq parsed stlcChart
+  , "different indentation" $
+    let result = runParser parseSyntaxDescription "(test)"
+          [text|
+            Typ ::= // testing comments
+              nat               "natural numbers"
+              arr(Typ; Typ)     "arrows"
+
+            /* more comments */
+            Exp ::=
+              lam(Typ; Exp.Exp) "abstraction"
+              ap(Exp; Exp)      "application"
           |]
     in case result of
          Left err     -> crash $ pack $ parseErrorPretty err

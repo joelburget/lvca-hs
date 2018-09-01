@@ -6,9 +6,8 @@ import Data.Void (Void)
 import Data.Foldable (asum)
 import qualified Data.Map as Map
 import Control.Lens (unsnoc)
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import           Text.Megaparsec
-import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
 import           Linguist.Types
@@ -25,7 +24,6 @@ parseSort :: Parser (SortName, Sort)
 parseSort = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
   _         <- symbol "::="
-  -- pos <- L.indentLevel
   -- TODO: get rid of sort variables
   pure $ L.IndentMany Nothing (pure . (name,) . (Sort [])) parseOperator
 
@@ -35,21 +33,16 @@ parseOperator = Operator
   <*> parseArity
   <*> option "" stringLiteral
 
--- TODO: support parsing externals
 parseArity :: Parser Arity
-parseArity = parens (asum
-  [ Arity <$> parseValence `sepBy1` symbol ";"
-  -- , External <$>
-  , Arity [] <$ ""
-  ]) <|> Arity [] <$ ""
+parseArity = fmap Arity $ option [] $
+  parens $ option [] $
+    parseValence `sepBy1` symbol ";"
 
 parseValence :: Parser Valence
-parseValence = do
-  names <- parseName `sepBy1` symbol "."
-  let Just (sorts, result) = unsnoc names
-  pure $ Valence sorts result
-
--- TODO: deduplicate with parseVarName
-parseName :: Parser Text
-parseName = pack <$> ((:) <$> letterChar <*> many alphaNumChar <* space)
-  <?> "sort name"
+parseValence = asum
+  [ brackets $ External <$> parseName
+  , do
+       names <- parseName `sepBy1` symbol "."
+       let Just (sorts, result) = unsnoc names
+       pure $ Valence sorts result
+  ]

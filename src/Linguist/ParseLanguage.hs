@@ -13,7 +13,7 @@ import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import qualified Data.Sequence              as Seq
 import           Data.String                (IsString (fromString))
-import           Data.Text                  (Text, pack, unpack)
+import           Data.Text                  (Text, unpack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 
@@ -50,7 +50,7 @@ standardParser parsePrim = do
   let sortParsers :: Map SortName (Parser (Term a))
       sortParsers = syntax <@&> \sortName (Sort _vars operators) ->
         let opParsers = operators <&> \(Operator name arity _desc) -> case arity of
-              External sort -> PrimValue <$> local (parseSort .~ sort) parsePrim
+              -- External sort -> PrimValue <$> local (parseSort .~ sort) parsePrim
               Arity valences -> (do
                 _ <- string $ fromString $ unpack name
                 subTms <- case valences of
@@ -59,9 +59,9 @@ standardParser parsePrim = do
                     (\parseLeft valence -> do
                       pvs <- parseLeft
                       _   <- symbol ";"
-                      pv  <- parseValence parseTerm valence
+                      pv  <- parseValence parsePrim parseTerm valence
                       pure $ pvs |> pv)
-                    (Seq.singleton <$> parseValence parseTerm v)
+                    (Seq.singleton <$> parseValence parsePrim parseTerm v)
                     vs
                 -- TODO: convert Term to just use Sequence
                 pure $ Term name $ toList subTms) <?> unpack name
@@ -69,26 +69,26 @@ standardParser parsePrim = do
       parseTerm = do
         sort <- view parseSort
         case sortParsers ^? ix sort of
-          Just opParsers -> opParsers <|> fmap Var parseVarName
+          Just opParsers -> opParsers <|> fmap Var parseName
           Nothing -> fail $
             "unable to find sort " <> unpack sort <> " among " <>
             -- TODO: more user-friendly show
             show (Map.keys sortParsers)
   parseTerm
 
-parseVarName :: Parser Text
-parseVarName = pack <$> ((:) <$> letterChar <*> many alphaNumChar)
-  <?> "variable"
-
 parseValence
-  :: Parser (Term a)
+  :: Parser a
+  -> Parser (Term a)
   -> Valence
   -> Parser (Term a)
-parseValence parseTerm valence@(Valence sorts resultSort)
+parseValence _parsePrim parseTerm valence@(Valence sorts resultSort)
   -- TODO: more user-friendly showing of valence
   | null sorts = local (parseSort .~ resultSort) parseTerm
     <?> "valence " <> show valence
   | otherwise = Binding
-    <$> countSepBy (length sorts) parseVarName (symbol ".")
+    <$> countSepBy (length sorts) parseName (symbol ".")
     <*> local (parseSort .~ resultSort) parseTerm
     <?> "valence " <> show valence
+parseValence parsePrim _parseTerm (External name) =
+  -- TODO: do we need this local?
+  PrimValue <$> local (parseSort .~ name) parsePrim

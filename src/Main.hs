@@ -11,6 +11,7 @@ import           Linguist.Brick
 import           Linguist.Proceed
 import           Linguist.Types
 
+import qualified Linguist.Languages.Markup        as Markup
 import qualified Linguist.Languages.SimpleExample as SimpleExample
 import qualified Linguist.Languages.Stlc          as Stlc
 import qualified Linguist.Languages.TExample      as TExample
@@ -46,7 +47,7 @@ allTests = scope "all tests" $ tests
   , "stlc"                   Stlc.stlcTests
   , "matches"                SimpleExample.matchesTests
   , "minus"                  SimpleExample.minusTests
-  , "mkCompletePatternTests" SimpleExample.mkCompletePatternTests
+  , "completePatternTests"   SimpleExample.completePatternTests
   , "simple-example"         SimpleExample.dynamicTests
   , "pretty-syntax"          SimpleExample.prettySyntaxChartTests
   , "syntax-statics"         SimpleExample.prettyStaticTests

@@ -32,9 +32,16 @@ symbol = L.symbol sc
 parens :: MonadParsec e Text m => m a -> m a
 parens = between (symbol "(") (symbol ")")
 
+brackets :: MonadParsec e Text m => m a -> m a
+brackets = between (symbol "[") (symbol "]")
+
 -- TODO: this can't handle escapes
 stringLiteral :: MonadParsec e Text m => m Text
 stringLiteral = fmap pack $ char '"' >> manyTill L.charLiteral (char '"')
+
+parseName :: MonadParsec e Text m => m Text
+parseName = pack <$> ((:) <$> letterChar <*> many alphaNumChar <* sc)
+  <?> "variable"
 
 countSepBy :: MonadPlus m => Int -> m a -> m sep -> m [a]
 countSepBy 0 _ _ = pure []

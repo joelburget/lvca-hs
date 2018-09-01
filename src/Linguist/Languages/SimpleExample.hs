@@ -14,7 +14,7 @@ module Linguist.Languages.SimpleExample
   , tm2
   , dynamicTests
   , minusTests
-  , mkCompletePatternTests
+  , completePatternTests
   , prettySyntaxChartTests
   , prettyStaticTests
   , matchesTests
@@ -53,8 +53,8 @@ syntax = SyntaxChart $ Map.fromList
     , Operator "str" (Arity []) "strings"
     ])
   , ("Exp", Sort ["e"]
-    [ Operator "num"   (External "num") "numeral"
-    , Operator "str"   (External "str") "literal"
+    [ Operator "num"   (ExternalArity "num") "numeral"
+    , Operator "str"   (ExternalArity "str") "literal"
     , Operator "plus"
       (Arity ["Exp", "Exp"]) "addition"
     , Operator "times"
@@ -201,24 +201,22 @@ dynamicTests =
 
        ]
 
-mkCompletePatternTests :: Test ()
-mkCompletePatternTests = scope "completePattern" $ tests
-  [ expect $
-      runMatches syntax "Typ" completePattern
-      ==
-      Just (PatternUnion [PatternTm "num" [], PatternTm "str" []])
-  , expect $
-      runMatches syntax "Exp" completePattern
-      ==
-      Just (PatternUnion
-        [ PatternPrimVal "Exp" "num"
-        , PatternPrimVal "Exp" "str"
+completePatternTests :: Test ()
+completePatternTests = scope "completePattern" $ tests
+  [ expectEq
+      (runMatches syntax "Typ" completePattern)
+      (Just (PatternUnion [PatternTm "num" [], PatternTm "str" []]))
+  , expectEq
+      (runMatches syntax "Exp" completePattern)
+      (Just (PatternUnion
+        [ PatternTm "num"   [PatternPrimVal "Exp" "num"]
+        , PatternTm "str"   [PatternPrimVal "Exp" "str"]
         , PatternTm "plus"  [PatternAny, PatternAny]
         , PatternTm "times" [PatternAny, PatternAny]
         , PatternTm "cat"   [PatternAny, PatternAny]
         , PatternTm "len"   [PatternAny]
         , PatternTm "let"   [PatternAny, PatternAny]
-        ])
+        ]))
   ]
 
 minusTests :: Test ()
@@ -275,8 +273,8 @@ prettySyntaxChartTests = tests
     (renderStrict (layoutPretty defaultLayoutOptions (pretty syntax)))
     (Text.init [text|
       Exp ::=
-        num[num]
-        str[str]
+        num([num])
+        str([str])
         plus(Exp; Exp)
         times(Exp; Exp)
         cat(Exp; Exp)
