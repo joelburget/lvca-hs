@@ -34,15 +34,21 @@ parseOperator = Operator
   <*> option "" stringLiteral
 
 parseArity :: Parser Arity
-parseArity = fmap Arity $ option [] $
-  parens $ option [] $
-    parseValence `sepBy1` symbol ";"
+parseArity = fmap Arity $ option [] $ asum
+  [ parens $ option [] $ parseValence `sepBy1` symbol ";"
+
+  -- you can elide the parens in the special case of a singleton external
+  , fmap (:[]) parseExternal
+  ]
 
 parseValence :: Parser Valence
 parseValence = asum
-  [ brackets $ External <$> parseName
+  [ parseExternal
   , do
        names <- parseName `sepBy1` symbol "."
        let Just (sorts, result) = unsnoc names
        pure $ Valence sorts result
   ]
+
+parseExternal :: Parser Valence
+parseExternal = brackets $ External <$> parseName

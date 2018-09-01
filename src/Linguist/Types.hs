@@ -569,10 +569,10 @@ instance Pretty Operator where
     _        -> pretty name <> pretty arity
 
 instance Pretty Arity where
-  pretty (Arity valences) =
-    if null valences
-    then mempty
-    else parens $ hsep $ punctuate semi $ fmap pretty valences
+  pretty (Arity valences) = case valences of
+    []                   -> mempty
+    [valence@External{}] -> pretty valence
+    _                    -> parens $ hsep $ punctuate semi $ fmap pretty valences
 
 instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $

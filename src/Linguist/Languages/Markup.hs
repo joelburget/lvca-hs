@@ -19,7 +19,7 @@ document ::=
 block ::=
   header(headerlevel; text)
   paragraph(inline)
-  blockembed([blockembed])
+  blockembed[blockembed]
 
 headerlevel ::=
   h1
@@ -32,7 +32,7 @@ inline ::=
   // TODO: maybe {utf8bytes} is a better syntax for externals
   // Some text with attributes, followed by the rest of the text
   inlineseq(attributes; [utf8bytes]; inline)
-  inlineembed([inlineembed])
+  inlineembed[inlineembed]
 
 attributes ::=
   bold

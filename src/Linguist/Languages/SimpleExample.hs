@@ -273,8 +273,8 @@ prettySyntaxChartTests = tests
     (renderStrict (layoutPretty defaultLayoutOptions (pretty syntax)))
     (Text.init [text|
       Exp ::=
-        num([num])
-        str([str])
+        num[num]
+        str[str]
         plus(Exp; Exp)
         times(Exp; Exp)
         cat(Exp; Exp)
