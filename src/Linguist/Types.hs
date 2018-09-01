@@ -134,18 +134,19 @@ type SortName = Text
 -- the language.
 --
 -- @
--- Typ t ::= num                numbers
---           str                strings
+-- Typ ::= num                numbers
+--         str                strings
 --
--- Exp e ::= num[n]             numeral
---           str[s]             literal
---           plus(Exp; Exp)     addition
---           times(Exp; Exp)    multiplication
---           cat(Exp; Exp)      concatenation
---           len(Exp)           length
---           let(Exp; Exp.Exp)  definition
+-- Exp ::= num[n]             numeral
+--         str[s]             literal
+--         plus(Exp; Exp)     addition
+--         times(Exp; Exp)    multiplication
+--         cat(Exp; Exp)      concatenation
+--         len(Exp)           length
+--         let(Exp; Exp.Exp)  definition
 -- @
 newtype SyntaxChart = SyntaxChart (Map SortName Sort)
+  deriving (Eq, Show)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
@@ -153,7 +154,7 @@ newtype SyntaxChart = SyntaxChart (Map SortName Sort)
 data Sort = Sort
   { _sortVariables :: ![Text]     -- ^ set of variables
   , _sortOperators :: ![Operator] -- ^ set of operators
-  }
+  } deriving (Eq, Show)
 
 -- | One of the fundamental constructions of a language. Operators are grouped
 -- into sorts. Each operator has an /arity/, specifying its arguments.
@@ -161,18 +162,20 @@ data Operator = Operator
   { _operatorName  :: !Text  -- ^ operator name
   , _operatorArity :: !Arity -- ^ arity
   , _operatorDesc  :: !Text  -- ^ description
-  }
+  } deriving (Eq, Show)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
 -- of its arguments.
 --
 -- eg @(Exp.Exp; Nat)Exp@.
 --
--- To specify an arity, the resulting sort is unnecessary. We also include
+-- To specify an arity, the resulting sort (the last @Exp@ above) is
+-- unnecessary, since it's always clear from context. We also include
 -- externals.
 data Arity
   = Arity    ![Valence]
   | External !SortName
+  deriving (Eq, Show)
 
 instance IsList Arity where
   type Item Arity = Valence
@@ -188,7 +191,7 @@ instance IsList Arity where
 data Valence = Valence
   { _valenceSorts  :: ![SortName] -- ^ the sorts of all bound variables
   , _valenceResult :: !SortName   -- ^ the resulting sort
-  } deriving Show
+  } deriving (Eq, Show)
 
 instance IsString Valence where
   fromString = Valence [] . fromString
@@ -558,14 +561,14 @@ instance Pretty Sort where
 instance Pretty Operator where
   pretty (Operator name arity _desc) = case arity of
     Arity [] -> pretty name
-    _        -> hsep [pretty name <> ":", pretty arity]
+    _        -> pretty name <> pretty arity
 
 instance Pretty Arity where
   pretty (Arity valences) =
     if null valences
     then mempty
     else parens $ hsep $ punctuate semi $ fmap pretty valences
-  pretty (External name) = pretty name
+  pretty (External name) = brackets $ pretty name
 
 instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $

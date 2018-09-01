@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes             #-}
 {-# LANGUAGE GADTs             #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -35,8 +36,9 @@ import           EasyTest                              hiding (char)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer            as L
+import NeatInterpolation
 
-import           Linguist.Parse
+import           Linguist.ParseLanguage
 import           Linguist.Proceed                      (eval)
 import           Linguist.Types
 
@@ -269,22 +271,21 @@ minusTests = scope "minus" $
 
 prettySyntaxChartTests :: Test ()
 prettySyntaxChartTests = tests
-  [ expect $
-    renderStrict (layoutPretty defaultLayoutOptions (pretty syntax))
-    ==
-    Text.intercalate "\n"
-    [ "Exp ::="
-    , "  num: num"
-    , "  str: str"
-    , "  plus: (Exp; Exp)"
-    , "  times: (Exp; Exp)"
-    , "  cat: (Exp; Exp)"
-    , "  len: (Exp)"
-    , "  let: (Exp; Exp.Exp)"
-    , "Typ ::="
-    , "  num"
-    , "  str"
-    ]
+  [ expectEq
+    (renderStrict (layoutPretty defaultLayoutOptions (pretty syntax)))
+    (Text.init [text|
+      Exp ::=
+        num[num]
+        str[str]
+        plus(Exp; Exp)
+        times(Exp; Exp)
+        cat(Exp; Exp)
+        len(Exp)
+        let(Exp; Exp.Exp)
+      Typ ::=
+        num
+        str
+    |])
   ]
 
 prettyStaticTests :: Test ()

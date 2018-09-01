@@ -3,23 +3,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE QuasiQuotes  #-}
 module Linguist.Languages.Stlc where
 
+import           Text.Megaparsec (runParser, parseErrorPretty)
+import Data.Text (pack)
 import qualified Data.Map.Strict as Map
 import           Data.Void       (Void)
 import           EasyTest
+import NeatInterpolation
 
+import           Linguist.ParseSyntaxDescription
 import           Linguist.Types
 
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart $ Map.fromList
-  [ ("Typ", Sort ["t"]
-    [ Operator "nat" (Arity []) "natural numbers"
-    , Operator "arr" (Arity ["Typ", "Typ"]) "arrows"
+  [ ("Typ", Sort []
+    [ Operator "nat" (Arity []) "" -- "natural numbers"
+    , Operator "arr" (Arity ["Typ", "Typ"]) "" -- "arrows"
     ])
-  , ("Exp", Sort ["e"]
-    [ Operator "lam" (Arity ["Typ", Valence ["Exp"] "Exp"]) "abstraction"
-    , Operator "ap"  (Arity ["Exp", "Exp"])                 "application"
+  , ("Exp", Sort []
+    [ Operator "lam" (Arity ["Typ", Valence ["Exp"] "Exp"]) "" -- "abstraction"
+    , Operator "ap"  (Arity ["Exp", "Exp"])                 "" -- "application"
 
     --
     -- , Operator "s"   (Arity ["Exp"])                        "successor"
@@ -43,6 +48,16 @@ stlcTests = tests
   , expectJust $ runMatches stlcChart "Exp" $ matches
     (PatternTm "lam" [BindingPattern ["x"] (PatternVar (Just "body"))])
     stlcTm1
+  , let result = runParser parseSyntaxDescription "(test)"
+          [text|
+            Typ ::= nat
+                    arr(Typ; Typ)
+            Exp ::= lam(Typ; Exp.Exp)
+                    ap(Exp; Exp)
+          |]
+    in case result of
+         Left err     -> crash $ pack $ parseErrorPretty err
+         Right parsed -> expectEq parsed stlcChart
   ]
 
 stlcTm1, stlcTm2 :: Term Void

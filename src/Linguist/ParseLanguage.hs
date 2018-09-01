@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeFamilies               #-}
-module Linguist.Parse where
+module Linguist.ParseLanguage where
 
 import           Control.Applicative        ((<$))
 import           Control.Lens
@@ -17,12 +17,13 @@ import           Data.String                (IsString (fromString))
 import           Data.Text                  (Text, pack, unpack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import qualified Text.Megaparsec.Char.Lexer as L
 
+import           Linguist.ParseUtil
 import           Linguist.Types
 import           Linguist.Util
 
 -- TODO: we're not actually using Err.
+-- TODO: nice error messages
 newtype Err = Err String
   deriving (Eq, Ord, IsString)
 
@@ -36,28 +37,13 @@ instance ShowErrorComponent Err where
 
 type ParseEnv = (SyntaxChart, SortName)
 
+type Parser a = ParsecT Err Text (Reader ParseEnv) a
+
 parseChart :: Lens' ParseEnv SyntaxChart
 parseChart = _1
 
 parseSort :: Lens' ParseEnv SortName
 parseSort = _2
-
-type Parser a = ParsecT Err Text (Reader ParseEnv) a
-
-sc :: Parser ()
-sc = L.space space1 lineCmnt blockCmnt
-  where
-    lineCmnt  = L.skipLineComment "//"
-    blockCmnt = L.skipBlockComment "/*" "*/"
-
-lexeme :: Parser a -> Parser a
-lexeme = L.lexeme sc
-
-symbol :: Text -> Parser Text
-symbol = L.symbol sc
-
-parens :: Parser a -> Parser a
-parens = between (symbol "(") (symbol ")")
 
 standardParser :: forall a. Parser a -> Parser (Term a)
 standardParser parsePrim = do
