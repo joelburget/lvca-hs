@@ -30,12 +30,10 @@ parseSort = L.nonIndented scn $ indentBlock scn $ do
   pure $ L.IndentMany Nothing (pure . (name,) . (Sort [])) parseOperator
 
 parseOperator :: Parser Operator
-parseOperator = do
-  name <- parseName
-  arity <- parseArity
-  -- scn
-  pure $ Operator name arity ""
--- parseOperator = Operator <$> parseName <*> parseArity <*> pure ""
+parseOperator = Operator
+  <$> parseName
+  <*> parseArity
+  <*> option "" stringLiteral
 
 -- TODO: support parsing externals
 parseArity :: Parser Arity

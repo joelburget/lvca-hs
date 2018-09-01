@@ -19,12 +19,12 @@ import           Linguist.Types
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart $ Map.fromList
   [ ("Typ", Sort []
-    [ Operator "nat" (Arity []) "" -- "natural numbers"
-    , Operator "arr" (Arity ["Typ", "Typ"]) "" -- "arrows"
+    [ Operator "nat" (Arity []) "natural numbers"
+    , Operator "arr" (Arity ["Typ", "Typ"]) "arrows"
     ])
   , ("Exp", Sort []
-    [ Operator "lam" (Arity ["Typ", Valence ["Exp"] "Exp"]) "" -- "abstraction"
-    , Operator "ap"  (Arity ["Exp", "Exp"])                 "" -- "application"
+    [ Operator "lam" (Arity ["Typ", Valence ["Exp"] "Exp"]) "abstraction"
+    , Operator "ap"  (Arity ["Exp", "Exp"])                 "application"
 
     --
     -- , Operator "s"   (Arity ["Exp"])                        "successor"
@@ -50,10 +50,10 @@ stlcTests = tests
     stlcTm1
   , let result = runParser parseSyntaxDescription "(test)"
           [text|
-            Typ ::= nat
-                    arr(Typ; Typ)
-            Exp ::= lam(Typ; Exp.Exp)
-                    ap(Exp; Exp)
+            Typ ::= nat               "natural numbers"
+                    arr(Typ; Typ)     "arrows"
+            Exp ::= lam(Typ; Exp.Exp) "abstraction"
+                    ap(Exp; Exp)      "application"
           |]
     in case result of
          Left err     -> crash $ pack $ parseErrorPretty err

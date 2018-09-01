@@ -3,14 +3,13 @@
 {-# LANGUAGE TupleSections          #-}
 module Linguist.ParseUtil where
 
-import Control.Monad (void)
-import Data.Text (Text)
+import Control.Monad (MonadPlus, void)
+import Data.Text (Text, pack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 
 
--- TODO: deduplicate sc, lexeme, symbol, parens
 lineComment, blockComment
   :: MonadParsec e Text m => m ()
 lineComment  = L.skipLineComment "//"
@@ -32,3 +31,15 @@ symbol = L.symbol sc
 
 parens :: MonadParsec e Text m => m a -> m a
 parens = between (symbol "(") (symbol ")")
+
+-- TODO: this can't handle escapes
+stringLiteral :: MonadParsec e Text m => m Text
+stringLiteral = fmap pack $ char '"' >> manyTill L.charLiteral (char '"')
+
+countSepBy :: MonadPlus m => Int -> m a -> m sep -> m [a]
+countSepBy 0 _ _ = pure []
+countSepBy n ma sep = do
+  a  <- ma
+  _  <- sep
+  as <- countSepBy (pred n) ma sep
+  pure (a:as)

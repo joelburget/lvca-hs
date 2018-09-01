@@ -7,7 +7,6 @@ module Linguist.ParseLanguage where
 
 import           Control.Applicative        ((<$))
 import           Control.Lens
-import           Control.Monad
 import           Control.Monad.Reader
 import           Data.Foldable              (asum, toList)
 import           Data.Map                   (Map)
@@ -93,11 +92,3 @@ parseValence parseTerm valence@(Valence sorts resultSort)
     <$> countSepBy (length sorts) parseVarName (symbol ".")
     <*> local (parseSort .~ resultSort) parseTerm
     <?> "valence " <> show valence
-
-countSepBy :: MonadPlus m => Int -> m a -> m sep -> m [a]
-countSepBy 0 _ _ = pure []
-countSepBy n ma sep = do
-  a  <- ma
-  _  <- sep
-  as <- countSepBy (pred n) ma sep
-  pure (a:as)
