@@ -10,7 +10,6 @@ import Data.Maybe (fromMaybe, isJust)
 import Text.Megaparsec
 import Text.Megaparsec.Char.Lexer hiding (indentBlock)
 
-import Debug.Trace
 
 -- Same as megaparsec's @indentBlock@, but don't require a newline before the
 -- indented block
@@ -26,9 +25,7 @@ indentBlock sc r = do
     IndentNone x -> sc *> return x
     IndentMany indent f p -> do
       mlvl <- (optional . try) (indentGuard sc GT ref)
-      traceShowM ("mlvl", mlvl)
       done <- isJust <$> optional eof
-      traceShowM ("done", done)
       case (mlvl, done) of
         (Just lvl, False) ->
           indentedItems ref (fromMaybe lvl indent) sc p >>= f
