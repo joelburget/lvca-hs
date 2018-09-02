@@ -1,5 +1,5 @@
 {-# LANGUAGE QuasiQuotes  #-}
-module Linguist.Languages.Markup where
+module Linguist.Languages.Document where
 
 import Data.Void (Void)
 import           Text.Megaparsec (runParser, ParseError)
@@ -9,7 +9,7 @@ import           Linguist.ParseSyntaxDescription
 import           Linguist.Types (SyntaxChart)
 
 syntax :: Either (ParseError Char Void) SyntaxChart
-syntax = runParser parseSyntaxDescription "(markup syntax)"
+syntax = runParser parseSyntaxDescription "(document syntax)"
   [text|
 // TODO: would be nice to have some sort of built-in sequences
 document ::=

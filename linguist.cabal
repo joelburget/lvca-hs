@@ -22,7 +22,7 @@ executable linguist
     Linguist.Proceed,
     Linguist.Types,
     Linguist.Util,
-    Linguist.Languages.Markup,
+    Linguist.Languages.Document,
     Linguist.Languages.SimpleExample,
     Linguist.Languages.Stlc,
     Linguist.Languages.TExample,
