@@ -275,6 +275,7 @@ data Denotation a
     { _bodySlot :: !Text
     , _argSlots :: ![Text]
     }
+  | Choose !Text
 
 -- | Denotation charts
 --
@@ -598,6 +599,10 @@ data StackFrame a
     }
   | BindingFrame
     !(Map Text (Term a))
+  | ChooseFrame
+    { _chooseTermName :: !Text
+    , _chooseSlot     :: !Text
+    }
 
 findBinding :: [StackFrame a] -> Text -> Maybe (Term a)
 findBinding [] _ = Nothing

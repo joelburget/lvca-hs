@@ -75,6 +75,7 @@ drawStackFrame = hBox . \case
     in txt name : slots
   BindingFrame bindings -> Map.toList bindings <&> \(k, v) ->
     txt k <+> str ": " <+> drawTm v
+  ChooseFrame tmName slotName -> [txt tmName <+> txt " -> " <+> txt slotName]
 
 -- TODO: distinguish between in and out
 drawFocus :: TmShow a => Focus a -> Widget ()

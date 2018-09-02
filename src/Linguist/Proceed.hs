@@ -67,6 +67,11 @@ eval' sort = \case
         local (_3 %~ Map.union (Map.fromList varVals)) (eval' sort to)
       Just (_, Value) -> pure tm
 
+      Just (Subst assignment _, Choose chooseSlot) -> do
+        val <- assignment ^? ix chooseSlot ??
+          "couldn't find slot " ++ show chooseSlot
+        eval' sort val
+
       Just (Subst assignment _, Cbv fun argSlots') -> do
         fun' <- assignment ^? ix fun ??
           ("couldn't find function " ++ show fun)
@@ -155,6 +160,12 @@ proceed (StateStep stack tmVal) = case tmVal of
           Just $ StateStep (BindingFrame argVals : stack)
             (Descending body')
 
+      Just (Subst assignment _, Choose chooseSlot) -> do
+        fromMaybe (Errored "Choose") $ do
+          body' <- assignment ^? ix chooseSlot
+          Just $ StateStep (ChooseFrame name chooseSlot : stack)
+            (Descending body')
+
       Just (Subst{}, Value) -> StateStep stack (Ascending tm)
       Nothing -> Errored $ Text.pack $ show tmVal
 
@@ -181,7 +192,8 @@ proceed (StateStep stack tmVal) = case tmVal of
     CbvFrame name argNames vals (tm':tms) body : stack' -> StateStep
       (CbvFrame name argNames (vals |> val) tms body : stack')
       (Descending tm')
-    BindingFrame _ : stack' -> StateStep stack' tmVal
+    BindingFrame{} : stack' -> StateStep stack' tmVal
+    ChooseFrame{}  : stack' -> StateStep stack' tmVal
 
 proceed e@Errored{} = pure e
 proceed d@Done{}    = pure d

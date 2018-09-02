@@ -67,18 +67,23 @@ syntax = SyntaxChart $ Map.fromList
     --   Check for anything matching this that it has a binding pattern in the
     --   second slot
     , Operator "let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
+    , Operator "annotation" (Arity [External "annotation", "Exp"]) "annotation"
     ])
   ]
 
 tm1, tm2 :: Term E
-tm1 = Term "let"
-  [ PrimValue (Left 1)
-  , Binding ["x"]
-    (Term "plus"
-      [ Var "x"
-      , PrimValue (Left 2)
-      ])
+tm1 = Term "annotation"
+  [ PrimValue (Right "annotation") -- XXX need this to be a different type
+  , Term "let"
+    [ PrimValue (Left 1)
+    , Binding ["x"]
+      (Term "plus"
+        [ Var "x"
+        , PrimValue (Left 2)
+        ])
+    ]
   ]
+
 tm2 = Term "cat"
   [ PrimValue (Right "foo")
   , PrimValue (Right "bar")
@@ -114,6 +119,8 @@ dynamics = DenotationChart
   , (PatternTm "let"
     [PatternVar (Just "e_1"), BindingPattern ["v"] (PatternVar (Just "e_2"))],
     BindIn [("v", "e_1")] "e_2")
+  , (PatternTm "annotation" [PatternAny, PatternVar (Just "contents")],
+    Choose "contents")
   ]
 
 typingJudgement :: JudgementForm
@@ -209,13 +216,14 @@ completePatternTests = scope "completePattern" $ tests
   , expectEq
       (runMatches syntax "Exp" completePattern)
       (Just (PatternUnion
-        [ PatternTm "num"   [PatternPrimVal "Exp" "num"]
-        , PatternTm "str"   [PatternPrimVal "Exp" "str"]
-        , PatternTm "plus"  [PatternAny, PatternAny]
-        , PatternTm "times" [PatternAny, PatternAny]
-        , PatternTm "cat"   [PatternAny, PatternAny]
-        , PatternTm "len"   [PatternAny]
-        , PatternTm "let"   [PatternAny, PatternAny]
+        [ PatternTm "num"        [PatternPrimVal "Exp" "num"]
+        , PatternTm "str"        [PatternPrimVal "Exp" "str"]
+        , PatternTm "plus"       [PatternAny, PatternAny]
+        , PatternTm "times"      [PatternAny, PatternAny]
+        , PatternTm "cat"        [PatternAny, PatternAny]
+        , PatternTm "len"        [PatternAny]
+        , PatternTm "let"        [PatternAny, PatternAny]
+        , PatternTm "annotation" [PatternPrimVal "Exp" "annotation", PatternAny]
         ]))
   ]
 
@@ -280,6 +288,7 @@ prettySyntaxChartTests = tests
         cat(Exp; Exp)
         len(Exp)
         let(Exp; Exp.Exp)
+        annotation([annotation]; Exp)
       Typ ::=
         num
         str
