@@ -98,17 +98,26 @@ pattern VS x = PrimValue (Right x)
 dynamics :: DenotationChart E
 dynamics = DenotationChart
   -- [ (PatternVar (Just "x",) Variable "x")
-  [ (PatternPrimVal "Exp" "num", Value)
-  , (PatternPrimVal "Exp" "str", Value)
-  , (PatternTm "plus" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
+  [ (PatternPrimVal "num" Nothing, Value)
+  , (PatternPrimVal "str" Nothing, Value)
+  , (PatternTm "plus"
+    [ PatternPrimVal "num" (Just "n_1")
+    , PatternPrimVal "num" (Just "n_2")
+    ],
     CallForeign $ \case
       VI x :< VI y :< Empty -> VI (x + y)
       args -> error $ "bad call to plus: " ++ show args)
-  , (PatternTm "times" [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"],
+  , (PatternTm "times"
+    [ PatternPrimVal "num" (Just "n_1")
+    , PatternPrimVal "num" (Just "n_2")
+    ],
     CallForeign $ \case
       VI x :< VI y :< Empty -> VI (x * y)
       _ -> error "bad call to times")
-  , (PatternTm "cat" [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"],
+  , (PatternTm "cat"
+    [ PatternPrimVal "str" (Just "s_1")
+    , PatternPrimVal "str" (Just "s_2")
+    ],
     CallForeign $ \case
       VS x :< VS y :< Empty -> VS (x <> y)
       _ -> error "bad call to cat")
@@ -181,19 +190,23 @@ dynamicTests =
 
        , expectJust $
          let pat = PatternTm "cat"
-               [PatternPrimVal "str" "s_1", PatternPrimVal "str" "s_2"]
+               [ PatternPrimVal "str" (Just "s_1")
+               , PatternPrimVal "str" (Just "s_2")
+               ]
          in runMatches syntax "Exp" $ matches pat tm2
        , expectJust $
-         let pat = PatternPrimVal "num" "n_1"
+         let pat = PatternPrimVal "num" (Just "n_1")
              tm  = Var "x"
          in flip runReaderT env $ matches pat tm
        , expectJust $
-         let pat = PatternPrimVal "num" "n_2"
+         let pat = PatternPrimVal "num" (Just "n_2")
              tm  = VI 2
          in flip runReaderT env $ matches pat tm
        , expectJust $
          let pat = PatternTm "plus"
-               [PatternPrimVal "num" "n_1", PatternPrimVal "num" "n_2"]
+               [ PatternPrimVal "num" (Just "n_1")
+               , PatternPrimVal "num" (Just "n_2")
+               ]
              tm = Term "plus" [Var "x", VI 2]
          in flip runReaderT env $ matches pat tm
 
@@ -216,14 +229,14 @@ completePatternTests = scope "completePattern" $ tests
   , expectEq
       (runMatches syntax "Exp" completePattern)
       (Just (PatternUnion
-        [ PatternTm "num"        [PatternPrimVal "Exp" "num"]
-        , PatternTm "str"        [PatternPrimVal "Exp" "str"]
+        [ PatternTm "num"        [PatternPrimVal "num" Nothing]
+        , PatternTm "str"        [PatternPrimVal "str" Nothing]
         , PatternTm "plus"       [PatternAny, PatternAny]
         , PatternTm "times"      [PatternAny, PatternAny]
         , PatternTm "cat"        [PatternAny, PatternAny]
         , PatternTm "len"        [PatternAny]
         , PatternTm "let"        [PatternAny, PatternAny]
-        , PatternTm "annotation" [PatternPrimVal "Exp" "annotation", PatternAny]
+        , PatternTm "annotation" [PatternPrimVal "annotation" Nothing, PatternAny]
         ]))
   ]
 
@@ -231,7 +244,7 @@ minusTests :: Test ()
 minusTests = scope "minus" $
   let x = PatternVar (Just "x")
       y = PatternVar (Just "y")
-      num = PatternPrimVal "Exp" "num"
+      num = PatternPrimVal "num" Nothing
       any' = PatternAny
   in tests
        [ expect $ runMatches undefined undefined (minus x x) == Just PatternEmpty
@@ -247,11 +260,11 @@ minusTests = scope "minus" $
        , expect $
          runMatches syntax "Exp" (minus
            (PatternTm "plus"
-             [ PatternPrimVal "Exp" "num"
+             [ PatternPrimVal "num" Nothing
              , x
              ])
            (PatternTm "plus"
-             [ PatternPrimVal "Exp" "num"
+             [ PatternPrimVal "num" Nothing
              , y
              ]))
          ==
@@ -268,8 +281,8 @@ minusTests = scope "minus" $
        --   in (traceShowId $ flip runReaderT env (minus
        --        (PatternTm "plus" [x, y])
        --        (PatternTm "plus"
-       --          [ PatternPrimVal "Exp" "num"
-       --          , PatternPrimVal "Exp" "num"
+       --          [ PatternPrimVal "num" Nothing
+       --          , PatternPrimVal "num" Nothing
        --          ])))
        --        ==
        --        Just PatternEmpty

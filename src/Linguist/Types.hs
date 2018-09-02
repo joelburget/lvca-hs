@@ -54,8 +54,8 @@ module Linguist.Types
   -- * Patterns
   -- ** Pattern
   , Pattern(..)
+  , patternPrimExternal
   , patternPrimName
-  , patternPrimSort
   -- ** PatternCheckResult
   , PatternCheckResult(..)
   , overlapping
@@ -246,8 +246,8 @@ data Pattern
 
   -- | Matches 'PrimValue'
   | PatternPrimVal
-    { _patternPrimSort :: !SortName -- ^ sort, eg "str"
-    , _patternPrimName :: !Text     -- ^ name, eg "s_1"
+    { _patternPrimExternal :: !SortName     -- ^ external name, eg "str"
+    , _patternPrimName :: !(Maybe Text) -- ^ variable name, eg "s_1"
     }
 
   -- | The union of patterns
@@ -381,7 +381,7 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
       pairWith matches subpatterns subterms
     mconcat <$> lift mMatches
 -- TODO: write context of var names?
-matches (PatternPrimVal _primName1 _varName) (PrimValue _)
+matches (PatternPrimVal _primExternal _varName) (PrimValue _)
   = emptyMatch
 -- TODO: this piece must know the binding structure from the syntax chart
 matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
@@ -406,14 +406,12 @@ getSort = do
 
 completePattern :: Matching a Pattern
 completePattern = do
-  MatchesEnv _ sort _  <- ask
   Sort _vars operators <- getSort
 
   pure $ PatternUnion $ operators <&>
     \(Operator opName (Arity valences) _desc) -> PatternTm opName $
       valences <&> \case
-        -- TODO: get rid of sort here
-        External name -> PatternPrimVal sort name
+        External name -> PatternPrimVal name Nothing
         _valence      -> PatternAny
 
 minus :: Pattern -> Pattern -> Matching a Pattern
@@ -438,9 +436,8 @@ minus (PatternUnion pats) x = do
 -- remove each pattern from pat one at a time
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
-minus x@(PatternPrimVal sort1 name1) (PatternPrimVal sort2 name2) = pure $
-  -- TODO: what if sorts not equal? is that an error?
-  if sort1 == sort2 && name1 == name2 then PatternEmpty else x
+minus x@(PatternPrimVal external1 _) (PatternPrimVal external2 _)
+  = pure $ if external1 == external2 then PatternEmpty else x
 
 minus x@PatternTm{} PatternPrimVal{}      = pure x
 minus x@PatternTm{} BindingPattern{}      = pure x
