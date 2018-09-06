@@ -13,12 +13,12 @@ import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader
 import           Data.Foldable        (toList)
 import qualified Data.List            as List
-import qualified Data.Map.Strict      as Map
 import           Data.Map.Strict      (Map)
+import qualified Data.Map.Strict      as Map
 import           Data.Maybe           (fromMaybe)
 import qualified Data.Sequence        as Seq
-import qualified Data.Text            as Text
 import           Data.Text            (Text)
+import qualified Data.Text            as Text
 import           Data.Traversable     (for)
 
 import           Linguist.Types
@@ -104,7 +104,7 @@ eval' sort = \case
     tm <- view (_3 . at name)
     case tm of
       Just tm' -> pure tm'
-      Nothing -> throwError $ "unable to look up var " ++ Text.unpack name
+      Nothing  -> throwError $ "unable to look up var " ++ Text.unpack name
   tm@PrimValue{} -> pure tm
 
 -- Only to be used in evaluation -- not proceed.
@@ -112,7 +112,7 @@ substIn :: Map Text (Term a) -> Term a -> Term a
 substIn vals tm = case tm of
   Term name subtms -> Term name $ substIn vals <$> subtms
   Binding boundNames body -> case filter (`Map.notMember` vals) boundNames of
-    [] -> body
+    []          -> body
     boundNames' -> Binding boundNames' $ substIn vals body
   Var name
     | Just val <- vals ^? ix name

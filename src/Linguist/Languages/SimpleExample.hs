@@ -1,8 +1,8 @@
-{-# LANGUAGE QuasiQuotes             #-}
 {-# LANGUAGE GADTs             #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
+{-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TypeApplications  #-}
 module Linguist.Languages.SimpleExample
   ( syntax
@@ -33,10 +33,10 @@ import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
                                                         layoutPretty, pretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           EasyTest                              hiding (char)
+import           NeatInterpolation
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer            as L
-import NeatInterpolation
 
 import           Linguist.ParseLanguage
 import           Linguist.Proceed                      (eval)

@@ -1,14 +1,14 @@
+{-# LANGUAGE EmptyCase         #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedLists   #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE EmptyCase #-}
 module Linguist.Languages.TExample where
 
-import           Prelude         hiding (succ)
-import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict  as Map
 import           EasyTest
+import           Prelude          hiding (succ)
 
-import           Linguist.Proceed      (eval)
+import           Linguist.Proceed (eval)
 import           Linguist.Types
 
 

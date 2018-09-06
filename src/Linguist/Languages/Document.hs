@@ -1,12 +1,12 @@
-{-# LANGUAGE QuasiQuotes  #-}
+{-# LANGUAGE QuasiQuotes #-}
 module Linguist.Languages.Document where
 
-import Data.Void (Void)
-import           Text.Megaparsec (runParser, ParseError)
-import NeatInterpolation
+import           Data.Void                       (Void)
+import           NeatInterpolation
+import           Text.Megaparsec                 (ParseError, runParser)
 
 import           Linguist.ParseSyntaxDescription
-import           Linguist.Types (SyntaxChart)
+import           Linguist.Types                  (SyntaxChart)
 
 syntax :: Either (ParseError Char Void) SyntaxChart
 syntax = runParser parseSyntaxDescription "(document syntax)"

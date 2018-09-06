@@ -5,15 +5,15 @@
 {-# LANGUAGE TypeFamilies               #-}
 module Linguist.ParseLanguage where
 
-import           Control.Applicative        ((<$))
+import           Control.Applicative  ((<$))
 import           Control.Lens
 import           Control.Monad.Reader
-import           Data.Foldable              (asum, toList)
-import           Data.Map                   (Map)
-import qualified Data.Map                   as Map
-import qualified Data.Sequence              as Seq
-import           Data.String                (IsString (fromString))
-import           Data.Text                  (Text, unpack)
+import           Data.Foldable        (asum, toList)
+import           Data.Map             (Map)
+import qualified Data.Map             as Map
+import qualified Data.Sequence        as Seq
+import           Data.String          (IsString (fromString))
+import           Data.Text            (Text, unpack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 

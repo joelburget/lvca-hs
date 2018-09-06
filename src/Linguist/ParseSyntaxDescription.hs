@@ -1,17 +1,17 @@
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections     #-}
 module Linguist.ParseSyntaxDescription where
 
-import Data.Void (Void)
-import Data.Foldable (asum)
-import qualified Data.Map as Map
-import Control.Lens (unsnoc)
-import Data.Text (Text)
+import           Control.Lens                  (unsnoc)
+import           Data.Foldable                 (asum)
+import qualified Data.Map                      as Map
+import           Data.Text                     (Text)
+import           Data.Void                     (Void)
 import           Text.Megaparsec
-import qualified Text.Megaparsec.Char.Lexer as L
+import qualified Text.Megaparsec.Char.Lexer    as L
 
-import           Linguist.Types
 import           Linguist.ParseUtil
+import           Linguist.Types
 import           Text.Megaparsec.Char.LexerAlt (indentBlock)
 
 

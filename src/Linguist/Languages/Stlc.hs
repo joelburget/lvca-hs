@@ -2,16 +2,16 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
+{-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TypeApplications  #-}
-{-# LANGUAGE QuasiQuotes  #-}
 module Linguist.Languages.Stlc where
 
-import           Text.Megaparsec (runParser, parseErrorPretty)
-import Data.Text (pack)
-import qualified Data.Map.Strict as Map
-import           Data.Void       (Void)
+import qualified Data.Map.Strict                 as Map
+import           Data.Text                       (pack)
+import           Data.Void                       (Void)
 import           EasyTest
-import NeatInterpolation
+import           NeatInterpolation
+import           Text.Megaparsec                 (parseErrorPretty, runParser)
 
 import           Linguist.ParseSyntaxDescription
 import           Linguist.Types

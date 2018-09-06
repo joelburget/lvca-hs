@@ -247,7 +247,7 @@ data Pattern
   -- | Matches 'PrimValue'
   | PatternPrimVal
     { _patternPrimExternal :: !SortName     -- ^ external name, eg "str"
-    , _patternPrimName :: !(Maybe Text) -- ^ variable name, eg "s_1"
+    , _patternPrimName     :: !(Maybe Text) -- ^ variable name, eg "s_1"
     }
 
   -- | The union of patterns

@@ -5,10 +5,10 @@
 {-# LANGUAGE TypeFamilies        #-}
 module Text.Megaparsec.Char.LexerAlt where
 
-import Control.Applicative
-import Data.Maybe (fromMaybe, isJust)
-import Text.Megaparsec
-import Text.Megaparsec.Char.Lexer hiding (indentBlock)
+import           Control.Applicative
+import           Data.Maybe                 (fromMaybe, isJust)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char.Lexer hiding (indentBlock)
 
 
 -- Same as megaparsec's @indentBlock@, but don't require a newline before the

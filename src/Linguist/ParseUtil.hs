@@ -1,10 +1,10 @@
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections     #-}
 module Linguist.ParseUtil where
 
-import Control.Monad (MonadPlus, void)
-import Data.Text (Text, pack)
+import           Control.Monad              (MonadPlus, void)
+import           Data.Text                  (Text, pack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
