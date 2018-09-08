@@ -174,7 +174,7 @@ data Operator = Operator
 -- unnecessary, since it's always clear from context. We also include
 -- externals.
 data Arity
-  = Arity    ![Valence]
+  = Arity ![Valence]
   deriving (Eq, Show)
 
 instance IsList Arity where
@@ -558,8 +558,9 @@ instance Pretty SyntaxChart where
     in vsep $ f <$> Map.toList sorts
 
 instance Pretty Sort where
-  pretty (Sort _vars operators)
-    = vsep $ fmap pretty operators
+  pretty (Sort vars operators) = vsep $
+    hsep (fmap pretty vars <> ["::="]) :
+    fmap pretty operators
 
 instance Pretty Operator where
   pretty (Operator name arity _desc) = case arity of

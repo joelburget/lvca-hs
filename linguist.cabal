@@ -41,6 +41,7 @@ executable linguist
     easytest,
     mmorph,
     megaparsec,
-    neat-interpolation
+    neat-interpolation,
+    data-diverse
   hs-source-dirs:      src
   default-language:    Haskell2010

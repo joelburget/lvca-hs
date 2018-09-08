@@ -23,9 +23,9 @@ parseSyntaxDescription = SyntaxChart . Map.fromList <$> some parseSort <* eof
 parseSort :: Parser (SortName, Sort)
 parseSort = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
+  variables <- many parseName
   _         <- symbol "::="
-  -- TODO: get rid of sort variables
-  pure $ L.IndentMany Nothing (pure . (name,) . (Sort [])) parseOperator
+  pure $ L.IndentMany Nothing (pure . (name,) . (Sort variables)) parseOperator
 
 parseOperator :: Parser Operator
 parseOperator = Operator
