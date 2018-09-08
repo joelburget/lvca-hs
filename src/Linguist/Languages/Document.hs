@@ -7,16 +7,18 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Linguist.Languages.Document where
 
+import qualified CMark as MD
+import qualified CMark.Patterns as MD
 import           Control.Lens
+import           Data.Diverse
 import           Data.Text                       (Text)
-import           Data.Void                       (Void)
+import           Data.Void                       (absurd, Void)
+import           EasyTest
 import           NeatInterpolation
 import           Text.Megaparsec                 (ParseError, runParser)
 
 import           Linguist.ParseSyntaxDescription
 import           Linguist.Types                  (SyntaxChart, Term(..))
-
-import Data.Diverse
 
 syntax :: Either (ParseError Char Void) SyntaxChart
 syntax = runParser parseSyntaxDescription "(document syntax)"
@@ -38,17 +40,20 @@ Inline ::= Inline(List InlineAtom)
 
 InlineAtom ::=
   // ideally a list of attributes but sets are much harder to model
-  InlineAtom(List Attribute; [Text])
+  InlineAtom(Maybe Attribute; [Text])
   InlineEmbed[InlineEmbed]
 
 Attribute ::=
   Bold
   Italic
-  Underline
 
 List a ::=
   Nil
   Cons(a; List a)
+
+Maybe a ::=
+  Nothing
+  Just(a)
   |]
 
 data InlineEmbed
@@ -65,72 +70,78 @@ data HeaderLevel = H1 | H2 | H3
 newtype Inline inlineEmbed = Inline [InlineAtom inlineEmbed]
 
 data InlineAtom inlineEmbed
-  = InlineAtom ![Attribute] !Text
+  = InlineAtom !(Maybe Attribute) !Text
   | InlineEmbed !inlineEmbed
 
-data Attribute = Bold | Italic | Underline
+data Attribute = Bold | Italic
 
 type Term' a b = Term (Which '[a, b, Text])
 
 model :: Prism' (Term' a b) (Document a b)
-model = prism' forward backward where
+model = prism' bwd fwd where
 
-  forward :: Document a b -> Term' a b
-  forward (Document blocks) = Term "Document"
-    [review (listP blockPrism) blocks]
+  bwd = \case
+    Document blocks -> Term "Document" [review (listP blockP) blocks]
 
-  backward :: Term' a b -> Maybe (Document a b)
-  backward = \case
+  fwd = \case
     Term "Document" [blockList]
-      -> Document <$> preview (listP blockPrism) blockList
+      -> Document <$> preview (listP blockP) blockList
     _ -> Nothing
 
+maybeP :: Prism' (Term b) a -> Prism' (Term b) (Maybe a)
+maybeP p = prism' bwd fwd where
+
+  bwd = \case
+    Nothing -> Term "Nothing" []
+    Just x  -> Term "Just" [review p x]
+
+  fwd = \case
+    Term "Nothing" [] -> Just Nothing
+    Term "Just" [x]   -> Just <$> preview p x
+    _                 -> Nothing
+
 listP :: Prism' (Term b) a -> Prism' (Term b) [a]
-listP p = prism' (forward (review p)) (backward (preview p)) where
+listP p = prism' bwd fwd where
 
-  forward :: (a -> Term b) -> [a] -> Term b
-  forward f = \case
-    []   -> Term "nil" []
-    x:xs -> Term "cons" [f x, forward f xs]
+  bwd = \case
+    []   -> Term "Nil" []
+    x:xs -> Term "Cons" [review p x, bwd xs]
 
-  backward :: (Term b -> Maybe a) -> Term b -> Maybe [a]
-  backward f = \case
-    Term "nil" []       -> Just []
-    Term "cons" [x, xs] -> (:) <$> f x <*> backward f xs
+  fwd = \case
+    Term "Nil" []       -> Just []
+    Term "Cons" [x, xs] -> (:) <$> preview p x <*> fwd xs
     _                   -> Nothing
 
-blockPrism :: Prism' (Term' a b) (Block a b)
-blockPrism = prism' forward backward where
+blockP :: Prism' (Term' a b) (Block a b)
+blockP = prism' bwd fwd where
 
-  backward :: forall a b. Term' a b -> Maybe (Block a b)
-  backward = \case
+  fwd = \case
     Term "Header" [level, PrimValue val] -> Header
-      <$> preview headerLevelPrism level
+      <$> preview headerLevelP level
       <*> trialN' @2 val
     Term "Paragraph" [inline] -> Paragraph <$> preview inlineP inline
     Term "BlockEmbed" [PrimValue val] -> BlockEmbed <$> trialN' @0 val
     _ -> Nothing
 
-  forward :: Block a b -> Term' a b
-  forward = \case
+  bwd = \case
     Header level t -> Term "Header"
-      [ (review headerLevelPrism) level
+      [ (review headerLevelP) level
       , PrimValue (pickN @2 t)
       ]
     Paragraph inline -> Term "Paragraph" [review inlineP inline]
     BlockEmbed embed -> Term "BlockEmbed" [PrimValue (pickN @0 embed)]
 
-headerLevelPrism :: Prism' (Term x) HeaderLevel
-headerLevelPrism = prism' forward backward where
+headerLevelP :: Prism' (Term x) HeaderLevel
+headerLevelP = prism' bwd fwd where
 
-  forward h =
+  bwd h =
     let h' = case h of
           H1 -> "H1"
           H2 -> "H2"
           H3 -> "H3"
     in Term h' []
 
-  backward = \case
+  fwd = \case
     Term h [] -> case h of
       "H1" -> Just H1
       "H2" -> Just H2
@@ -139,48 +150,138 @@ headerLevelPrism = prism' forward backward where
     _ -> Nothing
 
 inlineP :: Prism' (Term' a b) (Inline b)
-inlineP = prism' forward backward where
+inlineP = prism' bwd fwd where
 
-  forward :: Inline b -> Term' a b
-  forward (Inline inlines)
+  bwd (Inline inlines)
     = Term "Inline" [review (listP inlineAtomP) inlines]
 
-  backward = \case
+  fwd = \case
     Term "Inline" [atoms] -> Inline <$> preview (listP inlineAtomP) atoms
     _                     -> Nothing
 
 inlineAtomP :: Prism' (Term' a b) (InlineAtom b)
-inlineAtomP = prism' forward backward where
+inlineAtomP = prism' bwd fwd where
 
-  forward :: InlineAtom b -> Term' a b
-  forward = \case
+  bwd :: InlineAtom b -> Term' a b
+  bwd = \case
     InlineAtom attrs t -> Term "InlineAtom"
-      [ review (listP attributeP) attrs
+      [ review (maybeP attributeP) attrs
       , PrimValue (pickN @2 t)
       ]
     InlineEmbed embed -> Term "InlineEmbed" [PrimValue (pickN @1 embed)]
 
-  backward = \case
+  fwd = \case
     Term "InlineAtom" [attrs, PrimValue val] -> InlineAtom
-      <$> preview (listP attributeP) attrs
+      <$> preview (maybeP attributeP) attrs
       <*> trialN' @2 val
     Term "InlineEmbed" [PrimValue val] -> InlineEmbed <$> trialN' @1 val
     _ -> Nothing
 
 attributeP :: Prism' (Term x) Attribute
-attributeP = prism' forward backward where
+attributeP = prism' bwd fwd where
 
-  forward attr =
+  bwd attr =
     let attr' = case attr of
           Bold      -> "Bold"
           Italic    -> "Italic"
-          Underline -> "Underline"
     in Term attr' []
 
-  backward = \case
+  fwd = \case
     Term attr [] -> case attr of
       "Bold"      -> Just Bold
       "Italic"    -> Just Italic
-      "Underline" -> Just Underline
       _           -> Nothing
     _ -> Nothing
+
+inlineAtomMdP :: forall b. Prism' MD.Node b -> Prism' MD.Node (InlineAtom b)
+inlineAtomMdP embedP = prism' bwd fwd where
+
+  bwd = \case
+    InlineAtom Nothing t       -> MD.Text_ t
+    InlineAtom (Just Bold) t   -> MD.Strong_ [MD.Text_ t]
+    InlineAtom (Just Italic) t -> MD.Emph_ [MD.Text_ t]
+    InlineEmbed b              -> review embedP b
+
+  fwd = \case
+   MD.Text_ t              -> Just $ InlineAtom Nothing t
+   MD.Strong_ [MD.Text_ t] -> Just $ InlineAtom (Just Bold) t
+   MD.Emph_ [MD.Text_ t]   -> Just $ InlineAtom (Just Italic) t
+   _                       -> Nothing
+
+blockMdP
+  :: forall inlineEmbed blockEmbed.
+     Prism' MD.Node blockEmbed
+  -> Prism' MD.Node inlineEmbed
+  -> Prism' MD.Node (Block blockEmbed inlineEmbed)
+blockMdP blockEmbedP inlineEmbedP = prism' bwd fwd where
+
+  bwd = \case
+    Header h t ->
+      let h' = case h of
+            H1 -> 1
+            H2 -> 2
+            H3 -> 3
+      in MD.Heading_ h' [MD.Text_ t]
+    Paragraph (Inline inlines) -> MD.Paragraph_ $
+      fmap (review (inlineAtomMdP inlineEmbedP)) inlines
+    BlockEmbed embed -> review blockEmbedP embed
+
+  fwd = \case
+    MD.Heading_ h [MD.Text_ t] ->
+      let h' = case h of
+            1 -> Just H1
+            2 -> Just H2
+            3 -> Just H3
+            _ -> Nothing
+      in Header <$> h' <*> pure t
+    MD.Paragraph_ inlines -> Paragraph . Inline
+      <$> traverse (preview (inlineAtomMdP inlineEmbedP)) inlines
+    node -> BlockEmbed <$> preview blockEmbedP node
+
+documentMdP
+  :: forall inlineEmbed blockEmbed.
+     Prism' MD.Node blockEmbed
+  -> Prism' MD.Node inlineEmbed
+  -> Prism' MD.Node (Document blockEmbed inlineEmbed)
+documentMdP blockEmbedP inlineEmbedP = prism' bwd fwd where
+  blockMdP' :: Prism' MD.Node (Block blockEmbed inlineEmbed)
+  blockMdP' = blockMdP blockEmbedP inlineEmbedP
+  bwd = \case
+    Document blocks -> MD.Document_ $ fmap (review blockMdP') blocks
+  fwd = \case
+    MD.Document_ blocks -> Document <$> traverse (preview blockMdP') blocks
+    _                   -> Nothing
+
+blockEmbedVoidP :: Prism' MD.Node Void
+blockEmbedVoidP = prism' absurd (const Nothing)
+
+inlineEmbedVoidP :: Prism' MD.Node Void
+inlineEmbedVoidP = prism' absurd (const Nothing)
+
+documentMdP' :: Prism' MD.Node (Document Void Void)
+documentMdP' = documentMdP blockEmbedVoidP inlineEmbedVoidP
+
+textMdP :: Iso' Text MD.Node
+textMdP
+  = iso (MD.commonmarkToNode options) (MD.nodeToCommonmark options Nothing)
+  where options = []
+
+foldText :: Fold Text (Term' Void Void)
+foldText = textMdP . documentMdP' . re model
+
+foldTerm :: Fold (Term' Void Void) Text
+foldTerm = model . re documentMdP' . re textMdP
+
+textDocument :: Text
+textDocument = [text|
+# important document
+
+*this* is the important document you've heard about. **never** mention it to anyone
+|]
+
+documentTests :: Test ()
+documentTests = tests
+  [ do Just doc  <- pure $ textDocument ^? foldText
+       Just doc' <- pure $ doc ^? foldTerm
+       expectEq textDocument doc'
+  ]

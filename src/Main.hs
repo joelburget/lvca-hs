@@ -53,6 +53,7 @@ allTests = scope "all tests" $ tests
   , "syntax-statics"         SimpleExample.prettyStaticTests
   , "simple-example.eval"    SimpleExample.evalTests
   , "t-example.eval"         TExample.evalTests
+  , "document"               Document.documentTests
   ]
 
 -- main :: IO ()
