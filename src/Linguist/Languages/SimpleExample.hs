@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs             #-}
 {-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedLists   #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE QuasiQuotes       #-}
@@ -48,11 +49,11 @@ type E = Either Int Text
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
 syntax = SyntaxChart $ Map.fromList
-  [ ("Typ", Sort ["t"]
+  [ ("Typ", SortDef []
     [ Operator "num" (Arity []) "numbers"
     , Operator "str" (Arity []) "strings"
     ])
-  , ("Exp", Sort ["e"]
+  , ("Exp", SortDef []
     [ Operator "num"   (ExternalArity "num") "numeral"
     , Operator "str"   (ExternalArity "str") "literal"
     , Operator "plus"
@@ -68,6 +69,10 @@ syntax = SyntaxChart $ Map.fromList
     --   second slot
     , Operator "let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
     , Operator "annotation" (Arity [External "annotation", "Exp"]) "annotation"
+    ])
+  , ("List", SortDef ["a"]
+    [ Operator "nil" [] ""
+    , Operator "cons" (Arity ["a", Valence [] (SortAp "List" ["a"])]) ""
     ])
   ]
 
@@ -302,6 +307,9 @@ prettySyntaxChartTests = tests
         len(Exp)
         let(Exp; Exp.Exp)
         annotation([annotation]; Exp)
+      List a ::=
+        nil
+        cons(a; List a)
       Typ ::=
         num
         str

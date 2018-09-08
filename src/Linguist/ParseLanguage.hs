@@ -48,7 +48,7 @@ standardParser :: forall a. Parser a -> Parser (Term a)
 standardParser parsePrim = do
   SyntaxChart syntax <- view parseChart
   let sortParsers :: Map SortName (Parser (Term a))
-      sortParsers = syntax <@&> \sortName (Sort _vars operators) ->
+      sortParsers = syntax <@&> \sortName (SortDef _vars operators) ->
         let opParsers = operators <&> \(Operator name arity _desc) -> case arity of
               -- External sort -> PrimValue <$> local (parseSort .~ sort) parsePrim
               Arity valences -> (do
@@ -81,7 +81,7 @@ parseValence
   -> Parser (Term a)
   -> Valence
   -> Parser (Term a)
-parseValence _parsePrim parseTerm valence@(Valence sorts resultSort)
+parseValence _parsePrim parseTerm valence@(Valence sorts (SortAp resultSort _))
   -- TODO: more user-friendly showing of valence
   | null sorts = local (parseSort .~ resultSort) parseTerm
     <?> "valence " <> show valence

@@ -18,14 +18,16 @@ import           Text.Megaparsec.Char.LexerAlt (indentBlock)
 type Parser a = Parsec Void Text a
 
 parseSyntaxDescription :: Parser SyntaxChart
-parseSyntaxDescription = SyntaxChart . Map.fromList <$> some parseSort <* eof
+parseSyntaxDescription
+  = SyntaxChart . Map.fromList <$> some parseSortDef <* eof
 
-parseSort :: Parser (SortName, Sort)
-parseSort = L.nonIndented scn $ indentBlock scn $ do
+parseSortDef :: Parser (SortName, SortDef)
+parseSortDef = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
   variables <- many parseName
   _         <- symbol "::="
-  pure $ L.IndentMany Nothing (pure . (name,) . (Sort variables)) parseOperator
+  pure $ L.IndentMany Nothing (pure . (name,) . (SortDef variables))
+    parseOperator
 
 parseOperator :: Parser Operator
 parseOperator = Operator
@@ -45,10 +47,18 @@ parseValence :: Parser Valence
 parseValence = asum
   [ parseExternal
   , do
-       names <- parseName `sepBy1` symbol "."
+       names <- parseSort `sepBy1` symbol "."
        let Just (sorts, result) = unsnoc names
        pure $ Valence sorts result
   ]
+
+parseSort :: Parser Sort
+parseSort = SortAp
+  <$> parseName
+  <*> many (asum
+    [ SortAp <$> parseName <*> pure []
+    , parens parseSort
+    ])
 
 parseExternal :: Parser Valence
 parseExternal = brackets $ External <$> parseName

@@ -19,11 +19,11 @@ instance Eq   T where (==) = \case
 
 syntax :: SyntaxChart
 syntax = SyntaxChart $ Map.fromList
-  [ ("Typ", Sort ["t"]
+  [ ("Typ", SortDef []
     [ Operator "nat" [] "naturals"
     , Operator "arr" [Valence [] "Typ", Valence [] "Typ"] "functions"
     ])
-  , ("Exp", Sort ["e"]
+  , ("Exp", SortDef []
     [ Operator "z" [] "zero"
     , Operator "s" [Valence [] "Exp"] "successor"
     , Operator "rec"

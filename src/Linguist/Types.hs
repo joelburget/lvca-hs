@@ -23,8 +23,9 @@ module Linguist.Types
   ( -- * Syntax charts
     -- | Syntax definition.
     SortName
-  , SyntaxChart(..)
   , Sort(..)
+  , SyntaxChart(..)
+  , SortDef(..)
   , sortOperators
   , sortVariables
   , Operator(..)
@@ -128,6 +129,11 @@ import           Linguist.Util
 -- syntax charts
 
 type SortName = Text
+data Sort = SortAp !SortName ![Sort]
+  deriving (Eq, Show)
+
+instance IsString Sort where
+  fromString s = SortAp (fromString s) []
 
 -- | A syntax chart defines the abstract syntax of a language, specified by a
 -- collection of operators and their arities. The abstract syntax provides a
@@ -146,13 +152,13 @@ type SortName = Text
 --         len(Exp)           length
 --         let(Exp; Exp.Exp)  definition
 -- @
-newtype SyntaxChart = SyntaxChart (Map SortName Sort)
+newtype SyntaxChart = SyntaxChart (Map SortName SortDef)
   deriving (Eq, Show)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
 -- commands.
-data Sort = Sort
+data SortDef = SortDef
   { _sortVariables :: ![Text]     -- ^ set of variables
   , _sortOperators :: ![Operator] -- ^ set of operators
   } deriving (Eq, Show)
@@ -187,8 +193,8 @@ instance IsList Arity where
 --
 -- eg @Exp.Exp@.
 data Valence = Valence
-  { _valenceSorts  :: ![SortName] -- ^ the sorts of all bound variables
-  , _valenceResult :: !SortName   -- ^ the resulting sort
+  { _valenceSorts  :: ![Sort] -- ^ the sorts of all bound variables
+  , _valenceResult :: !Sort   -- ^ the resulting sort
   }
   | External !SortName
   deriving (Eq, Show)
@@ -349,8 +355,10 @@ toPatternTests = scope "toPattern" $ tests
 
 data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
+  -- | The language we're working in
   , _envSort  :: !SortName
-  , _envVars  :: !(Map Text (Term a))
+  -- | The specific sort we're matching
+  , _envVars  :: !(Map Text (Term a)) -- TODO: is this being used?
   }
 
 makeLenses ''MatchesEnv
@@ -399,14 +407,14 @@ runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
 runMatches chart sort
   = flip runReaderT (MatchesEnv chart sort Map.empty)
 
-getSort :: Matching a Sort
+getSort :: Matching a SortDef
 getSort = do
   MatchesEnv (SyntaxChart syntax) sort _ <- ask
   lift $ syntax ^? ix sort
 
 completePattern :: Matching a Pattern
 completePattern = do
-  Sort _vars operators <- getSort
+  SortDef _vars operators <- getSort
 
   pure $ PatternUnion $ operators <&>
     \(Operator opName (Arity valences) _desc) -> PatternTm opName $
@@ -554,13 +562,14 @@ instance Pretty JudgementRules where
 
 instance Pretty SyntaxChart where
   pretty (SyntaxChart sorts) =
-    let f (title, operators) = vsep [pretty title <> " ::=", indent 2 $ pretty operators]
+    let f (title, SortDef vars operators) = vsep
+          [ let vars' = case vars of
+                  [] -> ""
+                  _  -> " " <> hsep (fmap pretty vars)
+            in pretty title <> vars' <> " ::="
+          , indent 2 $ vsep $ fmap pretty operators
+          ]
     in vsep $ f <$> Map.toList sorts
-
-instance Pretty Sort where
-  pretty (Sort vars operators) = vsep $
-    hsep (fmap pretty vars <> ["::="]) :
-    fmap pretty operators
 
 instance Pretty Operator where
   pretty (Operator name arity _desc) = case arity of
@@ -572,6 +581,9 @@ instance Pretty Arity where
     []                   -> mempty
     [valence@External{}] -> pretty valence
     _                    -> parens $ hsep $ punctuate semi $ fmap pretty valences
+
+instance Pretty Sort where
+  pretty (SortAp name args) = hsep $ pretty name : fmap pretty args
 
 instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $
@@ -648,7 +660,7 @@ prev state = case state & leftward of
   Nothing     -> state
 
 
-makeLenses ''Sort
+makeLenses ''SortDef
 makeLenses ''Pattern
 makeLenses ''Denotation
 makeLenses ''Term

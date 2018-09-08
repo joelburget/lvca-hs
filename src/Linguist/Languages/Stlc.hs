@@ -18,11 +18,11 @@ import           Linguist.Types
 
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart $ Map.fromList
-  [ ("Typ", Sort []
+  [ ("Typ", SortDef []
     [ Operator "nat" (Arity []) "natural numbers"
     , Operator "arr" (Arity ["Typ", "Typ"]) "arrows"
     ])
-  , ("Exp", Sort []
+  , ("Exp", SortDef []
     [ Operator "lam" (Arity ["Typ", Valence ["Exp"] "Exp"]) "abstraction"
     , Operator "ap"  (Arity ["Exp", "Exp"])                 "application"
 
