@@ -7,7 +7,6 @@
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE TypeOperators       #-}
 -----------------------------------------------------------------------------
 -- |
 -- Copyright   :  (C) 2018 Joel Burget
@@ -96,10 +95,6 @@ module Linguist.Types
   , frameVals
   , StateStep(..)
   , Focus(..)
-  , State
-  , ListZipper
-  , next
-  , prev
 
   -- * Tests
   , toPatternTests
@@ -109,7 +104,6 @@ import           Brick                     (Widget, str)
 import           Control.Lens              hiding (op)
 import           Control.Monad.Morph
 import           Control.Monad.Reader
-import           Control.Zipper
 import           Data.Foldable             (fold, foldlM)
 import           Data.List                 (intersperse)
 import           Data.Map.Strict           (Map)
@@ -642,22 +636,6 @@ data Focus a
   = Descending !(Term a)
   | Ascending  !(Term a)
   deriving Show
-
-type State a = ListZipper (StateStep a)
-
-type ListZipper a = Top :>> [a] :>> a
-
-next :: State a -> State a
-next state = case state ^. focus of
-  Done{} -> state
-  _      -> case state & rightward of
-    Just state' -> state'
-    Nothing     -> state
-
-prev :: State a -> State a
-prev state = case state & leftward of
-  Just state' -> state'
-  Nothing     -> state
 
 
 makeLenses ''SortDef

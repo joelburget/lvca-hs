@@ -1,5 +1,8 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE TypeOperators     #-}
+{-# LANGUAGE TemplateHaskell   #-}
 module Linguist.Brick where
 
 import           Brick
@@ -13,8 +16,34 @@ import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Graphics.Vty               as V
+import           NeatInterpolation
 
 import           Linguist.Types
+
+
+type ListZipper a = Top :>> [a] :>> a
+
+data State a = State
+  { _timeline   :: ListZipper (StateStep a)
+  , _showHelp :: Bool
+  }
+
+makeLenses ''State
+
+next :: State a -> State a
+next state@(State tl _help) = case tl ^. focus of
+  Done{} -> state
+  _      -> case rightward tl of
+    Just tl' -> state & timeline .~ tl'
+    Nothing  -> state
+
+prev :: State a -> State a
+prev state@(State tl _help) = case leftward tl of
+  Just tl' -> state & timeline .~ tl'
+  Nothing  -> state
+
+toggleHelp :: State a -> State a
+toggleHelp = showHelp %~ not
 
 bordered :: Text -> Widget n -> Widget n
 bordered name widget = withBorderStyle BS.unicodeBold
@@ -45,17 +74,27 @@ handleEvent g (VtyEvent (V.EvKey (V.KChar 'j') [])) = continue $ next g
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'l') [])) = continue $ next g
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'h') [])) = continue $ prev g
 handleEvent g (VtyEvent (V.EvKey (V.KChar 'q') [])) = halt g
+handleEvent g (VtyEvent (V.EvKey (V.KChar '?') [])) = continue $ toggleHelp g
 handleEvent g (VtyEvent (V.EvKey V.KEsc []))        = halt g
 handleEvent g _                                     = continue g
 
 drawUI :: TmShow s => State s -> Widget ()
-drawUI state = case state ^. focus of
-  StateStep ctx valTm ->
-    let lBox = bordered "Context" $ center $ drawCtx ctx
-        rBox = bordered "Term"    $ center $ drawFocus valTm
-    in lBox <+> rBox
-  Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
-  Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawTm val
+drawUI (State tl showHelp') =
+
+  let mainView = case tl ^. focus of
+        StateStep ctx valTm ->
+          let lBox = bordered "Context" $ center $ drawCtx ctx
+              rBox = bordered "Term"    $ center $ drawFocus valTm
+          in lBox <+> rBox
+        Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
+        Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawTm val
+      helpView = bordered "Help" $ center $ txt [text|
+        h - backward
+        l - forward
+        q - quit
+        ? - toggle help
+      |]
+  in if showHelp' then mainView <=> helpView else mainView
 
 drawCtx :: TmShow a => [StackFrame a] -> Widget ()
 drawCtx = \case

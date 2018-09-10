@@ -38,7 +38,7 @@ main = do
         steps :: [StateStep SimpleExample.E]
         steps = iterate (\tm -> runReader (proceed tm) env) $
           StateStep [] (Descending SimpleExample.tm1)
-    in zipper steps & fromWithin traverse
+    in State (zipper steps & fromWithin traverse) False
   pure ()
 
 allTests :: Test ()
