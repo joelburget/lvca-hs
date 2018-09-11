@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
@@ -222,7 +223,7 @@ data Term a
     !(Term a)
   | Var !Text
   | PrimValue !a
-  deriving (Eq, Show)
+  deriving (Eq, Functor, Show)
 
 class TmShow a where
   drawPrim :: a -> Widget ()

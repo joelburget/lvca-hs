@@ -1,19 +1,29 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TypeOperators #-}
 module Linguist.Languages.Document where
 
 import qualified CMark as MD
 import qualified CMark.Patterns as MD
-import           Control.Lens
+import           Control.Lens hiding (from, to)
 import           Data.Diverse
-import           Data.Text                       (Text)
+import           Data.Text                       (Text, pack)
 import           Data.Void                       (absurd, Void)
 import           EasyTest
+import           GHC.Generics
 import           NeatInterpolation
 import           Text.Megaparsec                 (ParseError, runParser)
 
@@ -57,23 +67,129 @@ Maybe a ::=
   |]
 
 data InlineEmbed
+  deriving Generic
 
 newtype Document blockEmbed inlineEmbed = Document [Block blockEmbed inlineEmbed]
+  deriving Generic
 
 data Block blockEmbed inlineEmbed
   = Header !HeaderLevel !Text
   | Paragraph !(Inline inlineEmbed)
   | BlockEmbed !blockEmbed
+  deriving Generic
 
 data HeaderLevel = H1 | H2 | H3
+  deriving Generic
 
 newtype Inline inlineEmbed = Inline [InlineAtom inlineEmbed]
+  deriving Generic
 
 data InlineAtom inlineEmbed
   = InlineAtom !(Maybe Attribute) !Text
   | InlineEmbed !inlineEmbed
+  deriving Generic
 
 data Attribute = Bold | Italic
+  deriving Generic
+
+--
+
+constrName :: (HasConstructor (Rep a), Generic a) => a -> String
+constrName = genericConstrName . from
+
+class HasConstructor (f :: * -> *) where
+  genericConstrName :: f x -> String
+
+instance HasConstructor f => HasConstructor (D1 c f) where
+  genericConstrName (M1 x) = genericConstrName x
+
+instance (HasConstructor x, HasConstructor y) => HasConstructor (x :+: y) where
+  genericConstrName (L1 l) = genericConstrName l
+  genericConstrName (R1 r) = genericConstrName r
+
+instance Constructor c => HasConstructor (C1 c f) where
+  genericConstrName x = conName x
+
+--
+
+instance TermPrism (Block a b) (Which '[a, b, Text])
+
+helperIso :: Generic a => Iso' (Rep a x) a
+helperIso = iso to from
+
+class TermPrism tm a where
+  termPrism :: Prism' (Term a) tm
+  default termPrism :: (Generic tm, GPrism (Rep tm) a) => Prism' (Term a) tm
+  termPrism = gPrism . helperIso
+
+class TermLens tm a where
+  termLens :: Lens' (Term a) tm
+  default termLens :: (Generic tm, GLens (Rep tm) a) => Lens' (Term a) tm
+  termLens = gLens . helperIso
+
+class GPrism f a where
+  gPrism :: Prism' (Term a) (f x)
+
+class GLens f a where
+  gLens :: Lens' (Term a) (f x)
+
+instance GPrism V1 Void where
+  gPrism = prism' undefined (const Nothing)
+
+instance GPrism f a => GPrism (M1 i c f) a where
+  gPrism = gPrism . m1Iso
+-- instance GPrism (K1 i c) a where
+instance GPrism (f :+: g) a where
+  gPrism = prism'
+    (\case
+      L1 x -> Term "TODO" _
+      R1 x -> _)
+    _
+
+-- instance GPrism (f :*: g) a where
+
+-- instance GPrism U1 () where
+--   gPrism = prism'
+--     (\_u -> Term (pack (constrName undefined)) [])
+--     _
+
+m1Iso :: Iso' (M1 i c f p) (f p)
+m1Iso = iso unM1 M1
+
+instance GLens f a => GLens (M1 i c f) a where
+  gLens = gLens . m1Iso
+instance GLens (K1 i c) a where
+instance GLens (f :*: g) a where
+
+instance GLens U1 () where
+  -- TODO: this can't be right
+  gLens = lens (const U1) const
+
+class GSum f where
+  conName' :: f x -> Text
+
+instance (GSum f, GSum g) => GSum (f :+: g) where
+  conName' = \case
+    L1 f -> conName' f
+    R1 f -> conName' f
+
+instance (Constructor c, i ~ C, GSum f) => GSum (M1 i c f) where
+  conName' = pack . conName
+
+instance (GSum f, GSum g, GPrism f a, GPrism g b)
+  => GPrism (f :+: g) (Either a b) where
+  gPrism = prism'
+    (\case
+      L1 x -> Term (conName' x) [Left  <$> review gPrism x]
+      R1 y -> Term (conName' y) [Right <$> review gPrism y])
+    (\(Term name subterms) ->
+      if | name == conName' (L1 undefined :: (f :+: g) a)
+         -> undefined -- L1 . undefined <$> (traverse (preview gPrism) subterms)
+         | name == conName' (R1 undefined :: (f :+: g) a)
+         -> undefined -- R1 . undefined <$> traverse (preview gPrism) subterms
+         | otherwise
+         -> Nothing
+    )
 
 type Term' a b = Term (Which '[a, b, Text])
 
@@ -112,24 +228,35 @@ listP p = prism' bwd fwd where
     Term "Cons" [x, xs] -> (:) <$> preview p x <*> fwd xs
     _                   -> Nothing
 
-blockP :: Prism' (Term' a b) (Block a b)
-blockP = prism' bwd fwd where
+blockEmbedPrism :: Prism' (Which '[a, b, Text]) a
+blockEmbedPrism = prism' (pickN @0) (trialN' @0)
 
-  fwd = \case
-    Term "Header" [level, PrimValue val] -> Header
-      <$> preview headerLevelP level
-      <*> trialN' @2 val
-    Term "Paragraph" [inline] -> Paragraph <$> preview inlineP inline
-    Term "BlockEmbed" [PrimValue val] -> BlockEmbed <$> trialN' @0 val
-    _ -> Nothing
+inlineEmbedPrism :: Prism' (Which '[a, b, Text]) b
+inlineEmbedPrism = prism' (pickN @1) (trialN' @1)
 
-  bwd = \case
-    Header level t -> Term "Header"
-      [ (review headerLevelP) level
-      , PrimValue (pickN @2 t)
-      ]
-    Paragraph inline -> Term "Paragraph" [review inlineP inline]
-    BlockEmbed embed -> Term "BlockEmbed" [PrimValue (pickN @0 embed)]
+textPrism :: Prism' (Which '[a, b, Text]) Text
+textPrism = prism' (pickN @2) (trialN' @2)
+
+blockP :: forall a b. Prism' (Term' a b) (Block a b)
+blockP = termPrism -- prism' bwd fwd where
+
+--   fwd = \case
+--     Term "Header" [level, PrimValue val] -> Header
+--       <$> preview headerLevelP level
+--       <*> preview textPrism val
+--     Term "Paragraph" [inline] -> Paragraph <$> preview inlineP inline
+--     Term "BlockEmbed" [PrimValue val] ->
+--       BlockEmbed <$> preview blockEmbedPrism val
+--     _ -> Nothing
+
+--   bwd = \case
+--     Header level t -> Term "Header"
+--       [ (review headerLevelP) level
+--       , PrimValue (review textPrism t)
+--       ]
+--     Paragraph inline -> Term "Paragraph" [review inlineP inline]
+--     BlockEmbed embed
+--       -> Term "BlockEmbed" [PrimValue (review blockEmbedPrism embed)]
 
 headerLevelP :: Prism' (Term x) HeaderLevel
 headerLevelP = prism' bwd fwd where
@@ -166,15 +293,17 @@ inlineAtomP = prism' bwd fwd where
   bwd = \case
     InlineAtom attrs t -> Term "InlineAtom"
       [ review (maybeP attributeP) attrs
-      , PrimValue (pickN @2 t)
+      , PrimValue (review textPrism t)
       ]
-    InlineEmbed embed -> Term "InlineEmbed" [PrimValue (pickN @1 embed)]
+    InlineEmbed embed
+      -> Term "InlineEmbed" [PrimValue (review inlineEmbedPrism embed)]
 
   fwd = \case
     Term "InlineAtom" [attrs, PrimValue val] -> InlineAtom
       <$> preview (maybeP attributeP) attrs
-      <*> trialN' @2 val
-    Term "InlineEmbed" [PrimValue val] -> InlineEmbed <$> trialN' @1 val
+      <*> preview textPrism val
+    Term "InlineEmbed" [PrimValue val]
+      -> InlineEmbed <$> preview inlineEmbedPrism val
     _ -> Nothing
 
 attributeP :: Prism' (Term x) Attribute
