@@ -114,18 +114,18 @@ instance Constructor c => HasConstructor (C1 c f) where
 
 instance TermPrism (Block a b) (Which '[a, b, Text])
 
-helperIso :: Generic a => Iso' (Rep a x) a
-helperIso = iso to from
+repIso :: Generic a => Iso' (Rep a x) a
+repIso = iso to from
 
 class TermPrism tm a where
   termPrism :: Prism' (Term a) tm
   default termPrism :: (Generic tm, GPrism (Rep tm) a) => Prism' (Term a) tm
-  termPrism = gPrism . helperIso
+  termPrism = gPrism . repIso
 
 class TermLens tm a where
   termLens :: Lens' (Term a) tm
   default termLens :: (Generic tm, GLens (Rep tm) a) => Lens' (Term a) tm
-  termLens = gLens . helperIso
+  termLens = gLens . repIso
 
 class GPrism f a where
   gPrism :: Prism' (Term a) (f x)
@@ -133,18 +133,61 @@ class GPrism f a where
 class GLens f a where
   gLens :: Lens' (Term a) (f x)
 
+d1Iso :: Iso' (D1 i f a) (f a)
+d1Iso = undefined
+
 instance GPrism V1 Void where
   gPrism = prism' undefined (const Nothing)
 
-instance GPrism f a => GPrism (M1 i c f) a where
-  gPrism = gPrism . m1Iso
--- instance GPrism (K1 i c) a where
-instance GPrism (f :+: g) a where
+-- instance GPrism f a => GPrism (M1 i c f) a where
+--   gPrism = gPrism . m1Iso
+
+instance GPrism f a => GPrism (D1 i f) a where
+  gPrism = gPrism . d1Iso
+
+instance (Constructor i, GPrism f a, GSum f, HasChildren f a)
+  => GPrism (C1 i f) a where
   gPrism = prism'
-    (\case
-      L1 x -> Term "TODO" _
-      R1 x -> _)
-    _
+    (\c -> Term (conNameT c) (childrenOf (unM1 c)))
+    (\(Term name children) ->
+      let cName = conNameT (undefined :: f a)
+      in if name == cName then M1 <$> injectChildren children else Nothing)
+
+class HasChildren f a where
+  -- TODO: make prism?
+  childrenOf     :: f x -> [Term a]
+  injectChildren :: [Term a] -> Maybe (f x)
+
+instance HasChildren (K1 i c) a where
+  childrenOf     = undefined
+  injectChildren = undefined
+
+instance (HasChildren f a, HasChildren g a) => HasChildren (f :*: g) a where
+  childrenOf     = undefined
+  injectChildren = \case
+    []   -> Nothing
+    x:xs -> review x
+
+
+-- instance GPrism (K1 i c) a where
+
+instance (GSum f, GSum g) => GPrism (f :+: g) a where
+  gPrism = gPrism
+
+-- instance (GSum f, GSum g, GPrism f a, GPrism g b)
+--   => GPrism (f :+: g) (Either a b) where
+--   gPrism = prism'
+--     (\case
+--       L1 x -> Term (conNameT x) [Left  <$> review gPrism x]
+--       R1 y -> Term (conNameT y) [Right <$> review gPrism y])
+--     (\(Term name subterms) ->
+--       if | name == conNameT (L1 undefined :: (f :+: g) a)
+--          -> undefined -- L1 . undefined <$> (traverse (preview gPrism) subterms)
+--          | name == conNameT (R1 undefined :: (f :+: g) a)
+--          -> undefined -- R1 . undefined <$> traverse (preview gPrism) subterms
+--          | otherwise
+--          -> Nothing
+--     )
 
 -- instance GPrism (f :*: g) a where
 
@@ -166,30 +209,18 @@ instance GLens U1 () where
   gLens = lens (const U1) const
 
 class GSum f where
-  conName' :: f x -> Text
+  conNameT :: f x -> Text
 
 instance (GSum f, GSum g) => GSum (f :+: g) where
-  conName' = \case
-    L1 f -> conName' f
-    R1 f -> conName' f
+  conNameT = \case
+    L1 f -> conNameT f
+    R1 f -> conNameT f
 
 instance (Constructor c, i ~ C, GSum f) => GSum (M1 i c f) where
-  conName' = pack . conName
+  conNameT = pack . conName
 
-instance (GSum f, GSum g, GPrism f a, GPrism g b)
-  => GPrism (f :+: g) (Either a b) where
-  gPrism = prism'
-    (\case
-      L1 x -> Term (conName' x) [Left  <$> review gPrism x]
-      R1 y -> Term (conName' y) [Right <$> review gPrism y])
-    (\(Term name subterms) ->
-      if | name == conName' (L1 undefined :: (f :+: g) a)
-         -> undefined -- L1 . undefined <$> (traverse (preview gPrism) subterms)
-         | name == conName' (R1 undefined :: (f :+: g) a)
-         -> undefined -- R1 . undefined <$> traverse (preview gPrism) subterms
-         | otherwise
-         -> Nothing
-    )
+-- class GProduct f where
+--   children :: f x ->
 
 type Term' a b = Term (Which '[a, b, Text])
 
