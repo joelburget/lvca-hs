@@ -112,42 +112,43 @@ instance Constructor c => HasConstructor (C1 c f) where
 
 --
 
-instance TermPrism (Block a b) (Which '[a, b, Text])
+instance TermLenses (Block a b) (Which '[a, b, Text])
 
 repIso :: Generic a => Iso' (Rep a x) a
 repIso = iso to from
 
-class TermPrism tm a where
-  termPrism :: Prism' (Term a) tm
-  default termPrism :: (Generic tm, GPrism (Rep tm) a) => Prism' (Term a) tm
-  termPrism = gPrism . repIso
+class TermLenses tm a where
+  TermLenses :: Map Text (Lens' (Term a) tm)
+  default termLenses :: (Generic tm, GSumLenses (Rep tm) a) => Prism' (Term a) tm
+  termLenses = undefined -- gSumLenses . repIso
 
-class TermLens tm a where
-  termLens :: Lens' (Term a) tm
-  default termLens :: (Generic tm, GLens (Rep tm) a) => Lens' (Term a) tm
-  termLens = gLens . repIso
+-- TODO: rename to GSum
+class GSumLenses f a where
+  gSumLenses :: Map Text [Lens' (Term a) (f x)] -- Prism' (Term a) (f x)
 
-class GPrism f a where
-  gPrism :: Prism' (Term a) (f x)
+class GProduct f a where
+  gProductLenses :: [Lens' (Term a) (f x)]
 
-class GLens f a where
-  gLens :: Lens' (Term a) (f x)
+class GIso f a where
+  gIso :: Iso' (Term a) (f x)
+
+instance GSumLenses V1 Void where
+  gSumLenses = Map.empty
+
+instance GSumLenses f a => GSumLenses (D1 i f) a where
+  gSumLenses = gSumLenses . unM1
 
 d1Iso :: Iso' (D1 i f a) (f a)
-d1Iso = undefined
+d1Iso = m1Iso
 
-instance GPrism V1 Void where
-  gPrism = prism' undefined (const Nothing)
+m1Iso :: Iso' (M1 i c f p) (f p)
+m1Iso = iso unM1 M1
 
--- instance GPrism f a => GPrism (M1 i c f) a where
---   gPrism = gPrism . m1Iso
+instance (Constructor i, GSumLenses f a, GSum f, HasChildren f a)
+  => GSumLenses (C1 i f) a where
+  gSumLenses c = Map.singleton (conNameT c) $ gSumLenses
 
-instance GPrism f a => GPrism (D1 i f) a where
-  gPrism = gPrism . d1Iso
-
-instance (Constructor i, GPrism f a, GSum f, HasChildren f a)
-  => GPrism (C1 i f) a where
-  gPrism = prism'
+  prism'
     (\c -> Term (conNameT c) (childrenOf (unM1 c)))
     (\(Term name children) ->
       let cName = conNameT (undefined :: f a)
@@ -159,20 +160,22 @@ class HasChildren f a where
   injectChildren :: [Term a] -> Maybe (f x)
 
 instance HasChildren (K1 i c) a where
-  childrenOf     = undefined
-  injectChildren = undefined
+  childrenOf     = undefined -- pure . _ gProductLenses
+  injectChildren = \case
+    [x] -> preview gIso x
+    _   -> Nothing
 
-instance (HasChildren f a, HasChildren g a) => HasChildren (f :*: g) a where
-  childrenOf     = undefined
+instance (GSumLenses f a, HasChildren f a, HasChildren g a) => HasChildren (f :*: g) a where
+  childrenOf (f :*: g) = childrenOf f <> childrenOf g
   injectChildren = \case
     []   -> Nothing
-    x:xs -> review x
+    x:xs -> (:*:) <$> preview gPrism x <*> injectChildren xs
 
 
--- instance GPrism (K1 i c) a where
+-- instance GSumLenses (K1 i c) a where
 
-instance (GSum f, GSum g) => GPrism (f :+: g) a where
-  gPrism = gPrism
+instance (GSumLenses f, GSumLenses g) => GSumLenses (f :+: g) a where
+  gSumLenses (f :+: g) = gSumLenses f <> gSumLenses g
 
 -- instance (GSum f, GSum g, GPrism f a, GPrism g b)
 --   => GPrism (f :+: g) (Either a b) where
@@ -196,17 +199,16 @@ instance (GSum f, GSum g) => GPrism (f :+: g) a where
 --     (\_u -> Term (pack (constrName undefined)) [])
 --     _
 
-m1Iso :: Iso' (M1 i c f p) (f p)
-m1Iso = iso unM1 M1
+instance GIso (K1 i c) a where
+  gIso = iso
+    (\(Term _tag children) -> K1 _)
+    (\(K1 c) -> _)
 
-instance GLens f a => GLens (M1 i c f) a where
-  gLens = gLens . m1Iso
-instance GLens (K1 i c) a where
-instance GLens (f :*: g) a where
+instance GProduct (f :*: g) a where
 
-instance GLens U1 () where
+instance GProduct U1 () where
   -- TODO: this can't be right
-  gLens = lens (const U1) const
+  gProductLenses = lens (const U1) const
 
 class GSum f where
   conNameT :: f x -> Text

@@ -47,3 +47,5 @@ executable linguist
     cmark-patterns
   hs-source-dirs:      src
   default-language:    Haskell2010
+  -- ghc-options: -ddump-deriv
+  ghc-options: -fprint-potential-instances
