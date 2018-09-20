@@ -22,8 +22,6 @@ import           Control.Lens hiding (from, to)
 import           Data.Diverse
 import           Data.Text                       (Text, pack)
 import           Data.Void                       (absurd, Void)
-import Data.Map (Map)
-import qualified Data.Map as Map
 import           EasyTest
 import           GHC.Generics
 import           NeatInterpolation
@@ -72,27 +70,27 @@ data InlineEmbed
   deriving Generic
 
 newtype Document blockEmbed inlineEmbed = Document [Block blockEmbed inlineEmbed]
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 data Block blockEmbed inlineEmbed
   = Header !HeaderLevel !Text
   | Paragraph !(Inline inlineEmbed)
   | BlockEmbed !blockEmbed
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 data HeaderLevel = H1 | H2 | H3
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 newtype Inline inlineEmbed = Inline [InlineAtom inlineEmbed]
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 data InlineAtom inlineEmbed
   = InlineAtom !(Maybe Attribute) !Text
   | InlineEmbed !inlineEmbed
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 data Attribute = Bold | Italic
-  deriving Generic
+  deriving (Eq, Show, Generic)
 
 --
 
@@ -114,7 +112,13 @@ instance Constructor c => HasConstructor (C1 c f) where
 
 --
 
-instance TermPrism (Block a b) (Which '[a, b, Text])
+instance TermPrism Attribute x where
+instance TermPrism HeaderLevel x where
+
+-- instance TermPrism (Block a b) (Which '[a, b, Text]) where
+--   termPrism
+--     = (gSumPrism :: Prism' (Term (Which '[a, b, Text])) (Rep (Block a b) x))
+--     . (repIso :: Iso' (Rep (Block a b) x) (Block a b))
 
 repIso :: Generic a => Iso' (Rep a x) a
 repIso = iso to from
@@ -122,7 +126,7 @@ repIso = iso to from
 class TermPrism tm a where
   termPrism :: Prism' (Term a) tm
   default termPrism :: (Generic tm, GSumPrism (Rep tm) a) => Prism' (Term a) tm
-  termPrism = undefined -- gSumPrism . repIso
+  termPrism = gSumPrism . repIso
 
 -- TODO: rename to GSum
 class GSumPrism f a where
@@ -148,6 +152,13 @@ instance (Constructor i, GSumPrism f a, GSum f, HasChildren f a)
       let cName = conNameT (undefined :: f a)
       in if name == cName then M1 <$> injectChildren children else Nothing)
 
+instance GSumPrism U1 a where
+  gSumPrism = prism'
+    (\c -> Term (conNameT c) [])
+    (\(Term name []) ->
+      let cName = conNameT (undefined :: U1 x)
+      in if name == cName then Just U1 else Nothing)
+
 class HasChildren f a where
   -- TODO: make prism?
   childrenOf     :: f x -> [Term a]
@@ -158,6 +169,12 @@ instance HasChildren (K1 i c) a where
   injectChildren = \case
     [x] -> undefined -- preview gIso x
     _   -> Nothing
+
+instance HasChildren U1 a where
+  childrenOf _   = []
+  injectChildren = \case
+    [] -> Just U1
+    _  -> Nothing
 
 instance (GSumPrism f a, HasChildren f a, HasChildren g a) => HasChildren (f :*: g) a where
   childrenOf (f :*: g) = childrenOf f <> childrenOf g
@@ -220,6 +237,9 @@ instance (GSum f, GSum g) => GSum (f :+: g) where
 instance (Constructor c, i ~ C, GSum f) => GSum (M1 i c f) where
   conNameT = pack . conName
 
+instance GSum U1 where
+  conNameT _ = pack "TODO: U1 name"
+
 type Term' a b = Term (Which '[a, b, Text])
 
 model :: Prism' (Term' a b) (Document a b)
@@ -267,25 +287,25 @@ textPrism :: Prism' (Which '[a, b, Text]) Text
 textPrism = prism' (pickN @2) (trialN' @2)
 
 blockP :: forall a b. Prism' (Term' a b) (Block a b)
-blockP = termPrism -- prism' bwd fwd where
+blockP = prism' bwd fwd where -- termPrism
 
---   fwd = \case
---     Term "Header" [level, PrimValue val] -> Header
---       <$> preview headerLevelP level
---       <*> preview textPrism val
---     Term "Paragraph" [inline] -> Paragraph <$> preview inlineP inline
---     Term "BlockEmbed" [PrimValue val] ->
---       BlockEmbed <$> preview blockEmbedPrism val
---     _ -> Nothing
+  fwd = \case
+    Term "Header" [level, PrimValue val] -> Header
+      <$> preview headerLevelP level
+      <*> preview textPrism val
+    Term "Paragraph" [inline] -> Paragraph <$> preview inlineP inline
+    Term "BlockEmbed" [PrimValue val] ->
+      BlockEmbed <$> preview blockEmbedPrism val
+    _ -> Nothing
 
---   bwd = \case
---     Header level t -> Term "Header"
---       [ (review headerLevelP) level
---       , PrimValue (review textPrism t)
---       ]
---     Paragraph inline -> Term "Paragraph" [review inlineP inline]
---     BlockEmbed embed
---       -> Term "BlockEmbed" [PrimValue (review blockEmbedPrism embed)]
+  bwd = \case
+    Header level t -> Term "Header"
+      [ (review headerLevelP) level
+      , PrimValue (review textPrism t)
+      ]
+    Paragraph inline -> Term "Paragraph" [review inlineP inline]
+    BlockEmbed embed
+      -> Term "BlockEmbed" [PrimValue (review blockEmbedPrism embed)]
 
 headerLevelP :: Prism' (Term x) HeaderLevel
 headerLevelP = prism' bwd fwd where
