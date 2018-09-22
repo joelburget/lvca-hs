@@ -1,60 +1,30 @@
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE QuasiQuotes         #-}
+{-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
 module Linguist.Languages.Document where
 
-import qualified CMark as MD
-import qualified CMark.Patterns as MD
+import qualified CMark                              as MD
+import qualified CMark.Patterns                     as MD
 import           Control.Lens
 import           Data.Diverse
-import           Data.Text                       (Text)
-import           Data.Void                       (absurd, Void)
+import           Data.Text                          (Text)
+import           Data.Void                          (Void, absurd)
 import           EasyTest
 import           NeatInterpolation
-import           Text.Megaparsec                 (ParseError, runParser)
+import           Text.Megaparsec                    (ParseError, runParser)
 
+import           Linguist.Languages.Document.Syntax
 import           Linguist.ParseSyntaxDescription
-import           Linguist.Types                  (SyntaxChart, Term(..))
+import           Linguist.Types                     (SyntaxChart, Term (..))
 
-syntax :: Either (ParseError Char Void) SyntaxChart
-syntax = runParser parseSyntaxDescription "(document syntax)"
-  [text|
-// TODO: would be nice to have some sort of built-in sequences
-Document ::= Document(List Block)
-
-Block ::=
-  Header(HeaderLevel; Text)
-  Paragraph(Inline)
-  BlockEmbed[BlockEmbed]
-
-HeaderLevel ::=
-  H1
-  H2
-  H3
-
-Inline ::= Inline(List InlineAtom)
-
-InlineAtom ::=
-  // ideally a list of attributes but sets are much harder to model
-  InlineAtom(Maybe Attribute; [Text])
-  InlineEmbed[InlineEmbed]
-
-Attribute ::=
-  Bold
-  Italic
-
-List a ::=
-  Nil
-  Cons(a; List a)
-
-Maybe a ::=
-  Nothing
-  Just(a)
-  |]
+-- import qualified Data.Map as Map
+-- import           Linguist.TH
+-- import Language.Haskell.TH (lookupTypeName, Type(..), mkName)
 
 data InlineEmbed
 
@@ -74,6 +44,17 @@ data InlineAtom inlineEmbed
   | InlineEmbed !inlineEmbed
 
 data Attribute = Bold | Italic
+
+syntax :: Either (ParseError Char Void) SyntaxChart
+syntax = runParser parseSyntaxDescription "(document syntax)" syntaxText
+
+-- $(do
+--   Just t <- lookupTypeName "Text"
+--   mkTypes syntaxText $ Map.fromList
+--     [ ("BlockEmbed",  VarT $ mkName "blockEmbed")
+--     , ("InlineEmbed", VarT $ mkName "inlineEmbed")
+--     , ("Text",        PromotedT t)
+--     ])
 
 type Term' a b = Term (Which '[a, b, Text])
 
@@ -182,15 +163,15 @@ attributeP = prism' bwd fwd where
 
   bwd attr =
     let attr' = case attr of
-          Bold      -> "Bold"
-          Italic    -> "Italic"
+          Bold   -> "Bold"
+          Italic -> "Italic"
     in Term attr' []
 
   fwd = \case
     Term attr [] -> case attr of
-      "Bold"      -> Just Bold
-      "Italic"    -> Just Italic
-      _           -> Nothing
+      "Bold"   -> Just Bold
+      "Italic" -> Just Italic
+      _        -> Nothing
     _ -> Nothing
 
 inlineAtomMdP :: forall b. Prism' MD.Node b -> Prism' MD.Node (InlineAtom b)
