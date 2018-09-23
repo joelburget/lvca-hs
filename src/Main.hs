@@ -12,6 +12,7 @@ import           Linguist.Proceed
 import           Linguist.Types
 
 import qualified Linguist.Languages.Document      as Document
+import qualified Linguist.Languages.Pcf           as Pcf
 import qualified Linguist.Languages.SimpleExample as SimpleExample
 import qualified Linguist.Languages.Stlc          as Stlc
 import qualified Linguist.Languages.TExample      as TExample

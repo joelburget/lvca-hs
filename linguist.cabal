@@ -25,6 +25,7 @@ executable linguist
     Linguist.Util,
     Linguist.Languages.Document,
     Linguist.Languages.Document.Syntax,
+    Linguist.Languages.Pcf,
     Linguist.Languages.SimpleExample,
     Linguist.Languages.Stlc,
     Linguist.Languages.TExample,

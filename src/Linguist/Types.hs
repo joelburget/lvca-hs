@@ -43,6 +43,8 @@ module Linguist.Types
   , toSlot
   , bodySlot
   , argSlots
+  , substVarName
+  , substValue
   , Subst(..)
 
   -- * Terms / Values
@@ -276,6 +278,11 @@ data Denotation a
     , _argSlots :: ![Text]
     }
   | Choose !Text
+  | VarSubst
+    { _substVarName :: !Text
+    , _substSlot    :: !Text
+    , _substValue   :: !(Term a)
+    }
 
 -- | Denotation charts
 --

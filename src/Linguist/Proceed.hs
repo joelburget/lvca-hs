@@ -72,6 +72,8 @@ eval' sort = \case
           "couldn't find slot " ++ show chooseSlot
         eval' sort val
 
+      Just (Subst assignment _, VarSubst name value) -> error "TODO"
+
       Just (Subst assignment _, Cbv fun argSlots') -> do
         fun' <- assignment ^? ix fun ??
           ("couldn't find function " ++ show fun)
@@ -165,6 +167,8 @@ proceed (StateStep stack tmVal) = case tmVal of
           body' <- assignment ^? ix chooseSlot
           Just $ StateStep (ChooseFrame name chooseSlot : stack)
             (Descending body')
+
+      Just (Subst assignment _, VarSubst name value) -> error "TODO"
 
       Just (Subst{}, Value) -> StateStep stack (Ascending tm)
       Nothing -> Errored $ Text.pack $ show tmVal
