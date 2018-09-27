@@ -23,6 +23,7 @@ executable linguist
     Linguist.TH,
     Linguist.Types,
     Linguist.Util,
+    Linguist.Languages.Arith,
     Linguist.Languages.Document,
     Linguist.Languages.Document.Syntax,
     Linguist.Languages.SimpleExample,
