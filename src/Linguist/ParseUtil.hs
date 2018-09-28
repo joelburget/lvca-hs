@@ -35,6 +35,9 @@ parens = between (symbol "(") (symbol ")")
 brackets :: MonadParsec e Text m => m a -> m a
 brackets = between (symbol "[") (symbol "]")
 
+oxfordBrackets :: MonadParsec e Text m => m a -> m a
+oxfordBrackets = between (symbol "[") (symbol "]")
+
 -- TODO: this can't handle escapes
 stringLiteral :: MonadParsec e Text m => m Text
 stringLiteral = fmap pack $ char '"' >> manyTill L.charLiteral (char '"')

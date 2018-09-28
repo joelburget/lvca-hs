@@ -245,7 +245,7 @@ data Pattern
   | PatternVar !(Maybe Text)
 
   -- | Matches 'PrimValue'
-  | PatternPrimVal
+  | PatternPrimVar
     { _patternPrimExternal :: !SortName     -- ^ external name, eg "str"
     , _patternPrimName     :: !(Maybe Text) -- ^ variable name, eg "s_1"
     }
@@ -383,7 +383,7 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
       pairWith matches subpatterns subterms
     mconcat <$> lift mMatches
 -- TODO: write context of var names?
-matches (PatternPrimVal _primExternal _varName) (PrimValue _)
+matches (PatternPrimVar _primExternal _varName) (PrimValue _)
   = emptyMatch
 -- TODO: this piece must know the binding structure from the syntax chart
 matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
@@ -413,7 +413,7 @@ completePattern = do
   pure $ PatternUnion $ operators <&>
     \(Operator opName (Arity valences) _desc) -> PatternTm opName $
       valences <&> \case
-        External name -> PatternPrimVal name Nothing
+        External name -> PatternPrimVar name Nothing
         _valence      -> PatternAny
 
 minus :: Pattern -> Pattern -> Matching a Pattern
@@ -438,18 +438,18 @@ minus (PatternUnion pats) x = do
 -- remove each pattern from pat one at a time
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
-minus x@(PatternPrimVal external1 _) (PatternPrimVal external2 _)
+minus x@(PatternPrimVar external1 _) (PatternPrimVar external2 _)
   = pure $ if external1 == external2 then PatternEmpty else x
 
-minus x@PatternTm{} PatternPrimVal{}      = pure x
+minus x@PatternTm{} PatternPrimVar{}      = pure x
 minus x@PatternTm{} BindingPattern{}      = pure x
 
-minus x@PatternPrimVal{} PatternTm{}      = pure x
-minus x@PatternPrimVal{} BindingPattern{} = pure x
+minus x@PatternPrimVar{} PatternTm{}      = pure x
+minus x@PatternPrimVar{} BindingPattern{} = pure x
 
 minus BindingPattern{} BindingPattern{}   = error "TODO"
 minus x@BindingPattern{} PatternTm{}      = pure x
-minus x@BindingPattern{} PatternPrimVal{} = pure x
+minus x@BindingPattern{} PatternPrimVar{} = pure x
 
 patternCheck
   :: forall a. DenotationChart a

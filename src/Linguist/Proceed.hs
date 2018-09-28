@@ -38,7 +38,7 @@ eval sort sChart dChart tm
   = runReaderT (eval' sort tm) (sChart, dChart, Map.empty)
 
 -- TODO: we're confused about sorts. here we basically ignore them.
--- PatternPrimVal includes a sort. All sorts are mixed up in dynamics.
+-- PatternPrimVar includes a sort. All sorts are mixed up in dynamics.
 -- findMatch should maybe return the sort it finds.
 eval' :: Show a => SortName -> Term a -> ReaderT (EvalEnv a) (Either String) (Term a)
 eval' sort = \case
