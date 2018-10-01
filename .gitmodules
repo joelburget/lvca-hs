@@ -1,0 +1,3 @@
+[submodule "multirec"]
+	path = multirec
+	url = git@github.com:kosmikus/multirec.git

@@ -1,7 +1,4 @@
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TypeOperators     #-}
 {-# LANGUAGE TemplateHaskell   #-}
 module Linguist.Brick where
 
@@ -15,11 +12,28 @@ import           Data.Foldable              (toList)
 import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import           Data.Void                 (Void, absurd)
 import qualified Graphics.Vty               as V
 import           NeatInterpolation
 
 import           Linguist.Types
+import           Linguist.Languages.MachineModel
 
+
+class TmShow a where
+  drawPrim :: a -> Widget ()
+
+instance (TmShow a, TmShow b) => TmShow (Either a b) where
+  drawPrim = either drawPrim drawPrim
+
+instance TmShow Void where
+  drawPrim = str . absurd
+
+instance TmShow Int where
+  drawPrim = str . show
+
+instance TmShow Text where
+  drawPrim = str . show
 
 type ListZipper a = Top :>> [a] :>> a
 

@@ -1,11 +1,6 @@
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE QuasiQuotes         #-}
-{-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeApplications    #-}
 module Linguist.Languages.Document where
 
 import qualified CMark                              as MD
@@ -16,7 +11,7 @@ import           Data.Text                          (Text)
 import           Data.Void                          (Void, absurd)
 import           EasyTest
 import           NeatInterpolation
-import           Text.Megaparsec                    (ParseError, runParser)
+import           Text.Megaparsec                    (ParseErrorBundle, runParser)
 
 import           Linguist.Languages.Document.Syntax
 import           Linguist.ParseSyntaxDescription
@@ -45,7 +40,7 @@ data InlineAtom inlineEmbed
 
 data Attribute = Bold | Italic
 
-syntax :: Either (ParseError Char Void) SyntaxChart
+syntax :: Either (ParseErrorBundle Text Void) SyntaxChart
 syntax = runParser parseSyntaxDescription "(document syntax)" syntaxText
 
 -- $(do

@@ -1,4 +1,3 @@
-{-# LANGUAGE MultiParamTypeClasses #-}
 module Linguist.Util where
 
 import           Control.Lens         (FunctorWithIndex, imap)
@@ -42,3 +41,7 @@ Nothing ?? err = throwError err
 infixl 1 <@&>
 (<@&>) :: FunctorWithIndex i f => f a -> (i -> a -> b) -> f b
 (<@&>) = flip imap
+
+forceRight :: Show e => Either e a -> a
+forceRight (Right x) = x
+forceRight (Left e) = error $ "forceRight: unexpectedly called with " ++ show e

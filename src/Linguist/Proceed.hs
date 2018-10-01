@@ -1,13 +1,9 @@
-{-# LANGUAGE GADTs             #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms   #-}
-{-# LANGUAGE TypeApplications  #-}
+{-# LANGUAGE ViewPatterns      #-}
 module Linguist.Proceed
   ( eval
-  , proceed
   ) where
 
+import Data.Functor.Compose
 import           Control.Lens         hiding (from, to, (??))
 import           Control.Monad.Except (throwError)
 import           Control.Monad.Reader
@@ -16,92 +12,84 @@ import qualified Data.List            as List
 import           Data.Map.Strict      (Map)
 import qualified Data.Map.Strict      as Map
 import           Data.Maybe           (fromMaybe)
+import           Data.Sequence             (Seq)
 import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
-import           Data.Traversable     (for)
+import Data.Functor.Foldable (Fix(Fix), unfix)
+import Control.Monad.Free
 
 import           Linguist.Types
-import           Linguist.Util        (pair, (??))
+import           Linguist.Languages.MachineModel
+import           Linguist.Util        ((??))
+import Linguist.FunctorUtil
 
+import Debug.Trace
 
-type EvalEnv a = (SyntaxChart, DenotationChart a, Map Text (Term a))
+type EvalEnv a b =
+  ( SyntaxChart
+  , DenotationChart a b
+  , ReifiedPrism' b Text
+  , Text -> Maybe (Seq (Term a) -> Term a)
+  , Map Text (Term a)
+  )
 
 eval
-  :: Show a
+  :: (Eq a, Show a, Show b)
   => SortName
   -> SyntaxChart
-  -> DenotationChart a
+  -> DenotationChart a b
+  -> Prism' b Text
+  -> (Text -> Maybe (Seq (Term a) -> Term a))
   -> Term a
   -> Either String (Term a)
-eval sort sChart dChart tm
-  = runReaderT (eval' sort tm) (sChart, dChart, Map.empty)
+eval sort sChart dChart p evalPrim tm
+  = runReaderT (eval' sort tm) (sChart, dChart, Prism p, evalPrim, Map.empty)
+
+-- findMatch'
+--   :: (Eq a, Show a, Show b)
+--   => DenotationChart a b
+--   -> Term a
+--   -> Prism' b Text
+--   -> Prism' (Term b) (f (Free (MeaningF f) Text))
+--   -> Matching a (Subst a, Free (MeaningF f) Text)
+
+findMatch'
+  :: (Eq a, Show a, Show b)
+  => DenotationChart a b
+  -> Term a
+  -> Prism' b Text
+  -> Matching a (Subst a, Free (MeaningF :+: f) Text)
+findMatch' chart tm textP = do
+  (subst, meaningTm) <- findMatch chart tm
+  traceM "found match in findMatch'"
+  traceM $ "meaning: " ++ show meaningTm
+  meaning            <- lift $ meaningTm ^? meaningTermP textP (error "TODO")
+  traceM "found meaning in findMatch'"
+  pure (subst, meaning)
 
 -- TODO: we're confused about sorts. here we basically ignore them.
 -- PatternPrimVar includes a sort. All sorts are mixed up in dynamics.
 -- findMatch should maybe return the sort it finds.
-eval' :: Show a => SortName -> Term a -> ReaderT (EvalEnv a) (Either String) (Term a)
+eval'
+  :: (Eq a, Show a, Show b)
+  => SortName -> Term a -> ReaderT (EvalEnv a b) (Either String) (Term a)
 eval' sort = \case
   tm@(Term _name subtms) -> do
-    (sChart, dChart, vars) <- ask
+    (sChart, dChart, Prism p, evalMeaningPrimitive, vars) <- ask
     let matchesEnv = MatchesEnv sChart sort vars
-    case runReaderT (findMatch dChart tm) matchesEnv of
-      Just (_assignment, CallForeign f) -> do
-        subtms' <- traverse (eval' sort) subtms
-        eval' sort $ f $ Seq.fromList subtms'
-      Just (subst@(Subst assignment correspondences), BindIn bindings toSlot') -> do
-        varVals <- for bindings $ \(patName, fromSlot) -> do
-          from <- assignment ^? ix fromSlot ??
-            "couldn't find assignment for variable " ++
-              Text.unpack fromSlot ++ " in substitution " ++ show subst ++
-              " derived from term " ++ show tm
-          (_, varName) <- List.find ((== patName) . fst) correspondences ??
-            "unable to find pattern name " ++ Text.unpack patName ++ " in " ++ show correspondences
-          pure (varName, from)
+    case runReaderT (findMatch' dChart tm p) matchesEnv of
+      Just ( subst@(Subst assignment correspondences)
+           , Free (InL (Bind bindFrom' patName' bindTo'))
+           ) -> do
 
-        to <- assignment ^? ix toSlot' ??
-          "couldn't find assignment for variable " ++
-            Text.unpack toSlot' ++ " in substitution " ++ show subst ++
-            " derived from term " ++ show tm
-
-        local (_3 %~ Map.union (Map.fromList varVals)) (eval' sort to)
-      Just (_, Value) -> pure tm
-
-      Just (Subst assignment _, Choose chooseSlot) -> do
-        val <- assignment ^? ix chooseSlot ??
-          "couldn't find slot " ++ show chooseSlot
-        eval' sort val
-
-      Just (Subst assignment _, Cbv fun argSlots') -> do
-        fun' <- assignment ^? ix fun ??
-          ("couldn't find function " ++ show fun)
-        (varNames, body) <- case fun' of
-          Binding varNames body -> pure (varNames, body)
-          tm'                   -> throwError $ show tm'
-        args   <- for argSlots' $ \argSlot -> assignment ^? ix argSlot ??
-          ("couldn't find arg " ++ show argSlot)
-        argTms <- traverse (eval' sort) args
-        varVals <- pair varNames argTms ??
-          "mismatched lengths for vars and args"
-        eval' sort $ substIn (Map.fromList varVals) body
-
-      Just (Subst assignment _, Cbn fun argSlots') -> do
-        fun' <- assignment ^? ix fun ??
-          ("couldn't find function " ++ show fun)
-        (varNames, body) <- case fun' of
-          Binding varNames body -> pure (varNames, body)
-          tm'                   -> throwError $ show tm'
-        args  <- for argSlots' $ \argSlot -> assignment ^? ix argSlot ??
-          ("couldn't find arg " ++ show argSlot)
-        varTms <- pair varNames args ??
-          "mismatched lengths for vars and args"
-        eval' sort $ substIn (Map.fromList varTms) body
+        (error "TODO")
 
       Nothing -> throwError $ "cound't find match for term " ++ show tm
 
   Binding{} -> throwError "can't evaluate exposed binding"
   Var name -> do
-    tm <- view (_3 . at name)
+    tm <- view (_5 . at name)
     case tm of
       Just tm' -> pure tm'
       Nothing  -> throwError $ "unable to look up var " ++ Text.unpack name
@@ -119,81 +107,3 @@ substIn vals tm = case tm of
     -> val
     | otherwise          -> tm
   PrimValue{} -> tm
-
-type ProceedEnv a = (SyntaxChart, DenotationChart a)
-
-proceed :: Show a => StateStep a -> Reader (ProceedEnv a) (StateStep a)
-proceed (StateStep stack tmVal) = case tmVal of
-  Descending tm@(Term name subtms) -> do
-    (sChart, dChart) <- ask
-    let env = MatchesEnv sChart "Exp" $ frameVals stack
-    pure $ case runReaderT (findMatch dChart tm) env of
-      Just (_assignment, CallForeign f) -> case subtms of
-        tm':tms -> StateStep
-          (CbvForeignFrame name Empty tms f : stack)
-          (Descending tm')
-        [] -> StateStep stack (Ascending (f Empty))
-
-      Just (Subst assignment correspondences, BindIn bindings toSlot') ->
-        fromMaybe (Errored "BindIn") $ do
-          varVals <- for bindings $ \(patName, fromSlot) -> do
-            from <- assignment ^? ix fromSlot
-            (_, varName) <- List.find ((== patName) . fst) correspondences
-            pure (varName, from)
-          to   <- assignment ^? ix toSlot'
-          let frame = BindingFrame $ Map.fromList varVals
-          Just $ StateStep (frame : stack) (Descending to)
-      Just (Subst assignment _, Cbv body argNames) ->
-        fromMaybe (Errored "Cbv") $ do
-          body' <- assignment ^? ix body
-          tms   <- for argNames $ \arg -> assignment ^? ix arg
-          case tms of
-            tm':tms' -> Just $ StateStep
-              (CbvFrame name argNames Empty tms' body' : stack)
-              (Descending tm')
-            [] -> Just $ StateStep stack (Descending body')
-      Just (Subst assignment _, Cbn body argNames) ->
-        fromMaybe (Errored "Cbn") $ do
-          body' <- assignment ^? ix body
-          args  <- for argNames $ \arg -> assignment ^? ix arg
-          let argVals = Map.fromList $ zip argNames args
-          Just $ StateStep (BindingFrame argVals : stack)
-            (Descending body')
-
-      Just (Subst assignment _, Choose chooseSlot) -> do
-        fromMaybe (Errored "Choose") $ do
-          body' <- assignment ^? ix chooseSlot
-          Just $ StateStep (ChooseFrame name chooseSlot : stack)
-            (Descending body')
-
-      Just (Subst{}, Value) -> StateStep stack (Ascending tm)
-      Nothing -> Errored $ Text.pack $ show tmVal
-
-  Descending (Var name) -> pure $ case findBinding stack name of
-    Just tmVal' -> StateStep stack (Descending tmVal')
-    Nothing     -> Errored $ "couldn't find var: " <> name
-
-  Descending (Binding _ _) -> pure $ Errored "can't evaluate exposed binding"
-
-  -- reverse direction and return this value
-  Descending val@PrimValue{} -> proceed (StateStep stack (Ascending val))
-
-  Ascending val -> pure $ case stack of
-    [] -> Done val
-    CbvForeignFrame _name vals []       denote : stack' -> StateStep
-      stack'
-      (Ascending (denote (vals |> val)))
-    CbvForeignFrame name vals (tm':tms) denote : stack' -> StateStep
-      (CbvForeignFrame name (vals |> val) tms denote : stack')
-      (Descending tm')
-    CbvFrame _name argNames vals [] body : stack' ->
-      let argVals = Map.fromList $ zip argNames $ toList vals
-      in StateStep (BindingFrame argVals : stack') (Descending body)
-    CbvFrame name argNames vals (tm':tms) body : stack' -> StateStep
-      (CbvFrame name argNames (vals |> val) tms body : stack')
-      (Descending tm')
-    BindingFrame{} : stack' -> StateStep stack' tmVal
-    ChooseFrame{}  : stack' -> StateStep stack' tmVal
-
-proceed e@Errored{} = pure e
-proceed d@Done{}    = pure d

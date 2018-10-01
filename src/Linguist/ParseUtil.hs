@@ -1,10 +1,8 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections     #-}
 module Linguist.ParseUtil where
 
 import           Control.Monad              (MonadPlus, void)
 import           Data.Text                  (Text, pack)
+import           Data.Void                  (Void)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -36,7 +34,7 @@ brackets :: MonadParsec e Text m => m a -> m a
 brackets = between (symbol "[") (symbol "]")
 
 oxfordBrackets :: MonadParsec e Text m => m a -> m a
-oxfordBrackets = between (symbol "[") (symbol "]")
+oxfordBrackets = between (symbol "[[") (symbol "]]")
 
 -- TODO: this can't handle escapes
 stringLiteral :: MonadParsec e Text m => m Text
@@ -53,3 +51,9 @@ countSepBy n ma sep = do
   _  <- sep
   as <- countSepBy (pred n) ma sep
   pure (a:as)
+
+parseVoid :: MonadParsec e t m => m Void
+parseVoid = empty <?> "void parse"
+
+noParse :: MonadParsec e t m => m a
+noParse = empty <?> "no parse"

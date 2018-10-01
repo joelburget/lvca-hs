@@ -1,11 +1,5 @@
-{-# LANGUAGE GADTs               #-}
-{-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE TypeFamilies        #-}
 -----------------------------------------------------------------------------
 -- |
@@ -36,26 +30,24 @@ module Linguist.Types
   -- * Denotation charts
   -- | Denotational semantics definition.
   , DenotationChart(..)
+  , DenotationChart'(..)
+  , pattern (:->)
   , pattern PatternAny
   , pattern PatternEmpty
-  , Denotation(..)
-  , fromSlots
-  , toSlot
-  , bodySlot
-  , argSlots
   , Subst(..)
 
   -- * Terms / Values
   , Term(..)
-  , TmShow(..)
+  , _Term
+  , _Binding
+  , _Var
+  , _PrimValue
   , subterms
   , termName
 
   -- * Patterns
   -- ** Pattern
   , Pattern(..)
-  , patternPrimExternal
-  , patternPrimName
   -- ** PatternCheckResult
   , PatternCheckResult(..)
   , overlapping
@@ -66,6 +58,7 @@ module Linguist.Types
   , applySubst
   , toPattern
   , MatchesEnv(..)
+  , Matching
   , envChart
   , envSort
   , envVars
@@ -89,18 +82,10 @@ module Linguist.Types
   , (%%%)
   , (.--)
 
-  -- * Evaluation
-  , StackFrame(..)
-  , findBinding
-  , frameVals
-  , StateStep(..)
-  , Focus(..)
-
   -- * Tests
   , toPatternTests
   ) where
 
-import           Brick                     (Widget, str)
 import           Control.Lens              hiding (op)
 import           Control.Monad.Morph
 import           Control.Monad.Reader
@@ -109,16 +94,18 @@ import           Data.List                 (intersperse)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
-import           Data.Sequence             (Seq)
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
-import           Data.Void                 (Void, absurd)
+import           Data.Void                 (Void)
 import           EasyTest                  hiding (pair)
 import           GHC.Exts                  (IsList (..))
+
+import           Linguist.FunctorUtil
 import           Linguist.Util
 
+import Debug.Trace
 
 -- syntax charts
 
@@ -218,64 +205,32 @@ data Term a
   | PrimValue !a
   deriving (Eq, Show)
 
-class TmShow a where
-  drawPrim :: a -> Widget ()
-
-instance (TmShow a, TmShow b) => TmShow (Either a b) where
-  drawPrim = either drawPrim drawPrim
-
-instance TmShow Void where
-  drawPrim = str . absurd
-
-instance TmShow Int where
-  drawPrim = str . show
-
-instance TmShow Text where
-  drawPrim = str . show
-
--- | A pattern matches a term
-data Pattern
+-- | A pattern matches a term.
+--
+-- In fact, patterns and terms have almost exactly the same form. Differences:
+-- * Patterns add unions so that multiple things can match for the same
+--   right-hand side
+-- * In addition to variables, patterns can match wildcards, which don't bind
+--   any variable.
+data Pattern a
   -- | Matches the head of a term and any subpatterns
-  = PatternTm !Text ![Pattern]
-
+  = PatternTm !Text ![Pattern a]
   -- TODO: should this exist?
-  | BindingPattern ![Text] !Pattern
-
+  | BindingPattern ![Text] !(Pattern a)
+  -- TODO: Add non-binding, yet named variables, eg _foo
   -- | A variable pattern that matches everything, generating a substitution
   | PatternVar !(Maybe Text)
-
-  -- | Matches 'PrimValue'
-  | PatternPrimVar
-    { _patternPrimExternal :: !SortName     -- ^ external name, eg "str"
-    , _patternPrimName     :: !(Maybe Text) -- ^ variable name, eg "s_1"
-    }
-
+  | PatternPrimVal a
   -- | The union of patterns
-  | PatternUnion ![Pattern]
+  | PatternUnion ![Pattern a]
   deriving (Eq, Show)
 
-pattern PatternAny :: Pattern
+pattern PatternAny :: Pattern a
 pattern PatternAny = PatternVar Nothing
 
-pattern PatternEmpty :: Pattern
+pattern PatternEmpty :: Pattern a
 pattern PatternEmpty = PatternUnion []
 
-data Denotation a
-  = Value
-  | CallForeign !(Seq (Term a) -> Term a)
-  | BindIn
-    { _fromSlots :: ![(Text, Text)]
-    , _toSlot    :: !Text
-    }
-  | Cbv
-    { _bodySlot :: !Text
-    , _argSlots :: ![Text]
-    }
-  | Cbn
-    { _bodySlot :: !Text
-    , _argSlots :: ![Text]
-    }
-  | Choose !Text
 
 -- | Denotation charts
 --
@@ -285,7 +240,15 @@ data Denotation a
 -- We check for completeness and reduncancy using a very similar algorithm to
 -- Haskell's pattern match checks. These could also be compiled efficiently in
 -- a similar way.
-newtype DenotationChart a = DenotationChart [(Pattern, Denotation a)]
+newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
+  deriving Show
+
+data DenotationChart' (f :: * -> *) (g :: * -> *)
+  -- TODO: change Fix to Free
+  = DenotationChart' [(Fix f, Free g Text)]
+
+pattern (:->) :: a -> b -> (a, b)
+pattern a :-> b = (a, b)
 
 data Subst a = Subst
   { _assignments             :: !(Map Text (Term a))
@@ -303,8 +266,8 @@ data IsRedudant = IsRedudant | IsntRedundant
   deriving Eq
 
 data PatternCheckResult a = PatternCheckResult
-  { _uncovered   :: !Pattern                 -- ^ uncovered patterns
-  , _overlapping :: ![(Pattern, IsRedudant)] -- ^ overlapping part, redundant?
+  { _uncovered   :: !(Pattern a)               -- ^ uncovered patterns
+  , _overlapping :: ![(Pattern a, IsRedudant)] -- ^ overlapping part, redundant?
   }
 
 type instance Index   (Term a) = Int
@@ -314,7 +277,7 @@ instance Ixed (Term a) where
     Term name tms -> Term name <$> ix k f tms
     _             -> pure tm
 
-isComplete :: PatternCheckResult a -> Bool
+isComplete :: Eq a => PatternCheckResult a -> Bool
 isComplete (PatternCheckResult uc _) = uc == PatternUnion []
 
 hasRedundantPat :: PatternCheckResult a -> Bool
@@ -327,25 +290,28 @@ applySubst subst tm = case tm of
   Binding names subtm -> Binding names (applySubst subst subtm)
   _                   -> tm
 
-toPattern :: Operator -> Pattern
+toPattern :: Operator -> Pattern a
 toPattern (Operator name (Arity valences) _desc)
   = PatternTm name $ const PatternAny <$> valences
 
 toPatternTests :: Test ()
-toPatternTests = scope "toPattern" $ tests
-  [ expect $
-    toPattern (Operator "num" (Arity []) "numbers")
-    ==
-    PatternTm "num" []
-  , expect $
-    toPattern (Operator "plus"  (Arity ["Exp", "Exp"]) "addition")
-    ==
-    PatternTm "plus" [PatternAny, PatternAny]
-  , expect $
-    toPattern (Operator "num" (ExternalArity "nat") "numeral")
-    ==
-    PatternTm "num" [PatternAny]
-  ]
+toPatternTests = scope "toPattern" $
+  let toPat :: Operator -> Pattern Void
+      toPat = toPattern
+  in tests
+    [ expect $
+      toPat (Operator "num" (Arity []) "numbers")
+      ==
+      PatternTm "num" []
+    , expect $
+      toPat (Operator "plus"  (Arity ["Exp", "Exp"]) "addition")
+      ==
+      PatternTm "plus" [PatternAny, PatternAny]
+    , expect $
+      toPat (Operator "num" (ExternalArity "nat") "numeral")
+      ==
+      PatternTm "num" [PatternAny]
+    ]
 
 data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
@@ -363,7 +329,7 @@ noMatch, emptyMatch :: Matching a (Subst a)
 noMatch    = lift Nothing
 emptyMatch = pure mempty
 
-matches :: Pattern -> Term a -> Matching a (Subst a)
+matches :: (Show a, Eq a) => Pattern a -> Term a -> Matching a (Subst a)
 -- matches pat (Left (Return val))     = matches pat (Right val)
 matches (PatternVar (Just name)) tm
   = pure $ Subst (Map.singleton name tm) []
@@ -379,12 +345,17 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   if name1 /= name2
   then noMatch
   else do
+    traceM $ "finding submatches in " ++ show name1
     mMatches <- sequence $ fmap sequence $
       pairWith matches subpatterns subterms
-    mconcat <$> lift mMatches
+    traceShowM mMatches
+    x <- mconcat <$> lift mMatches
+    traceShowM x
+    pure x
 -- TODO: write context of var names?
-matches (PatternPrimVar _primExternal _varName) (PrimValue _)
-  = emptyMatch
+matches (PatternPrimVal pVal) (PrimValue val)
+  | pVal == val = emptyMatch
+  | otherwise   = noMatch
 -- TODO: this piece must know the binding structure from the syntax chart
 matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
   subst <- Subst Map.empty <$> lift (pair lnames rnames)
@@ -406,17 +377,20 @@ getSort = do
   MatchesEnv (SyntaxChart syntax) sort _ <- ask
   lift $ syntax ^? ix sort
 
-completePattern :: Matching a Pattern
+completePattern :: Matching a (Pattern a)
 completePattern = do
   SortDef _vars operators <- getSort
 
   pure $ PatternUnion $ operators <&>
     \(Operator opName (Arity valences) _desc) -> PatternTm opName $
       valences <&> \case
-        External name -> PatternPrimVar name Nothing
+        -- This requires the convention that externals are always stored by
+        -- themselves in a term named after their type. Perhaps the match
+        -- should just be PatternAny?
+        External name -> PatternTm name [PatternAny]
         _valence      -> PatternAny
 
-minus :: Pattern -> Pattern -> Matching a Pattern
+minus :: Eq a => Pattern a -> Pattern a -> Matching a (Pattern a)
 minus _ (PatternVar _) = pure PatternEmpty
 minus (PatternVar _) x = do
   pat <- completePattern
@@ -438,21 +412,21 @@ minus (PatternUnion pats) x = do
 -- remove each pattern from pat one at a time
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
-minus x@(PatternPrimVar external1 _) (PatternPrimVar external2 _)
-  = pure $ if external1 == external2 then PatternEmpty else x
+minus x@(PatternPrimVal a) (PatternPrimVal b)
+  = pure $ if a == b then PatternEmpty else x
+minus x@PatternPrimVal{} _ = pure x
 
-minus x@PatternTm{} PatternPrimVar{}      = pure x
 minus x@PatternTm{} BindingPattern{}      = pure x
-
-minus x@PatternPrimVar{} PatternTm{}      = pure x
-minus x@PatternPrimVar{} BindingPattern{} = pure x
+minus x@PatternTm{} PatternPrimVal{}      = pure x
 
 minus BindingPattern{} BindingPattern{}   = error "TODO"
 minus x@BindingPattern{} PatternTm{}      = pure x
-minus x@BindingPattern{} PatternPrimVar{} = pure x
+minus x@BindingPattern{} PatternPrimVal{} = pure x
 
 patternCheck
-  :: forall a. DenotationChart a
+  :: forall a b.
+     Eq a
+  => DenotationChart a b
   -> Matching a (PatternCheckResult a)
 patternCheck (DenotationChart chart) = do
   unmatched <- completePattern -- everything unmatched
@@ -465,26 +439,31 @@ patternCheck (DenotationChart chart) = do
   -- go:
   -- - takes the set of uncovered values
   -- - returns the (set of covered values, set of remaining uncovered values)
-  where go :: Pattern -> Pattern -> Matching a ((Pattern, IsRedudant), Pattern)
+  where go
+          :: Pattern a
+          -> Pattern a
+          -> Matching a ((Pattern a, IsRedudant), Pattern a)
         go unmatched pat = do
           pat' <- unmatched `minus` pat
           let redundant = if pat == pat' then IsRedudant else IsntRedundant
           pure ((pat, redundant), pat')
 
 findMatch
-  :: DenotationChart a
+  :: (Eq a, Show a)
+  => DenotationChart a b
   -> Term a
-  -> Matching a (Subst a, Denotation a)
+  -> Matching a (Subst a, Term b)
 findMatch (DenotationChart pats) tm = do
   env <- ask
   let results = pats <&> \(pat, rhs) ->
-        runReaderT (matches pat tm) env & _Just %~ (, rhs)
+        trace ("testing pat: " ++ show pat ++ " and term: " ++ show tm) $
+          runReaderT (matches pat tm) env & _Just %~ (, rhs)
 
   lift $ getFirst $ fold $ fmap First results
 
 -- judgements
 
-data InOut = In | Out
+data InOut = JIn | JOut
 
 data JudgementForm = JudgementForm
   { _judgementName  :: !Text                -- ^ name of the judgement
@@ -585,61 +564,8 @@ instance Pretty Valence where
   pretty (External name) = brackets (pretty name)
 
 
--- evaluation internals
-
-data StackFrame a
-  = CbvForeignFrame
-    { _frameName  :: !Text                     -- ^ name of this term
-    , _frameVals  :: !(Seq (Term a))           -- ^ values before
-    , _frameTerms :: ![Term a]                 -- ^ subterms after
-    , _frameK     :: !(Seq (Term a) -> Term a) -- ^ what to do after
-    }
-  | CbvFrame
-    { _frameName        :: !Text
-    , _cbvFrameArgNames :: ![Text]
-    , _cbvFrameVals     :: !(Seq (Term a))
-    , _cbvFrameTerms    :: ![Term a]
-    , _cbvFrameBody     :: !(Term a)
-    }
-  | BindingFrame
-    !(Map Text (Term a))
-  | ChooseFrame
-    { _chooseTermName :: !Text
-    , _chooseSlot     :: !Text
-    }
-
-findBinding :: [StackFrame a] -> Text -> Maybe (Term a)
-findBinding [] _ = Nothing
-findBinding (BindingFrame bindings : stack) name
-  = case bindings ^? ix name of
-    Just tm -> Just tm
-    Nothing -> findBinding stack name
-findBinding (_ : stack) name = findBinding stack name
-
-frameVals :: [StackFrame a] -> Map Text (Term a)
-frameVals = foldl
-  (\sorts -> \case
-    BindingFrame bindings -> bindings `Map.union` sorts
-    _                     -> sorts)
-  Map.empty
-
-data StateStep a = StateStep
-  { _stepFrames :: ![StackFrame a]
-  -- | Either descending into term or ascending with value
-  , _stepFocus  :: !(Focus a)
-  }
-
-  | Errored !Text
-  | Done !(Term a)
-
-data Focus a
-  = Descending !(Term a)
-  | Ascending  !(Term a)
-  deriving Show
-
-
 makeLenses ''SortDef
 makeLenses ''Pattern
-makeLenses ''Denotation
 makeLenses ''Term
+makePrisms ''Term
 makeLenses ''PatternCheckResult

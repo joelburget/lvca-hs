@@ -1,13 +1,7 @@
-{-# LANGUAGE GADTs             #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedLists   #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms   #-}
 {-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TypeApplications  #-}
 module Linguist.Languages.SimpleExample
   ( syntax
-  , dynamics
+  -- , dynamics
   , statics
   , typingJudgement
   , E
@@ -25,7 +19,6 @@ module Linguist.Languages.SimpleExample
 
 import           Control.Applicative                   ((<|>))
 import           Control.Lens                          hiding (from, to)
--- import           Control.Monad.Combinators
 import           Control.Monad.Reader
 import qualified Data.Map.Strict                       as Map
 import           Data.Text                             (Text)
@@ -33,15 +26,19 @@ import qualified Data.Text                             as Text
 import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
                                                         layoutPretty, pretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
+import           Data.Void                             (Void)
 import           EasyTest                              hiding (char)
 import           NeatInterpolation
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer            as L
+import           Data.Sequence             (Seq)
 
 import           Linguist.ParseLanguage
 import           Linguist.Proceed                      (eval)
 import           Linguist.Types
+import           Linguist.Languages.MachineModel
+import           Linguist.FunctorUtil
 
 
 type E = Either Int Text
@@ -71,7 +68,7 @@ syntax = SyntaxChart $ Map.fromList
     , Operator "annotation" (Arity [External "annotation", "Exp"]) "annotation"
     ])
   , ("List", SortDef ["a"]
-    [ Operator "nil" [] ""
+    [ Operator "nil" (Arity []) ""
     , Operator "cons" (Arity ["a", Valence [] (SortAp "List" ["a"])]) ""
     ])
   ]
@@ -100,67 +97,146 @@ pattern VI x = PrimValue (Left x)
 pattern VS :: Text -> Term E
 pattern VS x = PrimValue (Right x)
 
-dynamics :: DenotationChart E
-dynamics = DenotationChart
-  -- [ (PatternVar (Just "x",) Variable "x")
-  [ (PatternPrimVar "num" Nothing, Value)
-  , (PatternPrimVar "str" Nothing, Value)
-  , (PatternTm "plus"
-    [ PatternPrimVar "num" (Just "n_1")
-    , PatternPrimVar "num" (Just "n_2")
-    ],
-    CallForeign $ \case
-      VI x :< VI y :< Empty -> VI (x + y)
-      args -> error $ "bad call to plus: " ++ show args)
-  , (PatternTm "times"
-    [ PatternPrimVar "num" (Just "n_1")
-    , PatternPrimVar "num" (Just "n_2")
-    ],
-    CallForeign $ \case
-      VI x :< VI y :< Empty -> VI (x * y)
-      _ -> error "bad call to times")
-  , (PatternTm "cat"
-    [ PatternPrimVar "str" (Just "s_1")
-    , PatternPrimVar "str" (Just "s_2")
-    ],
-    CallForeign $ \case
-      VS x :< VS y :< Empty -> VS (x <> y)
-      _ -> error "bad call to cat")
-  , (PatternTm "len" [PatternVar (Just "e")],
-    CallForeign $ \case
-      VS x :< Empty -> VI (Text.length x)
-      _ -> error "bad call to len")
-  , (PatternTm "let"
-    [PatternVar (Just "e_1"), BindingPattern ["v"] (PatternVar (Just "e_2"))],
-    BindIn [("v", "e_1")] "e_2")
-  , (PatternTm "annotation" [PatternAny, PatternVar (Just "contents")],
-    Choose "contents")
+pattern PatternPrimVar :: Text -> Maybe Text -> Pattern a
+pattern PatternPrimVar ty name = PatternTm ty [PatternVar name]
+
+evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
+evalMachinePrimitive = \case
+  "add" -> Just $ \case
+    VI x :< VI y :< Empty -> VI (x + y)
+    args                  -> error $ "bad call to plus: " ++ show args
+  "mul" -> Just $ \case
+    VI x :< VI y :< Empty -> VI (x * y)
+    _                     -> error "bad call to times"
+  "cat" -> Just $ \case
+    VS x :< VS y :< Empty -> VS (x <> y)
+    _                     -> error "bad call to cat"
+  "len" -> Just $ \case
+    VS x :< Empty -> VI (Text.length x)
+    _             -> error "bad call to len"
+  _ -> Nothing
+
+data TermF t e
+  = Plus       e e
+  | Times      e e
+  | Cat        e e
+  | Len        e
+  | Let        e e
+  | Annotation t e
+
+data Prim
+  = PrimAdd
+  | PrimMul
+  | PrimCat
+  | PrimLen
+
+data ValF val
+  = NumV Int
+  | StrV Text
+  | Prim Prim [val]
+
+-- TODO: non-erased types?
+dynamics' :: DenotationChart' (PatF :+: TermF ()) (MeaningF :+: ValF)
+dynamics' = DenotationChart'
+  [ FixR (Plus (FixL (PatVarF (Just "n1"))) (FixL (PatVarF (Just "n2"))))
+    :->
+    FreeL (Eval (Pure "n1") "n1'"
+      (FreeL (Eval (Pure "n2") "n2'"
+        (FreeR (Prim PrimAdd [Pure "n1'", Pure "n2'"]))
+      ))
+    )
+  , FixR (Times (FixL (PatVarF (Just "n1"))) (FixL (PatVarF (Just "n2"))))
+    :->
+    FreeL (Eval (Pure "n1") "n1'"
+      (FreeL (Eval (Pure "n2") "n2'"
+        (FreeR (Prim PrimMul [Pure "n1'", Pure "n2'"]))
+      ))
+    )
+  , FixR (Cat (FixL (PatVarF (Just "s1"))) (FixL (PatVarF (Just "s2"))))
+    :->
+    FreeL (Eval (Pure "n1") "n1'"
+      (FreeL (Eval (Pure "n2") "n2'"
+        (FreeR (Prim PrimCat [Pure "n1'", Pure "n2'"]))
+      ))
+    )
+  , FixR (Len (FixL (PatVarF (Just "e"))))
+    :->
+    FreeL (Eval (Pure "e") "e'" (FreeR (Prim PrimLen [Pure "e'"])))
+  , FixR (Annotation () (FixL (PatVarF (Just "contents"))))
+    :->
+    Pure "contents"
   ]
 
-typingJudgement :: JudgementForm
-typingJudgement = JudgementForm "types" [(In, "Exp"), (In, "Typ")]
+dynamics :: DenotationChart E E
+dynamics = mkDenotationChart _Right p1 p2 dynamics' where
 
-statics :: JudgementRules
-statics =
-  let tm -: ty = [tm, ty] %%% "types"
-  in JudgementRules
-  [ ["x" -: "num", "y" -: "num"]
-    .--
-    ("plus" @@ ["x", "y"]) -: "num"
-  , ["x" -: "num", "y" -: "num"]
-    .--
-    ("times" @@ ["x", "y"]) -: "num"
-  , ["x" -: "str", "y" -: "str"]
-    .--
-    ("cat" @@ ["x", "y"]) -: "str"
-  , ["x" -: "str"]
-    .--
-    ("len" @@ ["x"]) -: "num"
-  -- TODO: how to do assumptions?
-  -- , ["x" -: "a"]
-  --   .--
-  --   ("let" @@ ["x", _]) -: "a"
-  ]
+  p1' :: Prism' (Pattern E) (Fix (PatF :+: TermF ()))
+  p1' = patTermP p1
+
+  p1 :: Prism' (Pattern E) (TermF () (Fix (PatF :+: TermF ())))
+  p1 = prism' rtl ltr where
+    rtl = \case
+      Plus a b -> PatternTm "Plus"
+        [ review p1' a
+        , review p1' b
+        ]
+      Times a b -> PatternTm "Times"
+        [ review p1' a
+        , review p1' b
+        ]
+      Cat a b -> PatternTm "Cat"
+        [ review p1' a
+        , review p1' b
+        ]
+      Len a -> PatternTm "Len" [ review p1' a ]
+      Let a b -> PatternTm "Let"
+        [ review p1' a
+        , review p1' b
+        ]
+      Annotation () a -> PatternTm "Annotation" [ review p1' a ]
+    ltr = \case
+      PatternTm "Plus"       [a, b] -> Plus <$> preview p1' a <*> preview p1' b
+      PatternTm "Times"      [a, b] -> Times <$> preview p1' a <*> preview p1' b
+      PatternTm "Cat"        [a, b] -> Cat <$> preview p1' a <*> preview p1' b
+      PatternTm "Len"        [a]    -> Len <$> preview p1' a
+      PatternTm "Let"        [a, b] -> Let <$> preview p1' a <*> preview p1' b
+      PatternTm "Annotation" [a]    -> Annotation () <$> preview p1' a
+      _                             -> Nothing
+
+  p2' :: Prism' (Term E) (Free (MeaningF :+: ValF) Text)
+  p2' = meaningTermP _Right p2
+
+  p2 :: Prism' (Term E) (ValF (Free (MeaningF :+: ValF) Text))
+  p2 = prism' rtl ltr where
+    rtl = \case
+      NumV i -> Term "NumV" [PrimValue (Left i)]
+      StrV s -> Term "StrV" [PrimValue (Right s)]
+      Prim PrimLen [a] -> Term "Prim" [ Term "PrimLen" [] , review p2' a ]
+      Prim prim [a, b] ->
+        let prim' = case prim of
+              PrimAdd -> "PrimAdd"
+              PrimMul -> "PrimMul"
+              PrimCat -> "PrimCat"
+        in Term "Prim"
+             [ Term prim' []
+             , review p2' a
+             , review p2' b
+             ]
+    ltr = \case
+      Term "NumV" [PrimValue (Left i)]  -> Just (NumV i)
+      Term "StrV" [PrimValue (Right s)] -> Just (StrV s)
+      Term "Prim" [Term "PrimLen" [], a] ->
+        Prim PrimAdd . (:[]) <$> preview p2' a
+      Term "Prim" [Term prim [], a, b] -> do
+        prim' <- case prim of
+          "PrimAdd" -> Just PrimAdd
+          "PrimMul" -> Just PrimMul
+          "PrimCat" -> Just PrimCat
+          _ -> Nothing
+        a' <- preview p2' a
+        b' <- preview p2' b
+        pure $ Prim prim' [a', b']
+      _ -> Nothing
 
 dynamicTests :: Test ()
 dynamicTests =
@@ -200,7 +276,8 @@ dynamicTests =
                ]
          in runMatches syntax "Exp" $ matches pat tm2
        , expectJust $
-         let pat = PatternPrimVar "num" (Just "n_1")
+         let pat :: Pattern E
+             pat = PatternPrimVar "num" (Just "n_1")
              tm  = Var "x"
          in flip runReaderT env $ matches pat tm
        , expectJust $
@@ -226,12 +303,40 @@ dynamicTests =
 
        ]
 
+typingJudgement :: JudgementForm
+typingJudgement = JudgementForm "types" [(JIn, "Exp"), (JIn, "Typ")]
+
+statics :: JudgementRules
+statics =
+  let tm -: ty = [tm, ty] %%% "types"
+  in JudgementRules
+  [ ["x" -: "num", "y" -: "num"]
+    .--
+    ("plus" @@ ["x", "y"]) -: "num"
+  , ["x" -: "num", "y" -: "num"]
+    .--
+    ("times" @@ ["x", "y"]) -: "num"
+  , ["x" -: "str", "y" -: "str"]
+    .--
+    ("cat" @@ ["x", "y"]) -: "str"
+  , ["x" -: "str"]
+    .--
+    ("len" @@ ["x"]) -: "num"
+  -- TODO: how to do assumptions?
+  -- , ["x" -: "a"]
+  --   .--
+  --   ("let" @@ ["x", _]) -: "a"
+  ]
+
+expectEq' :: Maybe (Pattern Void) -> Maybe (Pattern Void) -> Test ()
+expectEq' = expectEq
+
 completePatternTests :: Test ()
 completePatternTests = scope "completePattern" $ tests
-  [ expectEq
+  [ expectEq'
       (runMatches syntax "Typ" completePattern)
       (Just (PatternUnion [PatternTm "num" [], PatternTm "str" []]))
-  , expectEq
+  , expectEq'
       (runMatches syntax "Exp" completePattern)
       (Just (PatternUnion
         [ PatternTm "num"        [PatternPrimVar "num" Nothing]
@@ -252,18 +357,17 @@ minusTests = scope "minus" $
       num = PatternPrimVar "num" Nothing
       any' = PatternAny
   in tests
-       [ expect $ runMatches undefined undefined (minus x x) == Just PatternEmpty
-       , expect $ runMatches undefined undefined (minus x y) == Just PatternEmpty
-       , expect $ runMatches undefined undefined (minus x any') == Just PatternEmpty
-       -- , expect $ runMatches undefined undefined (minus any' x) == Just PatternEmpty
-       , expect $ runMatches undefined undefined (minus any' any') == Just PatternEmpty
-       , expect $
-         runMatches syntax "Typ" (minus (PatternTm "num" []) (PatternTm "num" []))
-         ==
-         Just PatternEmpty
-       , expect $ runMatches syntax "Exp" (minus num num) == Just PatternEmpty
-       , expect $
-         runMatches syntax "Exp" (minus
+       [ expectEq' (runMatches undefined undefined (minus x x)) (Just PatternEmpty)
+       , expectEq' (runMatches undefined undefined (minus x y)) (Just PatternEmpty)
+       , expectEq' (runMatches undefined undefined (minus x any')) (Just PatternEmpty)
+       -- , expectEq' (runMatches undefined undefined (minus any' x)) (Just PatternEmpty)
+       , expectEq' (runMatches undefined undefined (minus any' any')) (Just PatternEmpty)
+       , expectEq'
+         (runMatches syntax "Typ" (minus (PatternTm "num" []) (PatternTm "num" [])))
+         (Just PatternEmpty)
+       , expectEq' (runMatches syntax "Exp" (minus num num)) (Just PatternEmpty)
+       , expectEq'
+         (runMatches syntax "Exp" (minus
            (PatternTm "plus"
              [ PatternPrimVar "num" Nothing
              , x
@@ -271,9 +375,8 @@ minusTests = scope "minus" $
            (PatternTm "plus"
              [ PatternPrimVar "num" Nothing
              , y
-             ]))
-         ==
-         Just PatternEmpty
+             ])))
+         (Just PatternEmpty)
 
 
        -- This is wrong:
@@ -365,10 +468,10 @@ matchesTests = scope "matches" $
 
 evalTests :: Test ()
 evalTests =
-  let
+  let eval' = eval "Exp" syntax dynamics _Right evalMachinePrimitive
   in tests
-       [ expect $ eval "Exp" syntax dynamics tm1 == Right (PrimValue (Left 3))
-       , expect $ eval "Exp" syntax dynamics tm2 == Right (PrimValue (Right "foobar"))
+       [ expect $ eval' tm1 == Right (PrimValue (Left 3))
+       , expect $ eval' tm2 == Right (PrimValue (Right "foobar"))
        ]
 
 parseTests :: Test ()
@@ -380,7 +483,7 @@ parseTests =
       parser = standardParser primParser
       runP str = runReader (runParserT parser "(test)" str) (syntax, "Exp")
       expectParse str tm = case runP str of
-        Left err       -> fail $ parseErrorPretty err
+        Left err       -> fail $ errorBundlePretty err
         Right parsedTm -> expectEq parsedTm tm
   in tests
   [ expectParse

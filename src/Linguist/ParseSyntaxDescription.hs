@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections     #-}
 module Linguist.ParseSyntaxDescription where
 
 import           Control.Lens                  (unsnoc)
