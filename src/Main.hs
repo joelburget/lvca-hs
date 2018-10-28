@@ -50,18 +50,18 @@ main = do
 
 allTests :: Test ()
 allTests = scope "all tests" $ tests
-  [ "toPattern"              toPatternTests
-  , "stlc"                   Stlc.stlcTests
-  , "matches"                SimpleExample.matchesTests
-  , "minus"                  SimpleExample.minusTests
-  , "completePatternTests"   SimpleExample.completePatternTests
-  , "simple-example"         SimpleExample.dynamicTests
-  , "pretty-syntax"          SimpleExample.prettySyntaxChartTests
-  , "syntax-statics"         SimpleExample.prettyStaticTests
-  , "simple-example.eval"    SimpleExample.evalTests
-  , "t-example.eval"         TExample.evalTests
-  , "document"               Document.documentTests
-  , "arith"                  Arith.evalTests
+  [ scope "toPattern"              toPatternTests
+  , scope "stlc"                   Stlc.stlcTests
+  , scope "matches"                SimpleExample.matchesTests
+  , scope "minus"                  SimpleExample.minusTests
+  , scope "completePatternTests"   SimpleExample.completePatternTests
+  , scope "simple-example"         SimpleExample.dynamicTests
+  , scope "pretty-syntax"          SimpleExample.prettySyntaxChartTests
+  , scope "syntax-statics"         SimpleExample.prettyStaticTests
+  , scope "simple-example.eval"    SimpleExample.evalTests
+  , scope "t-example.eval"         TExample.evalTests
+  , scope "document"               Document.documentTests
+  , scope "arith"                  Arith.evalTests
   ]
 
 -- main :: IO ()

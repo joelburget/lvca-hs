@@ -47,7 +47,8 @@ standardParser parsePrim = do
   let sortParsers :: Map SortName (Parser (Term a))
       sortParsers = syntax <@&> \sortName (SortDef _vars operators) ->
         let opParsers = operators <&> \(Operator name arity _desc) -> case arity of
-              -- External sort -> PrimValue <$> local (parseSort .~ sort) parsePrim
+              ExternalArity sort -> PrimValue <$>
+                local (parseSort .~ sort) parsePrim
               Arity valences -> (do
                 _ <- string $ fromString $ unpack name
                 subTms <- case valences of

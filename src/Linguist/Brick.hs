@@ -8,8 +8,6 @@ import qualified Brick.Widgets.Border.Style as BS
 import           Brick.Widgets.Center       (center)
 import           Control.Lens
 import           Control.Zipper
-import           Data.Foldable              (toList)
-import qualified Data.Map.Strict            as Map
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import           Data.Void                 (Void, absurd)
@@ -117,18 +115,8 @@ drawCtx = \case
 
 drawStackFrame :: TmShow a => StackFrame a -> Widget ()
 drawStackFrame = hBox . \case
-  CbvForeignFrame name before after _ ->
-    let slots = padLeft (Pad 1) <$>
-          fmap showTermSlot (toList before) ++ [str "_"] ++ fmap showTermSlot after
-    in txt name : slots
-  -- TODO: show var names
-  CbvFrame name _varNames vals tms _body ->
-    let slots = padLeft (Pad 1) <$>
-          fmap showTermSlot (toList vals) ++ [str "_"] ++ fmap showTermSlot tms
-    in txt name : slots
-  BindingFrame bindings -> Map.toList bindings <&> \(k, v) ->
-    txt k <+> str ": " <+> drawTm v
-  ChooseFrame tmName slotName -> [txt tmName <+> txt " -> " <+> txt slotName]
+  EvalFrame    k v -> [str "eval " <+> txt k <+> str "; " <+> drawTm v]
+  BindingFrame k v -> [txt k <+> str ": " <+> drawTm v]
 
 -- TODO: distinguish between in and out
 drawFocus :: TmShow a => Focus a -> Widget ()

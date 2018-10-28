@@ -3,27 +3,43 @@
 
 module Linguist.Languages.Arith where
 
-import Control.Lens (pattern Empty, pattern (:<))
+import Control.Monad.Reader (runReader)
+import Control.Lens (pattern Empty, pattern (:<), _Right)
+import Control.Applicative ((<$))
 import Data.Text (Text)
 import Data.Sequence (Seq)
 import           Control.Lens.TH
 import           Data.Void                          (Void)
-import           Text.Megaparsec                    (ParseErrorBundle, runParser)
+import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, runParserT, errorBundlePretty)
+import Text.Megaparsec.Char.Lexer (decimal)
 import EasyTest
+import EasyTest.Internal (testProperty)
+import Hedgehog ((===), property)
+import           Data.Text.Prettyprint.Doc (Pretty(pretty), viaShow)
 
-import           Linguist.ParseDenotationChart
-import           Linguist.ParseSyntaxDescription
+import           Linguist.ParseDenotationChart      (Parser, parseDenotationChart)
+import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
 import           Linguist.Types                     -- (SyntaxChart, Term (..))
 import Linguist.Util (forceRight)
 import Linguist.Languages.Arith.Syntax
-import Linguist.Proceed (eval)
+import Linguist.Proceed
 
 import qualified Data.Map as Map
 import           Linguist.TH
+import Linguist.ParseLanguage (standardParser)
+
 import Language.Haskell.TH (lookupTypeName, Type(..))
 
-import Debug.Trace
+import Data.Diverse.Lens.Which
+
+type E = Either Int Text
+
+instance AsFacet Text E where
+  facet = _Right
+
+instance Pretty E where
+  pretty = viaShow
 
 $(do
   Just t <- lookupTypeName "Integer"
@@ -34,11 +50,19 @@ makeLenses ''Arith
 syntax :: Either (ParseErrorBundle Text Void) SyntaxChart
 syntax = runParser parseSyntaxDescription "(arith syntax)" syntaxT
 
-machineDynamics :: Either (ParseErrorBundle Text Void) (DenotationChart Int Text)
-machineDynamics = runParser (parseDenotationChart noParse noParse)
+machineDynamics :: Either (ParseErrorBundle Text Void) (DenotationChart Int E)
+machineDynamics = runParser (parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" machineDynamicsT
 
-peanoDynamics :: Either (ParseErrorBundle Text Void) (DenotationChart Int a)
+parsePrim :: Parser E
+parsePrim = choice
+  [ Left <$> decimal
+  , Right "add" <$ symbol "add"
+  , Right "sub" <$ symbol "sub"
+  , Right "mul" <$ symbol "mul"
+  ]
+
+peanoDynamics :: Show a => Either (ParseErrorBundle Text Void) (DenotationChart Int a)
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
   "(arith peano dynamics)" peanoDynamicsT
 
@@ -46,31 +70,49 @@ tm :: Term Int
 tm = Term "Add"
   [ Term "Mul"
     [ PrimValue 1
-    , PrimValue 2
+    , Term "Sub"
+      [ PrimValue 500
+      , PrimValue 498
+      ]
     ]
   , PrimValue 3
   ]
 
-evalMachinePrimitive :: Text -> Maybe (Seq (Term Int) -> Term Int)
+tm' :: Term Int
+tm' =
+  let parser = standardParser undefined
+      env = (forceRight syntax, "Arith")
+      exampleTerm :: Text
+      exampleTerm = "Add(Mul(1; Sub(500; 498)); 3)"
+  in case runReader (runParserT parser "(example term)" exampleTerm) env of
+       Left err   -> error $ errorBundlePretty err
+       Right tm'' -> tm''
+
+
+pattern PrimInt :: Int -> Term E
+pattern PrimInt i = PrimValue (Left i)
+
+evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive = \case
   "add" -> Just $ \case
-    PrimValue x :< PrimValue y :< Empty -> PrimValue (x + y)
+    PrimInt x :< PrimInt y :< Empty -> PrimInt (x + y)
     args -> error $ "bad call to add: " ++ show args
   "sub" -> Just $ \case
-    PrimValue x :< PrimValue y :< Empty -> PrimValue (x - y)
-    _ -> error "bad call to sub"
+    PrimInt x :< PrimInt y :< Empty -> PrimInt (x - y)
+    args -> error $ "bad call to sub: " ++ show args
   "mul" -> Just $ \case
-    PrimValue x :< PrimValue y :< Empty -> PrimValue (x * y)
-    _ -> error "bad call to mul"
+    PrimInt x :< PrimInt y :< Empty -> PrimInt (x * y)
+    args -> error $ "bad call to mul: " ++ show args
   _ -> Nothing
+
+eval' :: Term Int -> Either String (Term E)
+eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
+  (forceRight machineDynamics)
+  evalMachinePrimitive
+  (Just . Left)
 
 evalTests :: Test ()
 evalTests =
-  let eval' :: Term Int -> Either String (Term Int)
-      eval' = eval "Arith" (forceRight syntax)
-        (traceShowId $ forceRight machineDynamics)
-        id
-        evalMachinePrimitive
-  in tests
-       [ expect $ traceShowId (eval' tm) == Right (PrimValue 5)
+  tests
+       [ testProperty $ property $ eval' tm === Right (PrimValue (Left 5))
        ]

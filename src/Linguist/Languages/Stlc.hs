@@ -3,7 +3,6 @@
 module Linguist.Languages.Stlc where
 
 import qualified Data.Map.Strict                 as Map
-import           Data.Text                       (pack)
 import           Data.Void                       (Void)
 import           EasyTest
 import           NeatInterpolation
@@ -49,11 +48,6 @@ data Term
   = Lam !(Either Term Pat)
   | Ap  !(Either Term Pat) !(Either Term Pat)
 
-type instance Base Term = TermF :+: PatF
-
--- mkDenotationChart' :: [(a, b)] -> DenotationChart' (Base a) (Base b)
--- mkDenotationChart' = undefined
-
 dynamics :: DenotationChart' (TermF :+: PatF) MeaningF
 dynamics = DenotationChart'
   [ FixL (ApF
@@ -61,19 +55,17 @@ dynamics = DenotationChart'
       (FixR (PatVarF (Just "applicand"))))
     :->
     Free
-      (Eval (Free (MeaningVar "applicand"))
+      (Eval (Pure "applicand")
       "foo"
-      (Free (MeaningVar "body")))
+      (Pure "body"))
   ]
 
 stlcTests :: Test ()
 stlcTests = tests
-  -- [ expectJust $ runMatches stlcChart "Exp" $ findMatch denotation
-  --   stlcTm2
   [ expectJust $ runMatches stlcChart "Exp" $ matches
     (PatternTm "lam" [BindingPattern ["x"] (PatternVar (Just "body"))])
     stlcTm1
-  , "parsing chart" $
+  , scope "parsing chart" $
     let result = runParser parseSyntaxDescription "(test)"
           [text|
             Typ ::= nat               "natural numbers"
@@ -82,9 +74,9 @@ stlcTests = tests
                     ap(Exp; Exp)      "application"
           |]
     in case result of
-         Left err     -> crash $ pack $ errorBundlePretty err
+         Left err     -> crash $ errorBundlePretty err
          Right parsed -> expectEq parsed stlcChart
-  , "different indentation" $
+  , scope "different indentation" $
     let result = runParser parseSyntaxDescription "(test)"
           [text|
             Typ ::= // testing comments
@@ -97,7 +89,7 @@ stlcTests = tests
               ap(Exp; Exp)      "application"
           |]
     in case result of
-         Left err     -> crash $ pack $ errorBundlePretty err
+         Left err     -> crash $ errorBundlePretty err
          Right parsed -> expectEq parsed stlcChart
   ]
 

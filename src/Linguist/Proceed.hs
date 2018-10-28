@@ -1,109 +1,241 @@
-{-# LANGUAGE ViewPatterns      #-}
+{-# LANGUAGE ViewPatterns        #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Linguist.Proceed
-  ( eval
+  ( EvalEnv(..)
+  , mkEvalEnv
+  , eval
+  , evalDenotation
+  , evalPrimApp
+  , evalSort
+  , evalSyntax
+  , evalPrimConv
   ) where
 
-import Data.Functor.Compose
+import Control.Monad.State
 import           Control.Lens         hiding (from, to, (??))
-import           Control.Monad.Except (throwError)
+import           Control.Monad.Except
 import           Control.Monad.Reader
-import           Data.Foldable        (toList)
-import qualified Data.List            as List
+import           Data.Diverse.Lens.Which
 import           Data.Map.Strict      (Map)
 import qualified Data.Map.Strict      as Map
-import           Data.Maybe           (fromMaybe)
-import           Data.Sequence             (Seq)
+import           Data.Sequence        (Seq)
 import qualified Data.Sequence        as Seq
-import           Data.Text            (Text)
-import qualified Data.Text            as Text
-import Data.Functor.Foldable (Fix(Fix), unfix)
-import Control.Monad.Free
+import           Data.Text            (Text, unpack)
+import Data.List (elem)
+import           Data.Text.Prettyprint.Doc (Pretty(pretty), Doc, (<+>), parens, semi, punctuate, hsep, dot, annotate, layoutPretty, defaultLayoutOptions)
+import Data.Text.Prettyprint.Doc.Render.Terminal
 
-import           Linguist.Types
-import           Linguist.Languages.MachineModel
+import           Linguist.Types hiding (matches)
 import           Linguist.Util        ((??))
-import Linguist.FunctorUtil
 
 import Debug.Trace
 
-type EvalEnv a b =
-  ( SyntaxChart
-  , DenotationChart a b
-  , ReifiedPrism' b Text
-  , Text -> Maybe (Seq (Term a) -> Term a)
-  , Map Text (Term a)
-  )
+data EvalEnv a b = EvalEnv
+  { _evalSort       :: !SortName
+  , _evalSyntax     :: !SyntaxChart
+  , _evalDenotation :: !(DenotationChart a b)
+  , _evalPatternVars    :: !(Map Text (Term a))
+  , _evalCorrespondences :: ![(Text, Text)]
+  -- TODO: remove?
+  , _evalBVars      :: !(Map Text (Term b))
+  , _evalFrames     :: !Int
+  , _evalPrimApp    :: !(Text -> Maybe (Seq (Term b) -> Term b))
+  , _evalPrimConv   :: !(a -> Maybe b)
+  }
 
-eval
-  :: (Eq a, Show a, Show b)
-  => SortName
+mkEvalEnv
+  :: SortName
   -> SyntaxChart
   -> DenotationChart a b
-  -> Prism' b Text
-  -> (Text -> Maybe (Seq (Term a) -> Term a))
-  -> Term a
-  -> Either String (Term a)
-eval sort sChart dChart p evalPrim tm
-  = runReaderT (eval' sort tm) (sChart, dChart, Prism p, evalPrim, Map.empty)
+  -> (Text -> Maybe (Seq (Term b) -> Term b))
+  -> (a -> Maybe b)
+  -> EvalEnv a b
+mkEvalEnv sort sChart dChart = EvalEnv sort sChart dChart Map.empty [] Map.empty 0
 
--- findMatch'
---   :: (Eq a, Show a, Show b)
---   => DenotationChart a b
---   -> Term a
---   -> Prism' b Text
---   -> Prism' (Term b) (f (Free (MeaningF f) Text))
---   -> Matching a (Subst a, Free (MeaningF f) Text)
+makeLenses ''EvalEnv
 
-findMatch'
-  :: (Eq a, Show a, Show b)
-  => DenotationChart a b
-  -> Term a
-  -> Prism' b Text
-  -> Matching a (Subst a, Free (MeaningF :+: f) Text)
-findMatch' chart tm textP = do
-  (subst, meaningTm) <- findMatch chart tm
-  traceM "found match in findMatch'"
-  traceM $ "meaning: " ++ show meaningTm
-  meaning            <- lift $ meaningTm ^? meaningTermP textP (error "TODO")
-  traceM "found meaning in findMatch'"
-  pure (subst, meaning)
+eval
+  :: ( Eq a, Show a, Pretty a
+     , Eq b, Show b, AsFacet Text b, Pretty b
+     )
+  => EvalEnv a b -> Term a -> Either String (Term b)
+eval env tm = runReader (runExceptT (eval' tm)) env
 
--- TODO: we're confused about sorts. here we basically ignore them.
--- PatternPrimVar includes a sort. All sorts are mixed up in dynamics.
--- findMatch should maybe return the sort it finds.
-eval'
-  :: (Eq a, Show a, Show b)
-  => SortName -> Term a -> ReaderT (EvalEnv a b) (Either String) (Term a)
-eval' sort = \case
-  tm@(Term _name subtms) -> do
-    (sChart, dChart, Prism p, evalMeaningPrimitive, vars) <- ask
-    let matchesEnv = MatchesEnv sChart sort vars
-    case runReaderT (findMatch' dChart tm p) matchesEnv of
-      Just ( subst@(Subst assignment correspondences)
-           , Free (InL (Bind bindFrom' patName' bindTo'))
-           ) -> do
+emitTrace :: Bool
+emitTrace = True
 
-        (error "TODO")
+-- traceLabel :: Show a => String -> a -> a
+-- traceLabel label a = trace (label ++ ": " ++ show a) a
 
-      Nothing -> throwError $ "cound't find match for term " ++ show tm
+emit :: Applicative f => Int -> String -> f ()
+emit frames = when emitTrace . traceM . indent frames
 
-  Binding{} -> throwError "can't evaluate exposed binding"
-  Var name -> do
-    tm <- view (_5 . at name)
-    case tm of
-      Just tm' -> pure tm'
-      Nothing  -> throwError $ "unable to look up var " ++ Text.unpack name
-  tm@PrimValue{} -> pure tm
+render :: Pretty a => Term a -> String
+render
+  = unpack
+  . renderStrict
+  . layoutPretty defaultLayoutOptions
+  . specialPretty
 
--- Only to be used in evaluation -- not proceed.
-substIn :: Map Text (Term a) -> Term a -> Term a
-substIn vals tm = case tm of
-  Term name subtms -> Term name $ substIn vals <$> subtms
-  Binding boundNames body -> case filter (`Map.notMember` vals) boundNames of
-    []          -> body
-    boundNames' -> Binding boundNames' $ substIn vals body
-  Var name
-    | Just val <- vals ^? ix name
-    -> val
-    | otherwise          -> tm
+indent :: Int -> String -> String
+indent i = (replicate (i * 2) ' ' ++)
+
+specialPretty :: Pretty a => Term a -> Doc AnsiStyle
+specialPretty = \case
+  Term name subtms ->
+    let nameColor = case name of
+          "PrimApp"           -> color Green
+          "Eval"              -> color Green
+          "Renaming"          -> color Green
+          "Value"             -> color Green
+          "MeaningPatternVar" -> color Green
+          _                   -> mempty
+    in annotate nameColor (pretty name) <>
+         parens (hsep $ punctuate semi $ fmap specialPretty subtms)
+  Binding names tm ->
+    hsep (punctuate dot (fmap pretty names)) <> dot <+> specialPretty tm
+  Var name         -> pretty name
+  PrimValue a      -> pretty a
+
+rename :: Text -> Text -> Term a -> Term a
+rename from to tm = case tm of
+  Term name subtms -> Term name $ fmap (rename from to) subtms
+  Binding names tm' -> if from `elem` names then tm else Binding names $
+    rename from to tm'
+  Var name -> if name == from then Var to else tm
   PrimValue{} -> tm
+
+fullyResolve
+  :: (MonadError String m, MonadReader (EvalEnv a b) m)
+  => Term b
+  -> m (Term b)
+fullyResolve tm = case tm of
+  Term name subtms -> Term name <$> traverse fullyResolve subtms
+  Binding names tm' -> Binding names <$> fullyResolve tm'
+  Var name -> do
+    val <- view $ evalBVars . at name
+    val ?? "couldn't look up var " ++ show name
+  PrimValue{} -> pure tm
+
+getText :: AsFacet Text b => b -> Maybe Text
+getText = preview (facet @Text)
+
+eval'
+  :: forall a b.
+     ( Eq a, Show a, Pretty a
+     , Eq b, Show b, AsFacet Text b, Pretty b
+     )
+  => Term a
+  -> ExceptT String (Reader (EvalEnv a b)) (Term b)
+eval' a = do
+  frames <- view evalFrames
+  emit frames "CALL eval':"
+  emit frames $ "- " ++ render a
+  b <- local (evalFrames %~ succ) $ eval'' a
+  emit frames "RET eval':"
+  emit frames $ "- " ++ render b
+  pure b
+
+eval''
+  :: forall a b.
+     ( Eq a, Show a, Pretty a
+     , Eq b, Show b, AsFacet Text b, Pretty b
+     )
+  => Term a
+  -> ExceptT String (Reader (EvalEnv a b)) (Term b)
+eval'' (PrimValue a) = do
+  EvalEnv{_evalPrimConv=f} <- ask
+  case f a of
+    Nothing -> throwError "bad prim value"
+    Just b  -> pure $ PrimValue b
+eval'' (Var name) = do
+  val <- view $ evalBVars . at name
+  val ?? "couldn't look up variable " ++ show name
+eval'' tm = do
+  EvalEnv sort sChart dChart _ _ _ _ _ _ <- ask
+  (Subst assignments correspondences, meaning) <-
+    runReaderT (findMatch dChart tm) (MatchesEnv sChart sort Map.empty)
+    ?? "couldn't find match for: " ++ show tm
+
+  let update env = env
+        & evalPatternVars     <>~ assignments
+        & evalCorrespondences <>~ correspondences
+  local update $ runInstructions meaning
+
+  where runInstructions :: Term b -> ExceptT String (Reader (EvalEnv a b)) (Term b)
+        runInstructions a = do
+          frames          <- view evalFrames
+          patVars         <- view evalPatternVars
+          bVars           <- view evalBVars
+          emit frames "CALL runInstructions:"
+          emit frames $ "- " ++ render a
+          ifor_ patVars $ \name val ->
+            emit frames $ "+ " ++ unpack name ++ ": " ++ render val
+          ifor_ bVars $ \name val ->
+            emit frames $ "* " ++ unpack name ++ ": " ++ render val
+          b <- local (evalFrames %~ succ) $ runInstructions' a
+          emit frames "RET runInstructions:"
+          emit frames $ "- " ++ render b
+          pure b
+
+        runInstructions' = \case
+          Term "PrimApp" (PrimValue val : args) -> do
+            EvalEnv{_evalPrimApp=evalPrim} <- ask
+            f <- evalPrim =<< getText val
+              ?? "couldn't look up evaluator for this primitive"
+            pure $ f $ Seq.fromList args
+          -- Term "Renaming" [PrimValue from, PrimValue to, tm'] -> do
+          --   from' <- getText from ?? "not text: " ++ show from
+          --   to'   <- getText to   ?? "not text: " ++ show to
+          --   val   <- view $ evalBVars . at from'
+          --   vars  <- view evalBVars
+          --   val'  <- val
+          --     ?? "couldn't find pattern var " ++ unpack from'
+          --     ++ " among pattern vars: " ++ show vars
+          --   let update env = env
+          --         & evalBVars . at from' .~ Nothing
+          --         & evalBVars . at to'   .~ Just val'
+          --   local update $ runInstructions tm'
+          Term "Eval"
+            [ Term "Renaming"
+              [ PrimValue from
+              , PrimValue to
+              , patName@(Term "MeaningPatternVar" [PrimValue patternName])
+              ]
+            , rhs
+            ] -> do
+            from'        <- getText from        ?? "not text: " ++ show from
+            to'          <- getText to          ?? "not text: " ++ show to
+            patternName' <- getText patternName ?? "not text: " ++ show patternName
+            tm'          <- view $ evalPatternVars . at patternName'
+            tm''         <- tm' ?? "couldn't look up term to rename"
+            let tm''' = rename from' to' tm''
+            local (evalPatternVars . at patternName' ?~ tm''') $
+              runInstructions $ Term "Eval" [patName, rhs]
+          Term "Eval"
+            [ Term "MeaningPatternVar" [PrimValue fromVar]
+            , Binding [name] to
+            ] -> do
+            fromVar' <- getText fromVar ?? "not text: " ++ show fromVar
+            from     <- view $ evalPatternVars . at fromVar'
+            from'    <- from ?? "couldn't look up " ++ show fromVar'
+            from''   <- eval' from' -- Term a -> Term b
+            from'''  <- fullyResolve from''
+
+            local (evalBVars . at name ?~ from''') $ runInstructions to
+
+          Term "Value" [v] -> fullyResolve v
+
+          Var name -> do
+            val  <- view $ evalBVars . at name
+            val' <- val ?? "couldn't look up variable"
+            pure val'
+
+          Term "MeaningPatternVar" [PrimValue name] -> do
+            throwError $ "should never evaluate a pattern var on its own ("
+              ++ show name ++ ")"
+
+          tm'@PrimValue{} -> pure tm'
+
+          other -> throwError $ "unexpected term: " ++ show other

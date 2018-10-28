@@ -22,16 +22,19 @@ sc = L.space (void $ takeWhile1P Nothing f) lineComment blockComment
     f x = x == ' ' || x == '\t'
 
 lexeme :: MonadParsec e Text m => m a -> m a
-lexeme = L.lexeme sc
+lexeme = L.lexeme scn
 
 symbol :: MonadParsec e Text m => Text -> m Text
-symbol = L.symbol sc
+symbol = L.symbol scn
 
 parens :: MonadParsec e Text m => m a -> m a
 parens = between (symbol "(") (symbol ")")
 
 brackets :: MonadParsec e Text m => m a -> m a
 brackets = between (symbol "[") (symbol "]")
+
+braces :: MonadParsec e Text m => m a -> m a
+braces = between (symbol "{") (symbol "}")
 
 oxfordBrackets :: MonadParsec e Text m => m a -> m a
 oxfordBrackets = between (symbol "[[") (symbol "]]")
@@ -41,7 +44,13 @@ stringLiteral :: MonadParsec e Text m => m Text
 stringLiteral = fmap pack $ char '"' >> manyTill L.charLiteral (char '"')
 
 parseName :: MonadParsec e Text m => m Text
-parseName = pack <$> ((:) <$> letterChar <*> many alphaNumChar <* sc)
+parseName = pack
+  <$> ((:)
+       <$> (letterChar <|> char '_'
+         <?> "variable beginning character")
+       <*> many (alphaNumChar <|> char '\'' <|> char '_'
+         <?> "variable continuing character")
+       <*  scn)
   <?> "variable"
 
 countSepBy :: MonadPlus m => Int -> m a -> m sep -> m [a]

@@ -32,6 +32,7 @@ module Linguist.Types
   , DenotationChart(..)
   , DenotationChart'(..)
   , pattern (:->)
+  , (<->)
   , pattern PatternAny
   , pattern PatternEmpty
   , Subst(..)
@@ -86,11 +87,13 @@ module Linguist.Types
   , toPatternTests
   ) where
 
+
 import           Control.Lens              hiding (op)
 import           Control.Monad.Morph
 import           Control.Monad.Reader
 import           Data.Foldable             (fold, foldlM)
-import           Data.List                 (intersperse)
+import           Data.List                 (intersperse, find)
+import Data.Maybe (fromMaybe)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
@@ -99,13 +102,12 @@ import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
 import           Data.Void                 (Void)
-import           EasyTest                  hiding (pair)
+import           EasyTest
 import           GHC.Exts                  (IsList (..))
 
 import           Linguist.FunctorUtil
-import           Linguist.Util
+import           Linguist.Util as Util
 
-import Debug.Trace
 
 -- syntax charts
 
@@ -205,6 +207,15 @@ data Term a
   | PrimValue !a
   deriving (Eq, Show)
 
+instance Pretty a => Pretty (Term a) where
+  pretty = \case
+    Term name subtms ->
+      pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
+    Binding names tm ->
+      hsep (punctuate dot (fmap pretty names)) <> dot PP.<+> pretty tm
+    Var name         -> pretty name
+    PrimValue a      -> pretty a
+
 -- | A pattern matches a term.
 --
 -- In fact, patterns and terms have almost exactly the same form. Differences:
@@ -244,11 +255,13 @@ newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
   deriving Show
 
 data DenotationChart' (f :: * -> *) (g :: * -> *)
-  -- TODO: change Fix to Free
   = DenotationChart' [(Fix f, Free g Text)]
 
 pattern (:->) :: a -> b -> (a, b)
 pattern a :-> b = (a, b)
+
+(<->) :: a -> b -> (a, b)
+a <-> b = (a, b)
 
 data Subst a = Subst
   { _assignments             :: !(Map Text (Term a))
@@ -284,10 +297,13 @@ hasRedundantPat :: PatternCheckResult a -> Bool
 hasRedundantPat (PatternCheckResult _ overlaps)
   = any ((== IsRedudant) . snd) overlaps
 
-applySubst :: Subst a -> Term a -> Term a
-applySubst subst tm = case tm of
+applySubst :: Show a => Subst a -> Term a -> Term a
+applySubst subst@(Subst assignments correspondences) tm = case tm of
   Term name subtms    -> Term name (applySubst subst <$> subtms)
   Binding names subtm -> Binding names (applySubst subst subtm)
+  Var name            -> fromMaybe tm $ do
+    name' <- fst <$> find (\(_patName, tmName) -> name == tmName) correspondences
+    assignments ^? ix name'
   _                   -> tm
 
 toPattern :: Operator -> Pattern a
@@ -345,20 +361,16 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
   if name1 /= name2
   then noMatch
   else do
-    traceM $ "finding submatches in " ++ show name1
     mMatches <- sequence $ fmap sequence $
       pairWith matches subpatterns subterms
-    traceShowM mMatches
-    x <- mconcat <$> lift mMatches
-    traceShowM x
-    pure x
+    mconcat <$> lift mMatches
 -- TODO: write context of var names?
 matches (PatternPrimVal pVal) (PrimValue val)
   | pVal == val = emptyMatch
   | otherwise   = noMatch
 -- TODO: this piece must know the binding structure from the syntax chart
 matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
-  subst <- Subst Map.empty <$> lift (pair lnames rnames)
+  subst <- Subst Map.empty <$> lift (Util.pair lnames rnames)
   fmap (subst <>) $ matches subpat subtm
 matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
@@ -449,15 +461,14 @@ patternCheck (DenotationChart chart) = do
           pure ((pat, redundant), pat')
 
 findMatch
-  :: (Eq a, Show a)
+  :: (Eq a, Show a, Show b)
   => DenotationChart a b
   -> Term a
   -> Matching a (Subst a, Term b)
 findMatch (DenotationChart pats) tm = do
   env <- ask
   let results = pats <&> \(pat, rhs) ->
-        trace ("testing pat: " ++ show pat ++ " and term: " ++ show tm) $
-          runReaderT (matches pat tm) env & _Just %~ (, rhs)
+        runReaderT (matches pat tm) env & _Just %~ (, rhs)
 
   lift $ getFirst $ fold $ fmap First results
 

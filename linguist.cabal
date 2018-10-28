@@ -31,6 +31,7 @@ executable linguist
     Linguist.Languages.SimpleExample,
     Linguist.Languages.Stlc,
     Linguist.Languages.TExample,
+    Linguist.Languages.MachineModel,
     Linguist.ParseDenotationChart,
     Text.Megaparsec.Char.LexerAlt
   -- other-extensions:
@@ -40,8 +41,9 @@ executable linguist
     containers,
     text,
     prettyprinter,
-    brick == 0.38,
-    vty == 5.22,
+    prettyprinter-ansi-terminal,
+    brick >= 0.41,
+    vty >= 5.25,
     zippers,
     lens,
     easytest,
@@ -49,12 +51,14 @@ executable linguist
     megaparsec,
     neat-interpolation,
     data-diverse,
+    data-diverse-lens,
     cmark,
     cmark-patterns,
     template-haskell >= 2.4 && < 2.15,
     recursion-schemes,
     free,
-    multirec >= 0.7.8
+    multirec >= 0.7.8,
+    hedgehog
   hs-source-dirs:      src
   default-language:    Haskell2010
 

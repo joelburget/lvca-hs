@@ -1,11 +1,11 @@
 module Linguist.ParseDenotationChart where
 
 -- import           Control.Applicative           (($>))
+import Control.Monad
 import           Data.Foldable                 (asum)
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
-import           Text.Megaparsec.Char (eol)
 
 import           Linguist.ParseUtil
 import           Linguist.Types
@@ -13,22 +13,23 @@ import           Linguist.Types
 
 type Parser a = Parsec Void Text a
 
-parseDenotationChart :: Parser a -> Parser b -> Parser (DenotationChart a b)
-parseDenotationChart parseA parseB
-  = DenotationChart <$> many (parseDenotationLine parseA parseB) <* eof
+parseDenotationChart :: Show b => Parser a -> Parser b -> Parser (DenotationChart a b)
+parseDenotationChart parseA parseB = do
+  _ <- scn -- TODO: principled whitespace handling
+  DenotationChart <$> many (parseDenotationLine parseA parseB) <* eof
   <?> "denotation chart"
 
-parseDenotationLine :: Parser a -> Parser b -> Parser (Pattern a, Term b)
+parseDenotationLine :: Show b => Parser a -> Parser b -> Parser (Pattern a, Term b)
 parseDenotationLine parseA parseB = (,)
   <$> oxfordBrackets (parsePattern parseA)
   <*  symbol "="
   <*> parseDenotationRhs parseB
-  <*  eol
   <?> "denotation line"
 
 parsePattern :: Parser a -> Parser (Pattern a)
-parsePattern parseA = mkUnion <$> parsePattern' parseA `sepBy1` symbol "|"
-                    <?> "union of patterns"
+parsePattern parseA
+  = mkUnion <$> parsePattern' parseA `sepBy1` symbol "|"
+  <?> "union of patterns"
   where mkUnion = \case
           [pat] -> pat
           pats  -> PatternUnion pats
@@ -46,16 +47,31 @@ parsePattern' parseA = asum
   , PatternPrimVal <$> brackets parseA
   ] <?> "non-union pattern"
 
-parseDenotationRhs :: Parser b -> Parser (Term b)
+endBy' :: (MonadPlus m, MonadParsec e s m) => m a -> m sep -> m [a]
+endBy' p sep = many $ try $ do
+  x <- p
+  re x sep
+{-# INLINE endBy' #-}
+
+re :: Monad m => a -> m b -> m a
+re x = liftM (const x)
+{-# INLINE re #-}
+
+parseBinders :: Parser [Text]
+parseBinders = try parseName `endBy'` symbol "."
+  <?> "binders"
+
+parseDenotationRhs :: Show b => Parser b -> Parser (Term b)
 parseDenotationRhs parseB = asum
   [ do name <- parseName
-       option (Var name) $
-         -- TODO: how to do binding?
-         parens (Term name <$> parseDenotationRhs parseB `sepBy` symbol ";")
-  , oxfordBrackets $ do
-       name <- parseName
-       -- pure $ Term "denotation" [Var name]
-       pure $ Var name
-  -- TODO: change this to braces?
-  , PrimValue <$> brackets parseB
+       option (Var name) $ parens $ do
+         let boundTerm = do
+               binders <- parseBinders
+               tm      <- parseDenotationRhs parseB
+               pure $ case binders of
+                 [] -> tm
+                 _  -> Binding binders tm
+         Term name <$> boundTerm `sepBy` symbol ";"
+  , oxfordBrackets $ Var <$> parseName
+  , PrimValue <$> braces parseB
   ] <?> "non-union pattern"

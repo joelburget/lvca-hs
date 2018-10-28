@@ -12,8 +12,9 @@ Arith ::=
   Sub(Arith; Arith)
   Mul(Arith; Arith)
   // note: skipping division because it's hard to implement using peano
-  // arithmetic
-  Const[Integer]
+  // numbers
+  Z
+  S(Arith)
   |]
 
 -- Meaning in terms of add, sub, and mul primitives.
@@ -24,32 +25,33 @@ machineDynamicsT :: Text
 machineDynamicsT = [text|
   [[ Add(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
-                        PrimApp(prim:add; a'; b')))
+                        PrimApp({add}; a'; b')))
   [[ Sub(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
-                        PrimApp(prim:sub; a'; b')))
+                        PrimApp({sub}; a'; b')))
   [[ Mul(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
-                        PrimApp(prim:mul; a'; b')))
-  [[ Const(i)  ]] = i
+                        PrimApp({mul}; a'; b')))
+  [[ Z()       ]] = {0}
+  [[ S(a)      ]] = PrimApp({add}; [[ a ]]; {1})
   |]
 
--- Meaning in terms of peano arithmetic.
+-- Meaning in terms of peano numbers.
 peanoDynamicsT :: Text
 peanoDynamicsT = [text|
-  [[ Add(a; b) ]] = ZElim([[ a ]];
-    // Z:
-    [[ b ]];
-    // S aPred:
-    aPred. S([[ Add(aPred; b) ]])
-    )
-
   // Rec as defined in pfpl section 9.1
+  // starting from `a`, fold `b` times, adding one each time
+  [[ Add(a; b) ]] = Rec(
+    [[ b ]];
+    [[ a ]];
+    _. acc. S(acc)
+  )
+
   // starting from `a`, fold `b` times, subtracting one each time
   [[ Sub(a; b) ]] = Rec(
     [[ b ]];
     [[ a ]];
-    _. acc. ZElim(acc; Z; accPred. accPred)
+    _. acc. Rec([[ acc ]]; Z; accPred. _. accPred)
     )
 
   // starting from Z, fold `b` times, adding `a` each time
@@ -63,6 +65,8 @@ peanoDynamicsT = [text|
       )
     )
 
-  [[ Const(0) ]] = Z
-  [[ Const(i) ]] = S([[ prim:sub(i, 1) ]])
+  // TODO: i'd like to write `Z` but then we need a way to disambiguate from a
+  // var
+  [[ Z    ]] = Z()
+  [[ S(a) ]] = S([[ a ]])
   |]

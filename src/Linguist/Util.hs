@@ -3,6 +3,7 @@ module Linguist.Util where
 import           Control.Lens         (FunctorWithIndex, imap)
 import           Control.Monad.Except (MonadError, throwError)
 import           Control.Monad.State  (StateT (..))
+import GHC.Stack
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]
@@ -42,6 +43,6 @@ infixl 1 <@&>
 (<@&>) :: FunctorWithIndex i f => f a -> (i -> a -> b) -> f b
 (<@&>) = flip imap
 
-forceRight :: Show e => Either e a -> a
+forceRight :: (HasCallStack, Show e) => Either e a -> a
 forceRight (Right x) = x
 forceRight (Left e) = error $ "forceRight: unexpectedly called with " ++ show e

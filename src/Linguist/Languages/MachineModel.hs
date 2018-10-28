@@ -5,9 +5,7 @@
 module Linguist.Languages.MachineModel
   ( MeaningF(..)
 
-  -- , patName
   , meaningTermP
-  -- , meaningOfTermP
   , mkDenotationChart
   , patTermP
 
@@ -21,11 +19,9 @@ module Linguist.Languages.MachineModel
 
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
--- import qualified Control.Lens as Lens
 import           Control.Lens
-  (Prism', _1, _2, (%~), preview, review, prism', (^?), ix, (&))
+  (Prism', _1, _2, (%~), preview, review, prism', (&))
 import Data.Text (Text)
-import           Data.Sequence             (Seq)
 
 import Linguist.Types
 import Linguist.FunctorUtil
@@ -36,27 +32,31 @@ data MeaningF a
     { _primName    :: !Text
     , _primAppArgs :: ![a]
     }
-  | Bind
-    { _bindFrom :: !a
-    , _patName  :: !Text
-    , _bindTo   :: !a
-    }
+  -- | Bind
+  --   { _bindFrom :: !a
+  --   , _patName  :: !Text
+  --   , _bindTo   :: !a
+  --   }
   | Eval
     { _evalFrom :: !a
     , _patName  :: !Text
     , _evalTo   :: !a
     }
+  | Renaming
+    { _oldName :: !Text
+    , _newName :: !Text
+    , _inTerm  :: !a
+    }
   | Value !a
-  | MeaningVar !Text -- XXX how is this different from Pure?
+  | MeaningPatternVar !Text
   deriving (Functor, Foldable, Traversable)
 
-deriving instance (Show k) => Show (MeaningF k)
-deriving instance (  Eq k) => Eq   (MeaningF k)
+deriving instance (Eq   a) => Eq   (MeaningF a)
+deriving instance (Show a) => Show (MeaningF a)
 
--- newtype MeaningTerm  = MeaningTerm  { viewMeaningTerm  :: Free MeaningF Text }
--- newtype MeaningValue = MeaningValue { viewMeaningValue :: Fix  MeaningF      }
+-- pattern (:/) :: Text -> Text -> a -> MeaningF a
 
--- The core of this function is the call to meaningOfTermP, to which we need to
+-- The core of this function is the call to meaningTermP, to which we need to
 -- pass a prism that it can use on its children. That prism is this one, but
 -- generalized.
 meaningTermP :: forall a f.
@@ -79,18 +79,22 @@ meaningTermP textP fP = prism' rtl ltr where
         [ review primValP name
         , review (listP subP) args
         ]
-      Bind from name to -> Term "Bind"
-        [ review subP from
-        , review primValP name
-        , review subP to
-        ]
+      -- Bind from name to -> Term "Bind"
+      --   [ review subP from
+      --   , review primValP name
+      --   , review subP to
+      --   ]
       Eval from name to -> Term "Eval"
         [ review subP from
-        , review primValP name
-        , review subP to
+        , Binding [name] (review subP to)
+        ]
+      Renaming old new term -> Term "Renaming"
+        [ review primValP old
+        , review primValP new
+        , review subP term
         ]
       Value meaning -> Term "Value" [ review subP meaning ]
-      MeaningVar name -> Term "MeaningVar" [ review primValP name ]
+      MeaningPatternVar name -> Term "MeaningPatternVar" [ PrimValue $ review textP name ]
     Free (InR f) -> review fP f
 
   ltr :: Term a -> Maybe (Free (MeaningF :+: f) Text)
@@ -99,18 +103,22 @@ meaningTermP textP fP = prism' rtl ltr where
     Term "PrimApp" [name, args] -> fmap (Free . InL) $ PrimApp
       <$> preview primValP name
       <*> preview (listP subP) args
-    Term "Bind" [from, name, to] -> fmap (Free . InL) $ Bind
+    -- Term "Bind" [from, name, to] -> fmap (Free . InL) $ Bind
+    --   <$> preview subP from
+    --   <*> preview primValP name
+    --   <*> preview subP to
+    Term "Eval" [from, Binding [name] to] -> fmap (Free . InL) $ Eval
       <$> preview subP from
-      <*> preview primValP name
+      <*> pure name
       <*> preview subP to
-    Term "Eval" [from, name, to] -> fmap (Free . InL) $ Eval
-      <$> preview subP from
-      <*> preview primValP name
-      <*> preview subP to
+    Term "Renaming" [old, new, term] -> fmap (Free . InL) $ Renaming
+      <$> preview primValP old
+      <*> preview primValP new
+      <*> preview subP term
     Term "Value" [ meaning ] -> fmap (Free . InL) $ Value
       <$> preview subP meaning
-    Term "MeaningVar" [ name ] -> fmap (Free . InL) $ MeaningVar
-      <$> preview primValP name
+    Term "MeaningPatternVar" [ PrimValue name ] -> fmap (Free . InL) $
+      MeaningPatternVar <$> preview textP name
     other -> fmap (Free . InR) $ preview fP other
 
 patTermP
@@ -134,12 +142,12 @@ mkDenotationChart
   :: (f' ~ (PatF :+: f), g' ~ (MeaningF :+: g))
   => Prism' b Text
   -> Prism' (Pattern a) (f (Fix f'))
-  -> Prism' (Term b) (g (Free g' Text))
+  -> Prism' (Term b)    (g (Free g' Text))
   -> DenotationChart' f' g'
   -> DenotationChart a b
-mkDenotationChart textP p1 p2 (DenotationChart' rules) = DenotationChart $
-  rules & traverse . _1 %~ review (patTermP p1)
-        & traverse . _2 %~ review (meaningTermP textP p2)
+mkDenotationChart textP patP termP (DenotationChart' rules) = DenotationChart $
+  rules & traverse . _1 %~ review (patTermP patP)
+        & traverse . _2 %~ review (meaningTermP textP termP)
 
 listP :: Prism' (Term a) b -> Prism' (Term a) [b]
 listP p = prism' rtl ltr where
@@ -160,39 +168,21 @@ listP p = prism' rtl ltr where
 -- evaluation internals
 
 data StackFrame a
-  = CbvForeignFrame
-    { _frameName  :: !Text                     -- ^ name of this term
-    , _frameVals  :: !(Seq (Term a))           -- ^ values before
-    , _frameTerms :: ![Term a]                 -- ^ subterms after
-    , _frameK     :: !(Seq (Term a) -> Term a) -- ^ what to do after
-    }
-  | CbvFrame
-    { _frameName        :: !Text
-    , _cbvFrameArgNames :: ![Text]
-    , _cbvFrameVals     :: !(Seq (Term a))
-    , _cbvFrameTerms    :: ![Term a]
-    , _cbvFrameBody     :: !(Term a)
-    }
-  | BindingFrame
-    !(Map Text (Term a))
-  | ChooseFrame
-    { _chooseTermName :: !Text
-    , _chooseSlot     :: !Text
-    }
+  = EvalFrame    !Text !(Term a)
+  | BindingFrame !Text !(Term a)
 
 findBinding :: [StackFrame a] -> Text -> Maybe (Term a)
 findBinding [] _ = Nothing
-findBinding (BindingFrame bindings : stack) name
-  = case bindings ^? ix name of
-    Just tm -> Just tm
-    Nothing -> findBinding stack name
+findBinding (BindingFrame bname tm : stack) name
+  | bname == name = Just tm
+  | otherwise = findBinding stack name
 findBinding (_ : stack) name = findBinding stack name
 
 frameVals :: [StackFrame a] -> Map Text (Term a)
 frameVals = foldl
   (\sorts -> \case
-    BindingFrame bindings -> bindings `Map.union` sorts
-    _                     -> sorts)
+    BindingFrame name tm -> Map.insert name tm sorts
+    _                    -> sorts)
   Map.empty
 
 data StateStep a = StateStep
