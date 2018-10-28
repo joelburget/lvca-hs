@@ -124,16 +124,13 @@ data TermF t e
   | Let        e e
   | Annotation t e
 
-data Prim
-  = PrimAdd
-  | PrimMul
-  | PrimCat
-  | PrimLen
-
 data ValF val
   = NumV Int
   | StrV Text
-  | Prim Prim [val]
+  | PrimAdd val val
+  | PrimMul val val
+  | PrimCat val val
+  | PrimLen val
 
 -- TODO: non-erased types?
 dynamics' :: DenotationChart' (PatF :+: TermF ()) (MeaningF :+: ValF)
@@ -142,26 +139,26 @@ dynamics' = DenotationChart'
     :->
     FreeL (Eval (Pure "n1") "n1'"
       (FreeL (Eval (Pure "n2") "n2'"
-        (FreeR (Prim PrimAdd [Pure "n1'", Pure "n2'"]))
+        (FreeR (PrimAdd (Pure "n1'") (Pure "n2'")))
       ))
     )
   , FixR (Times (FixL (PatVarF (Just "n1"))) (FixL (PatVarF (Just "n2"))))
     :->
     FreeL (Eval (Pure "n1") "n1'"
       (FreeL (Eval (Pure "n2") "n2'"
-        (FreeR (Prim PrimMul [Pure "n1'", Pure "n2'"]))
+        (FreeR (PrimMul (Pure "n1'") (Pure "n2'")))
       ))
     )
   , FixR (Cat (FixL (PatVarF (Just "s1"))) (FixL (PatVarF (Just "s2"))))
     :->
     FreeL (Eval (Pure "n1") "n1'"
       (FreeL (Eval (Pure "n2") "n2'"
-        (FreeR (Prim PrimCat [Pure "n1'", Pure "n2'"]))
+        (FreeR (PrimCat (Pure "n1'") (Pure "n2'")))
       ))
     )
   , FixR (Len (FixL (PatVarF (Just "e"))))
     :->
-    FreeL (Eval (Pure "e") "e'" (FreeR (Prim PrimLen [Pure "e'"])))
+    FreeL (Eval (Pure "e") "e'" (FreeR (PrimLen (Pure "e'"))))
   , FixR (Annotation () (FixL (PatVarF (Just "contents"))))
     :->
     Pure "contents"
@@ -209,34 +206,20 @@ dynamics = mkDenotationChart _Right p1 p2 dynamics' where
   p2 :: Prism' (Term E) (ValF (Free (MeaningF :+: ValF) Text))
   p2 = prism' rtl ltr where
     rtl = \case
-      NumV i -> Term "NumV" [PrimValue (Left i)]
-      StrV s -> Term "StrV" [PrimValue (Right s)]
-      Prim PrimLen [a] -> Term "Prim" [ Term "PrimLen" [] , review p2' a ]
-      Prim prim [a, b] ->
-        let prim' = case prim of
-              PrimAdd -> "PrimAdd"
-              PrimMul -> "PrimMul"
-              PrimCat -> "PrimCat"
-        in Term "Prim"
-             [ Term prim' []
-             , review p2' a
-             , review p2' b
-             ]
+      NumV i      -> Term "NumV" [PrimValue (Left i)]
+      StrV s      -> Term "StrV" [PrimValue (Right s)]
+      PrimLen a   -> Term "PrimLen" [ review p2' a ]
+      PrimAdd a b -> Term "PrimAdd" [ review p2' a , review p2' b ]
+      PrimMul a b -> Term "PrimMul" [ review p2' a , review p2' b ]
+      PrimCat a b -> Term "PrimCat" [ review p2' a , review p2' b ]
     ltr = \case
       Term "NumV" [PrimValue (Left i)]  -> Just (NumV i)
       Term "StrV" [PrimValue (Right s)] -> Just (StrV s)
-      Term "Prim" [Term "PrimLen" [], a] ->
-        Prim PrimAdd . (:[]) <$> preview p2' a
-      Term "Prim" [Term prim [], a, b] -> do
-        prim' <- case prim of
-          "PrimAdd" -> Just PrimAdd
-          "PrimMul" -> Just PrimMul
-          "PrimCat" -> Just PrimCat
-          _ -> Nothing
-        a' <- preview p2' a
-        b' <- preview p2' b
-        pure $ Prim prim' [a', b']
-      _ -> Nothing
+      Term "PrimLen" [a]    -> PrimLen <$> preview p2' a
+      Term "PrimAdd" [a, b] -> PrimAdd <$> preview p2' a <*> preview p2' b
+      Term "PrimMul" [a, b] -> PrimMul <$> preview p2' a <*> preview p2' b
+      Term "PrimCat" [a, b] -> PrimCat <$> preview p2' a <*> preview p2' b
+      _                     -> Nothing
 
 dynamicTests :: Test ()
 dynamicTests =
