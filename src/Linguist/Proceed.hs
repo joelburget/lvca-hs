@@ -79,7 +79,9 @@ render
   . specialPretty
 
 indent :: Int -> String -> String
-indent i = (replicate (i * 2) ' ' ++)
+indent i =
+  let level = min (i * 2) 20
+  in (replicate level ' ' ++)
 
 specialPretty :: Pretty a => Term a -> Doc AnsiStyle
 specialPretty = \case
@@ -159,7 +161,7 @@ eval'' tm = do
     ?? "couldn't find match for: " ++ show tm
 
   let update env = env
-        & evalPatternVars     <>~ assignments
+        & evalPatternVars     %~ Map.union assignments
         & evalCorrespondences <>~ correspondences
   local update $ runInstructions meaning
 
