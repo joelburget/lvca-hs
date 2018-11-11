@@ -144,33 +144,6 @@ tmPatP = prism' rtl ltr where
     PatternTm "Ap" [a, b] -> Ap <$> preview p1' a <*> preview p1' b
     _                     -> Nothing
 
--- tmTermP :: Prism' (Term T) (TermF (Fix (PatF :+: TermF)))
--- tmTermP = prism' rtl ltr where
---   p1' :: Prism' (Term T) (Fix (PatF :+: TermF))
---   p1' = patTermP tmTermP
-
---   rtl = \case
---     Z -> PatternTm "Z" []
---     S a -> PatternTm "S" [review p1' a]
---     Rec a b c -> PatternTm "Rec"
---       [ review p1' a
---       , review p1' b
---       , review p1' c
---       ]
---     Lam a -> PatternTm "Lam" [review p1' a]
---     Ap a b -> PatternTm "Ap" [review p1' a, review p1' b]
---   ltr = \case
---     PatternTm "Z" []          -> Just Z
---     PatternTm "S" [a]         -> S <$> preview p1' a
---     PatternTm "Rec" [a, b, c] -> Rec
---       <$> preview p1' a
---       <*> preview p1' b
---       <*> preview p1' c
---     -- XXX Lam should have binding structure
---     PatternTm "Lam" [a]   -> Lam <$> preview p1' a
---     PatternTm "Ap" [a, b] -> Ap <$> preview p1' a <*> preview p1' b
---     _                     -> Nothing
-
 valTmP :: Prism' (Term Text) (ValF (Free (MeaningF :+: ValF) Text))
 valTmP = prism' rtl ltr where
   p2' :: Prism' (Term Text) (Free (MeaningF :+: ValF) Text)
