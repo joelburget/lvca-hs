@@ -62,7 +62,9 @@ parsePrim = choice
   , Right "mul" <$ symbol "mul"
   ]
 
-peanoDynamics :: Show a => Either (ParseErrorBundle Text Void) (DenotationChart Int a)
+peanoDynamics
+  :: AsFacet Text a
+  => Either (ParseErrorBundle Text Void) (DenotationChart Int a)
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
   "(arith peano dynamics)" peanoDynamicsT
 

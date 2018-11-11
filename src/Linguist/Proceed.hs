@@ -13,6 +13,7 @@ module Linguist.Proceed
   ) where
 
 import Control.Monad.State
+import Data.Traversable (for)
 import           Control.Lens         hiding (from, to, (??))
 import           Control.Monad.Except
 import           Control.Monad.Reader
@@ -63,7 +64,7 @@ eval
 eval env tm = runReader (runExceptT (eval' tm)) env
 
 emitTrace :: Bool
-emitTrace = True
+emitTrace = False
 
 -- traceLabel :: Show a => String -> a -> a
 -- traceLabel label a = trace (label ++ ": " ++ show a) a
@@ -186,7 +187,12 @@ eval'' tm = do
             EvalEnv{_evalPrimApp=evalPrim} <- ask
             f <- evalPrim =<< getText val
               ?? "couldn't look up evaluator for this primitive"
-            pure $ f $ Seq.fromList args
+            args' <- for args $ \case
+              Var name -> do
+                val' <- view $ evalBVars . at name
+                val' ?? "couldn't find value for " ++ show name
+              other -> pure other
+            pure $ f $ Seq.fromList args'
           -- Term "Renaming" [PrimValue from, PrimValue to, tm'] -> do
           --   from' <- getText from ?? "not text: " ++ show from
           --   to'   <- getText to   ?? "not text: " ++ show to

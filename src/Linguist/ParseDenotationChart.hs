@@ -2,10 +2,12 @@ module Linguist.ParseDenotationChart where
 
 -- import           Control.Applicative           (($>))
 import Control.Monad
+import Control.Lens (review)
 import           Data.Foldable                 (asum)
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
+import           Data.Diverse.Lens.Which
 
 import           Linguist.ParseUtil
 import           Linguist.Types
@@ -13,13 +15,15 @@ import           Linguist.Types
 
 type Parser a = Parsec Void Text a
 
-parseDenotationChart :: Show b => Parser a -> Parser b -> Parser (DenotationChart a b)
+parseDenotationChart
+  :: AsFacet Text b => Parser a -> Parser b -> Parser (DenotationChart a b)
 parseDenotationChart parseA parseB = do
   _ <- scn -- TODO: principled whitespace handling
   DenotationChart <$> many (parseDenotationLine parseA parseB) <* eof
   <?> "denotation chart"
 
-parseDenotationLine :: Show b => Parser a -> Parser b -> Parser (Pattern a, Term b)
+parseDenotationLine
+  :: AsFacet Text b => Parser a -> Parser b -> Parser (Pattern a, Term b)
 parseDenotationLine parseA parseB = (,)
   <$> oxfordBrackets (parsePattern parseA)
   <*  symbol "="
@@ -61,7 +65,7 @@ parseBinders :: Parser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
-parseDenotationRhs :: Show b => Parser b -> Parser (Term b)
+parseDenotationRhs :: AsFacet Text b => Parser b -> Parser (Term b)
 parseDenotationRhs parseB = asum
   [ do name <- parseName
        option (Var name) $ parens $ do
@@ -72,6 +76,8 @@ parseDenotationRhs parseB = asum
                  [] -> tm
                  _  -> Binding binders tm
          Term name <$> boundTerm `sepBy` symbol ";"
-  , oxfordBrackets $ Var <$> parseName
+  , oxfordBrackets $
+      Term "MeaningPatternVar" . (:[]) . PrimValue . review (facet @Text) <$>
+      parseName
   , PrimValue <$> braces parseB
   ] <?> "non-union pattern"
