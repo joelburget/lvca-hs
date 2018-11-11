@@ -66,9 +66,6 @@ eval env tm = runReader (runExceptT (eval' tm)) env
 emitTrace :: Bool
 emitTrace = False
 
--- traceLabel :: Show a => String -> a -> a
--- traceLabel label a = trace (label ++ ": " ++ show a) a
-
 emit :: Applicative f => Int -> String -> f ()
 emit frames = when emitTrace . traceM . indent frames
 
