@@ -59,4 +59,4 @@ parseSort = SortAp
     ])
 
 parseExternal :: Parser Valence
-parseExternal = brackets $ External <$> parseName
+parseExternal = braces $ External <$> parseName
