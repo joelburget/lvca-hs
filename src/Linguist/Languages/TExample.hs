@@ -85,12 +85,6 @@ dynamics' = DenotationChart'
 dynamics :: DenotationChart T Text
 dynamics = mkDenotationChart id tmPatP valTmP dynamics'
 
-(//) :: Text -> Text -> Term Text -> Term Text
-(//) from to term = Term "Renaming" [PrimValue from, PrimValue to, term]
-
-meaningPatternVar :: a -> Term a
-meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue name ]
-
 dynamics2 :: DenotationChart T Text
 dynamics2 = DenotationChart
   [ PatternTm "Z" []
@@ -111,7 +105,7 @@ dynamics2 = DenotationChart
       [ meaningPatternVar "arg"
       , Binding ["arg'"] $
         (Term "Eval"
-          [ ("x" // "arg'") (meaningPatternVar "body")
+          [ ("arg'" // "x") (meaningPatternVar "body")
           , Binding ["body'"] (Var "body'")
           ])
       ]

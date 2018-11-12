@@ -41,14 +41,17 @@ parsePattern parseA
 parsePattern' :: Parser a -> Parser (Pattern a)
 parsePattern' parseA = asum
   [ PatternVar Nothing <$ symbol "_" <?> "wildcard pattern"
-  , do name <- parseName
-       option (PatternVar (Just name)) $ asum
-         [ symbol "." *> error "TODO" -- BindingPattern
-           <?> "binding pattern"
-         , parens (PatternTm name <$> parsePattern parseA `sepBy` symbol ";")
-           <?> "term pattern"
-         ]
-  , PatternPrimVal <$> brackets parseA
+  , do let betweenSemis = label "binding or term pattern" $ do
+             binders <- parseBinders
+             body    <- parsePattern parseA
+             pure $ case binders of
+               [] -> body
+               _  -> BindingPattern binders body
+
+       name <- parseName
+       option (PatternVar (Just name)) $
+         parens $ PatternTm name <$> betweenSemis `sepBy` symbol ";"
+  , PatternPrimVal <$> braces parseA
   ] <?> "non-union pattern"
 
 endBy' :: (MonadPlus m, MonadParsec e s m) => m a -> m sep -> m [a]
@@ -76,8 +79,17 @@ parseDenotationRhs parseB = asum
                  [] -> tm
                  _  -> Binding binders tm
          Term name <$> boundTerm `sepBy` symbol ";"
-  , oxfordBrackets $
-      Term "MeaningPatternVar" . (:[]) . PrimValue . review (facet @Text) <$>
-      parseName
+  , do meaningVar <- oxfordBrackets $
+         Term "MeaningPatternVar" . (:[]) . PrimValue . review (facet @Text) <$>
+         parseName
+       option meaningVar $ brackets $ do
+         to   <- parseName
+         _    <- symbol "/"
+         from <- parseName
+         pure $ Term "Renaming"
+           [ PrimValue $ review (facet @Text) from
+           , PrimValue $ review (facet @Text) to
+           , meaningVar
+           ]
   , PrimValue <$> braces parseB
   ] <?> "non-union pattern"

@@ -190,18 +190,6 @@ eval'' tm = do
                 val' ?? "couldn't find value for " ++ show name
               other -> pure other
             pure $ f $ Seq.fromList args'
-          -- Term "Renaming" [PrimValue from, PrimValue to, tm'] -> do
-          --   from' <- getText from ?? "not text: " ++ show from
-          --   to'   <- getText to   ?? "not text: " ++ show to
-          --   val   <- view $ evalBVars . at from'
-          --   vars  <- view evalBVars
-          --   val'  <- val
-          --     ?? "couldn't find pattern var " ++ unpack from'
-          --     ++ " among pattern vars: " ++ show vars
-          --   let update env = env
-          --         & evalBVars . at from' .~ Nothing
-          --         & evalBVars . at to'   .~ Just val'
-          --   local update $ runInstructions tm'
           Term "Eval"
             [ Term "Renaming"
               [ PrimValue from

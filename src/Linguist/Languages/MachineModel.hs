@@ -4,6 +4,8 @@
 {-# LANGUAGE PolyKinds     #-}
 module Linguist.Languages.MachineModel
   ( MeaningF(..)
+  , meaningPatternVar
+  , (//)
 
   , meaningTermP
   , mkDenotationChart
@@ -54,7 +56,11 @@ data MeaningF a
 deriving instance (Eq   a) => Eq   (MeaningF a)
 deriving instance (Show a) => Show (MeaningF a)
 
--- pattern (:/) :: Text -> Text -> a -> MeaningF a
+meaningPatternVar :: a -> Term a
+meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue name ]
+
+(//) :: Text -> Text -> Term Text -> Term Text
+(//) to from term = Term "Renaming" [PrimValue from, PrimValue to, term]
 
 -- The core of this function is the call to meaningTermP, to which we need to
 -- pass a prism that it can use on its children. That prism is this one, but

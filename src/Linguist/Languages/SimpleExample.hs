@@ -15,6 +15,8 @@ module Linguist.Languages.SimpleExample
   , matchesTests
   , evalTests
   , parseTests
+
+  , eval'
   ) where
 
 import           Control.Applicative                   ((<|>))
@@ -33,6 +35,8 @@ import           Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer            as L
 import           Data.Sequence             (Seq)
 import Data.Diverse.Lens.Which
+import Text.Megaparsec.Char.Lexer (decimal)
+import qualified Linguist.ParseDenotationChart      as PD
 
 import           Linguist.ParseLanguage
 import           Linguist.Proceed
@@ -40,6 +44,7 @@ import           Linguist.Types
 import           Linguist.Languages.MachineModel
 import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
+import           Linguist.Util (forceRight)
 
 
 type E = Either Int Text
@@ -140,8 +145,8 @@ data ValF val
   | PrimLen !val
 
 -- TODO: non-erased types?
-dynamics' :: DenotationChart' (PatF :+: TermF ()) (MeaningF :+: ValF)
-dynamics' = DenotationChart'
+dynamicsF :: DenotationChart' (PatF :+: TermF ()) (MeaningF :+: ValF)
+dynamicsF = DenotationChart'
   [ FixR (Plus (FixL (PatVarF (Just "n1"))) (FixL (PatVarF (Just "n2"))))
     :->
     FreeL (Eval (Pure "n1") "n1'"
@@ -172,7 +177,42 @@ dynamics' = DenotationChart'
   ]
 
 dynamics :: DenotationChart E E
-dynamics = mkDenotationChart _Right p1 p2 dynamics'
+dynamics = mkDenotationChart _Right p1 p2 dynamicsF
+
+dynamicsT :: Text
+dynamicsT = [text|
+  [[ Plus(n1; n2) ]] = Eval([[ n1 ]]; n1'.
+                         Eval([[ n2 ]]; n2'.
+                           PrimApp({add}; n1'; n2')))
+  [[ Times(n1; n2) ]] = Eval([[ n1 ]]; n1'.
+                          Eval([[ n2 ]]; n2'.
+                            PrimApp({mul}; n1'; n2')))
+  [[ Cat(n1; n2) ]]   = Eval([[ n1 ]]; n1'.
+                          Eval([[ n2 ]]; n2'.
+                            PrimApp({cat}; n1'; n2')))
+  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp({len}; e1'))
+  [[ Let(e; v. body) ]]         = Eval([[ e ]]; e'.
+                                    Eval(
+  // XXX change x to v and this no longer works -- accidental capture!
+                                      [[ body ]][e' / x];
+                                      body'. body'
+                                    )
+                                  )
+  [[ Annotation(_; contents) ]] = Eval([[ contents ]]; contents'. contents')
+  |]
+
+parsePrim :: PD.Parser E
+parsePrim = choice
+  [ Left <$> decimal
+  , Right "add" <$ symbol "add"
+  , Right "mul" <$ symbol "mul"
+  , Right "cat" <$ symbol "cat"
+  , Right "len" <$ symbol "len"
+  ]
+
+dynamics' :: Either (ParseErrorBundle Text Void) (DenotationChart E E)
+dynamics' = runParser (PD.parseDenotationChart noParse parsePrim)
+  "(arith machine dynamics)" dynamicsT
 
 p1' :: Prism' (Pattern E) (Fix (PatF :+: TermF ()))
 p1' = patTermP p1
@@ -252,7 +292,7 @@ dynamicTests =
          (times n1 n2)
        , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
          (plus n1 n2)
-       , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
+       , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics')
          tm1
 
 --        , let Just (subst, _) = findMatch syntax "Exp" dynamics tm1
@@ -456,15 +496,14 @@ matchesTests = scope "matches" $
            :: Maybe (Subst ()))
        ]
 
+eval' :: Term E -> Either String (Term E)
+eval' = eval $ mkEvalEnv "Exp" syntax (forceRight dynamics') evalMachinePrimitive Just
+
 evalTests :: Test ()
-evalTests =
-  let env = mkEvalEnv "Exp" syntax dynamics evalMachinePrimitive Just
-      eval' :: Term E -> Either String (Term E)
-      eval' = eval env
-  in tests
-       [ expect $ eval' tm1 == Right (PrimValue (Left 3))
-       , expect $ eval' tm2 == Right (PrimValue (Right "foobar"))
-       ]
+evalTests = tests
+  [ expect $ eval' tm1 == Right (PrimValue (Left 3))
+  , expect $ eval' tm2 == Right (PrimValue (Right "foobar"))
+  ]
 
 parseTests :: Test ()
 parseTests =
