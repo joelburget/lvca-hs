@@ -14,8 +14,6 @@ import           Data.Void                          (Void)
 import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, runParserT, errorBundlePretty)
 import Text.Megaparsec.Char.Lexer (decimal)
 import EasyTest
-import EasyTest.Internal (testProperty)
-import Hedgehog ((===), property)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty), viaShow)
 
 import           Linguist.ParseDenotationChart      (Parser, parseDenotationChart)
@@ -119,5 +117,5 @@ eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
 evalTests :: Test ()
 evalTests =
   tests
-       [ testProperty $ property $ eval' tm === Right (PrimInt 5)
+       [ expectEq (eval' tm) (Right (PrimInt 5))
        ]
