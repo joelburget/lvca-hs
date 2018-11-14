@@ -63,6 +63,15 @@ instance Pretty E where
 pattern PrimValue' :: Either Int Text -> Term E
 pattern PrimValue' x = PrimValue (E x)
 
+pattern VI :: Int -> Term E
+pattern VI x = PrimValue' (Left x)
+
+pattern VS :: Text -> Term E
+pattern VS x = PrimValue' (Right x)
+
+pattern PatternPrimVar :: Text -> Maybe Text -> Pattern a
+pattern PatternPrimVar ty name = PatternTm ty [PatternVar name]
+
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
 syntax = SyntaxChart $ Map.fromList
@@ -95,30 +104,21 @@ syntax = SyntaxChart $ Map.fromList
 
 tm1, tm2 :: Term E
 tm1 = Term "Annotation"
-  [ PrimValue' (Right "annotation") -- XXX need this to be a different type
+  [ VS "annotation" -- XXX need this to be a different type
   , Term "Let"
-    [ PrimValue' (Left 1)
+    [ VI 1
     , Binding ["x"]
       (Term "Plus"
         [ Var "x"
-        , PrimValue' (Left 2)
+        , VI 2
         ])
     ]
   ]
 
 tm2 = Term "Cat"
-  [ PrimValue' (Right "foo")
-  , PrimValue' (Right "bar")
+  [ VS "foo"
+  , VS "bar"
   ]
-
-pattern VI :: Int -> Term E
-pattern VI x = PrimValue' (Left x)
-
-pattern VS :: Text -> Term E
-pattern VS x = PrimValue' (Right x)
-
-pattern PatternPrimVar :: Text -> Maybe Text -> Pattern a
-pattern PatternPrimVar ty name = PatternTm ty [PatternVar name]
 
 evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive = \case
@@ -261,15 +261,15 @@ p2' = meaningTermP (_Wrapped . _Right) p2
 p2 :: Prism' (Term E) (ValF (Free (MeaningF :+: ValF) Text))
 p2 = prism' rtl ltr where
   rtl = \case
-    NumV i      -> Term "NumV" [PrimValue' (Left i)]
-    StrV s      -> Term "StrV" [PrimValue' (Right s)]
+    NumV i      -> Term "NumV" [VI i]
+    StrV s      -> Term "StrV" [VS s]
     PrimLen a   -> Term "PrimLen" [ review p2' a ]
     PrimAdd a b -> Term "PrimAdd" [ review p2' a , review p2' b ]
     PrimMul a b -> Term "PrimMul" [ review p2' a , review p2' b ]
     PrimCat a b -> Term "PrimCat" [ review p2' a , review p2' b ]
   ltr = \case
-    Term "NumV" [PrimValue' (Left i)]  -> Just (NumV i)
-    Term "StrV" [PrimValue' (Right s)] -> Just (StrV s)
+    Term "NumV" [VI i] -> Just (NumV i)
+    Term "StrV" [VS s] -> Just (StrV s)
     Term "PrimLen" [a]    -> PrimLen <$> preview p2' a
     Term "PrimAdd" [a, b] -> PrimAdd <$> preview p2' a <*> preview p2' b
     Term "PrimMul" [a, b] -> PrimMul <$> preview p2' a <*> preview p2' b
@@ -280,15 +280,14 @@ dynamicTests :: Test ()
 dynamicTests =
   let
       n1, n2, lenStr :: Term E
-      lenStr      = Term "Len" [ PrimValue' (Right "str") ]
+      lenStr      = Term "Len" [ VS "str" ]
       times v1 v2 = Term "Times" [v1, v2]
       plus v1 v2  = Term "Plus" [v1, v2]
-      n1          = PrimValue' (Left 1)
-      n2          = PrimValue' (Left 2)
+      n1          = VI 1
+      n2          = VI 2
       x           = PatternVar (Just "x")
       patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
-      env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $
-        PrimValue' $ Left 2
+      env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
          lenStr
@@ -421,8 +420,8 @@ minusTests = scope "minus" $
        -- , expect $
        --   let env = MatchesEnv syntax "Exp" $ Map.fromList
        --         -- TODO: we should be able to do this without providing values
-       --         [ ("x", Right (PrimValue' 2))
-       --         , ("y", Right (PrimValue' 2))
+       --         [ ("x", VI 2)
+       --         , ("y", VI 2)
        --         ]
        --   in (traceShowId $ flip runReaderT env (minus
        --        (PatternTm "plus" [x, y])
@@ -509,8 +508,8 @@ eval' = eval $ mkEvalEnv "Exp" syntax (forceRight dynamics') evalMachinePrimitiv
 
 evalTests :: Test ()
 evalTests = tests
-  [ expect $ eval' tm1 == Right (PrimValue' (Left 3))
-  , expect $ eval' tm2 == Right (PrimValue' (Right "foobar"))
+  [ expect $ eval' tm1 == Right (VI 3)
+  , expect $ eval' tm2 == Right (VS "foobar")
   ]
 
 parseTests :: Test ()
@@ -529,29 +528,29 @@ parseTests =
   in scope "parse" $ tests
   [ expectParse
       "Plus(1; 2)"
-      (Term "Plus" [PrimValue' (Left 1), PrimValue' (Left 2)])
+      (Term "Plus" [VI 1, VI 2])
   , expectParse
       "Cat(\"abc\"; \"def\")"
-      (Term "Cat" [PrimValue' (Right "abc"), PrimValue' (Right "def")])
+      (Term "Cat" [VS "abc", VS "def"])
   , expectParse
       "\"\\\"quoted text\\\"\""
-      (PrimValue' (Right "\\\"quoted text\\\""))
+      (VS "\\\"quoted text\\\"")
 
   , expectNoParse "\"ab\\\""
 
   -- Note this doesn't check but it should still parse
   , expectParse
       "Cat(\"abc\"; 1)"
-      (Term "Cat" [PrimValue' (Right "abc"), PrimValue' (Left 1)])
+      (Term "Cat" [VS "abc", VI 1])
 
   , expectParse
      "Let(1; x. Plus(x; 2))"
      (Term "Let"
-       [ PrimValue' (Left 1)
+       [ VI 1
        , Binding ["x"]
          (Term "Plus"
            [ Var "x"
-           , PrimValue' (Left 2)
+           , VI 2
            ])
        ])
   ]
