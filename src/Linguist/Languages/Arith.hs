@@ -1,10 +1,11 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeFamilies     #-}
 
 module Linguist.Languages.Arith where
 
 import Control.Monad.Reader (runReader)
-import Control.Lens (pattern Empty, pattern (:<), _Right)
+import Control.Lens (pattern Empty, pattern (:<), _Right, _Wrapped)
 import Control.Applicative ((<$))
 import Data.Text (Text)
 import Data.Sequence (Seq)
@@ -33,10 +34,13 @@ import Language.Haskell.TH (lookupTypeName, Type(..))
 
 import Data.Diverse.Lens.Which
 
-type E = Either Int Text
+newtype E = E { unE :: Either Int Text }
+  deriving (Eq, Show)
+
+makeWrapped ''E
 
 instance AsFacet Text E where
-  facet = _Right
+  facet = _Wrapped . _Right
 
 instance Pretty E where
   pretty = viaShow
@@ -55,7 +59,7 @@ machineDynamics = runParser (parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" machineDynamicsT
 
 parsePrim :: Parser E
-parsePrim = choice
+parsePrim = E <$> choice
   [ Left <$> decimal
   , Right "add" <$ symbol "add"
   , Right "sub" <$ symbol "sub"
@@ -90,9 +94,8 @@ tm' =
        Left err   -> error $ errorBundlePretty err
        Right tm'' -> tm''
 
-
 pattern PrimInt :: Int -> Term E
-pattern PrimInt i = PrimValue (Left i)
+pattern PrimInt i = PrimValue (E (Left i))
 
 evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive = \case
@@ -111,10 +114,10 @@ eval' :: Term Int -> Either String (Term E)
 eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
   (forceRight machineDynamics)
   evalMachinePrimitive
-  (Just . Left)
+  (Just . E . Left)
 
 evalTests :: Test ()
 evalTests =
   tests
-       [ testProperty $ property $ eval' tm === Right (PrimValue (Left 5))
+       [ testProperty $ property $ eval' tm === Right (PrimInt 5)
        ]

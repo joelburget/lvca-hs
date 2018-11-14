@@ -1,4 +1,6 @@
 {-# LANGUAGE QuasiQuotes       #-}
+{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE TypeFamilies       #-}
 module Linguist.Languages.SimpleExample
   ( syntax
   -- , dynamics
@@ -47,13 +49,19 @@ import           Linguist.ParseUtil
 import           Linguist.Util (forceRight)
 
 
-type E = Either Int Text
+newtype E = E (Either Int Text)
+  deriving (Eq, Show)
+
+makeWrapped ''E
 
 instance AsFacet Text E where
-  facet = _Right
+  facet = _Wrapped . _Right
 
 instance Pretty E where
   pretty = viaShow
+
+pattern PrimValue' :: Either Int Text -> Term E
+pattern PrimValue' x = PrimValue (E x)
 
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
@@ -87,27 +95,27 @@ syntax = SyntaxChart $ Map.fromList
 
 tm1, tm2 :: Term E
 tm1 = Term "Annotation"
-  [ PrimValue (Right "annotation") -- XXX need this to be a different type
+  [ PrimValue' (Right "annotation") -- XXX need this to be a different type
   , Term "Let"
-    [ PrimValue (Left 1)
+    [ PrimValue' (Left 1)
     , Binding ["x"]
       (Term "Plus"
         [ Var "x"
-        , PrimValue (Left 2)
+        , PrimValue' (Left 2)
         ])
     ]
   ]
 
 tm2 = Term "Cat"
-  [ PrimValue (Right "foo")
-  , PrimValue (Right "bar")
+  [ PrimValue' (Right "foo")
+  , PrimValue' (Right "bar")
   ]
 
 pattern VI :: Int -> Term E
-pattern VI x = PrimValue (Left x)
+pattern VI x = PrimValue' (Left x)
 
 pattern VS :: Text -> Term E
-pattern VS x = PrimValue (Right x)
+pattern VS x = PrimValue' (Right x)
 
 pattern PatternPrimVar :: Text -> Maybe Text -> Pattern a
 pattern PatternPrimVar ty name = PatternTm ty [PatternVar name]
@@ -177,7 +185,7 @@ dynamicsF = DenotationChart'
   ]
 
 dynamics :: DenotationChart E E
-dynamics = mkDenotationChart _Right p1 p2 dynamicsF
+dynamics = mkDenotationChart (_Wrapped . _Right) p1 p2 dynamicsF
 
 dynamicsT :: Text
 dynamicsT = [text|
@@ -202,7 +210,7 @@ dynamicsT = [text|
   |]
 
 parsePrim :: PD.Parser E
-parsePrim = choice
+parsePrim = E <$> choice
   [ Left <$> decimal
   , Right "add" <$ symbol "add"
   , Right "mul" <$ symbol "mul"
@@ -248,20 +256,20 @@ p1 = prism' rtl ltr where
     _                             -> Nothing
 
 p2' :: Prism' (Term E) (Free (MeaningF :+: ValF) Text)
-p2' = meaningTermP _Right p2
+p2' = meaningTermP (_Wrapped . _Right) p2
 
 p2 :: Prism' (Term E) (ValF (Free (MeaningF :+: ValF) Text))
 p2 = prism' rtl ltr where
   rtl = \case
-    NumV i      -> Term "NumV" [PrimValue (Left i)]
-    StrV s      -> Term "StrV" [PrimValue (Right s)]
+    NumV i      -> Term "NumV" [PrimValue' (Left i)]
+    StrV s      -> Term "StrV" [PrimValue' (Right s)]
     PrimLen a   -> Term "PrimLen" [ review p2' a ]
     PrimAdd a b -> Term "PrimAdd" [ review p2' a , review p2' b ]
     PrimMul a b -> Term "PrimMul" [ review p2' a , review p2' b ]
     PrimCat a b -> Term "PrimCat" [ review p2' a , review p2' b ]
   ltr = \case
-    Term "NumV" [PrimValue (Left i)]  -> Just (NumV i)
-    Term "StrV" [PrimValue (Right s)] -> Just (StrV s)
+    Term "NumV" [PrimValue' (Left i)]  -> Just (NumV i)
+    Term "StrV" [PrimValue' (Right s)] -> Just (StrV s)
     Term "PrimLen" [a]    -> PrimLen <$> preview p2' a
     Term "PrimAdd" [a, b] -> PrimAdd <$> preview p2' a <*> preview p2' b
     Term "PrimMul" [a, b] -> PrimMul <$> preview p2' a <*> preview p2' b
@@ -272,15 +280,15 @@ dynamicTests :: Test ()
 dynamicTests =
   let
       n1, n2, lenStr :: Term E
-      lenStr      = Term "Len" [ PrimValue (Right "str") ]
+      lenStr      = Term "Len" [ PrimValue' (Right "str") ]
       times v1 v2 = Term "Times" [v1, v2]
       plus v1 v2  = Term "Plus" [v1, v2]
-      n1          = PrimValue (Left 1)
-      n2          = PrimValue (Left 2)
+      n1          = PrimValue' (Left 1)
+      n2          = PrimValue' (Left 2)
       x           = PatternVar (Just "x")
       patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
       env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $
-        PrimValue $ Left 2
+        PrimValue' $ Left 2
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
          lenStr
@@ -413,8 +421,8 @@ minusTests = scope "minus" $
        -- , expect $
        --   let env = MatchesEnv syntax "Exp" $ Map.fromList
        --         -- TODO: we should be able to do this without providing values
-       --         [ ("x", Right (PrimValue 2))
-       --         , ("y", Right (PrimValue 2))
+       --         [ ("x", Right (PrimValue' 2))
+       --         , ("y", Right (PrimValue' 2))
        --         ]
        --   in (traceShowId $ flip runReaderT env (minus
        --        (PatternTm "plus" [x, y])
@@ -501,15 +509,15 @@ eval' = eval $ mkEvalEnv "Exp" syntax (forceRight dynamics') evalMachinePrimitiv
 
 evalTests :: Test ()
 evalTests = tests
-  [ expect $ eval' tm1 == Right (PrimValue (Left 3))
-  , expect $ eval' tm2 == Right (PrimValue (Right "foobar"))
+  [ expect $ eval' tm1 == Right (PrimValue' (Left 3))
+  , expect $ eval' tm2 == Right (PrimValue' (Right "foobar"))
   ]
 
 parseTests :: Test ()
 parseTests =
   let primParser =
-        Left <$> (L.decimal :: Parser Int) <|>
-        Right <$> stringLiteral
+        E . Left  <$> (L.decimal :: Parser Int) <|>
+        E . Right <$> stringLiteral
       parser = standardParser primParser
       runP str = runReader (runParserT parser "(test)" str) (syntax, "Exp")
       expectParse str tm = case runP str of
@@ -518,24 +526,24 @@ parseTests =
   in tests
   [ expectParse
       "plus(1; 2)"
-      (Term "plus" [PrimValue (Left 1), PrimValue (Left 2)])
+      (Term "plus" [PrimValue' (Left 1), PrimValue' (Left 2)])
   , expectParse
       "cat(\"abc\"; \"def\")"
-      (Term "cat" [PrimValue (Right "abc"), PrimValue (Right "def")])
+      (Term "cat" [PrimValue' (Right "abc"), PrimValue' (Right "def")])
 
   -- Note this doesn't check but it should still parse
   , expectParse
       "cat(\"abc\"; 1)"
-      (Term "cat" [PrimValue (Right "abc"), PrimValue (Left 1)])
+      (Term "cat" [PrimValue' (Right "abc"), PrimValue' (Left 1)])
 
   , expectParse
      "let(1; x. plus(x; 2))"
      (Term "let"
-       [ PrimValue (Left 1)
+       [ PrimValue' (Left 1)
        , Binding ["x"]
          (Term "plus"
            [ Var "x"
-           , PrimValue (Left 2)
+           , PrimValue' (Left 2)
            ])
        ])
   ]
