@@ -39,9 +39,28 @@ braces = between (symbol "{") (symbol "}")
 oxfordBrackets :: MonadParsec e Text m => m a -> m a
 oxfordBrackets = between (symbol "[[") (symbol "]]")
 
--- TODO: this can't handle escapes
-stringLiteral :: MonadParsec e Text m => m Text
-stringLiteral = fmap pack $ char '"' >> manyTill L.charLiteral (char '"')
+-- https://stackoverflow.com/a/24106749/383958
+stringLiteral :: forall e m. MonadParsec e Text m => m Text
+stringLiteral = fmap (pack . concat) $ char '"' *> many character <* char '"'
+  where
+
+    escapeChars :: String
+    escapeChars = "\\\"0nrvtbf"
+
+    nonEscapeChars :: String
+    nonEscapeChars = "\\\"\0\n\r\v\t\b\f"
+
+    escape :: m String
+    escape = do
+      d <- char '\\'
+      c <- oneOf escapeChars -- all the characters which can be escaped
+      return [d, c]
+
+    nonEscape :: m Char
+    nonEscape = noneOf nonEscapeChars
+
+    character :: m String
+    character = fmap return nonEscape <|> escape
 
 parseName :: MonadParsec e Text m => m Text
 parseName = pack

@@ -38,8 +38,8 @@ import qualified Text.Megaparsec.Char.Lexer            as L
 import           Data.Sequence             (Seq)
 import Data.Diverse.Lens.Which
 import Text.Megaparsec.Char.Lexer (decimal)
-import qualified Linguist.ParseDenotationChart      as PD
 
+import qualified Linguist.ParseDenotationChart      as PD
 import           Linguist.ParseLanguage
 import           Linguist.Proceed
 import           Linguist.Types
@@ -520,28 +520,36 @@ parseTests =
         E . Right <$> stringLiteral
       parser = standardParser primParser
       runP str = runReader (runParserT parser "(test)" str) (syntax, "Exp")
-      expectParse str tm = case runP str of
+      expectParse str tm = scope (Text.unpack str) $ case runP str of
         Left err       -> fail $ errorBundlePretty err
         Right parsedTm -> expectEq parsedTm tm
-  in tests
+      expectNoParse str = scope (Text.unpack str) $ case runP str of
+        Left _   -> ok
+        Right tm -> fail $ "parsed " ++ show tm
+  in scope "parse" $ tests
   [ expectParse
-      "plus(1; 2)"
-      (Term "plus" [PrimValue' (Left 1), PrimValue' (Left 2)])
+      "Plus(1; 2)"
+      (Term "Plus" [PrimValue' (Left 1), PrimValue' (Left 2)])
   , expectParse
-      "cat(\"abc\"; \"def\")"
-      (Term "cat" [PrimValue' (Right "abc"), PrimValue' (Right "def")])
+      "Cat(\"abc\"; \"def\")"
+      (Term "Cat" [PrimValue' (Right "abc"), PrimValue' (Right "def")])
+  , expectParse
+      "\"\\\"quoted text\\\"\""
+      (PrimValue' (Right "\\\"quoted text\\\""))
+
+  , expectNoParse "\"ab\\\""
 
   -- Note this doesn't check but it should still parse
   , expectParse
-      "cat(\"abc\"; 1)"
-      (Term "cat" [PrimValue' (Right "abc"), PrimValue' (Left 1)])
+      "Cat(\"abc\"; 1)"
+      (Term "Cat" [PrimValue' (Right "abc"), PrimValue' (Left 1)])
 
   , expectParse
-     "let(1; x. plus(x; 2))"
-     (Term "let"
+     "Let(1; x. Plus(x; 2))"
+     (Term "Let"
        [ PrimValue' (Left 1)
        , Binding ["x"]
-         (Term "plus"
+         (Term "Plus"
            [ Var "x"
            , PrimValue' (Left 2)
            ])

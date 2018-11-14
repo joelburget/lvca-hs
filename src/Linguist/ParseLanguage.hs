@@ -46,6 +46,8 @@ standardParser parsePrim = do
   SyntaxChart syntax <- view parseChart
   let sortParsers :: Map SortName (Parser (Term a))
       sortParsers = syntax <@&> \sortName (SortDef _vars operators) ->
+
+        -- build a parser for each operator in this sort
         let opParsers = operators <&> \(Operator name arity _desc) -> case arity of
               ExternalArity sort -> PrimValue <$>
                 local (parseSort .~ sort) parsePrim
@@ -63,7 +65,10 @@ standardParser parsePrim = do
                     vs
                 -- TODO: convert Term to just use Sequence
                 pure $ Term name $ toList subTms) <?> unpack name
-        in asum opParsers <?> unpack sortName
+
+        in asum opParsers <?> (unpack sortName ++ " operator")
+
+      -- parse an operator in the current sort or a variable
       parseTerm = do
         sort <- view parseSort
         case sortParsers ^? ix sort of
@@ -72,7 +77,8 @@ standardParser parsePrim = do
             "unable to find sort " <> unpack sort <> " among " <>
             -- TODO: more user-friendly show
             show (Map.keys sortParsers)
-  parseTerm
+
+  parseTerm <* eof
 
 parseValence
   :: Parser a
