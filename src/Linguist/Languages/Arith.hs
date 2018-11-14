@@ -115,7 +115,6 @@ eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
   (Just . E . Left)
 
 evalTests :: Test ()
-evalTests =
-  tests
-       [ expectEq (eval' tm) (Right (PrimInt 5))
-       ]
+evalTests = tests
+  [ expectEq (eval' tm) (Right (PrimInt 5))
+  ]
