@@ -10,9 +10,16 @@ import           Data.Map             (Map)
 import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
 import           Data.String          (IsString (fromString))
-import           Data.Text            (Text, unpack)
+import           Data.Text            (Text, pack, unpack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
+import Hedgehog hiding (Var)
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
+                                                        layoutPretty, Pretty(pretty), viaShow)
+import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
+import Text.Megaparsec.Char.Lexer (decimal)
 
 import           Linguist.ParseUtil
 import           Linguist.Types
@@ -96,3 +103,10 @@ parseValence _parsePrim parseTerm valence@(Valence sorts (SortAp resultSort _))
 parseValence parsePrim _parseTerm (External name) =
   -- TODO: do we need this local?
   PrimValue <$> local (parseSort .~ name) parsePrim
+
+prop_parse_pretty :: Property
+prop_parse_pretty = property $ do
+  let pretty' = renderStrict . layoutPretty defaultLayoutOptions . pretty
+
+  tm <- forAll $ genTerm $ Just $ Gen.int Range.exponentialBounded
+  parseMaybe (standardParser decimal) (pretty' tm) === Just tm
