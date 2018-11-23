@@ -3,7 +3,7 @@ module Linguist.Util where
 import           Control.Lens         (FunctorWithIndex, imap)
 import           Control.Monad.Except (MonadError, throwError)
 import           Control.Monad.State  (StateT (..))
-import GHC.Stack
+import           GHC.Stack
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]

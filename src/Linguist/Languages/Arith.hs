@@ -4,29 +4,32 @@
 
 module Linguist.Languages.Arith where
 
-import Control.Monad.Reader (runReader)
+import Control.Applicative ((<|>))
+import Control.Monad.Reader (runReaderT)
 import Control.Lens (pattern Empty, pattern (:<), _Right, _Wrapped)
 import Control.Applicative ((<$))
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Data.Sequence (Seq)
 import           Control.Lens.TH
 import           Data.Void                          (Void)
-import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, runParserT, errorBundlePretty)
-import Text.Megaparsec.Char.Lexer (decimal)
-import EasyTest
+import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
+import           EasyTest
 import           Data.Text.Prettyprint.Doc (Pretty(pretty), viaShow)
 
-import           Linguist.ParseDenotationChart      (Parser, parseDenotationChart)
+import           Linguist.Languages.Arith.Syntax
+import           Linguist.ParseDenotationChart      (parseDenotationChart)
+import qualified Linguist.ParseDenotationChart      as PD
+import qualified Linguist.ParseLanguage             as PL
 import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
+import           Linguist.Proceed
 import           Linguist.Types                     -- (SyntaxChart, Term (..))
-import Linguist.Util (forceRight)
-import Linguist.Languages.Arith.Syntax
-import Linguist.Proceed
+import           Linguist.Util                      (forceRight)
 
 import qualified Data.Map as Map
 import           Linguist.TH
-import Linguist.ParseLanguage (standardParser)
+import Linguist.ParseLanguage (Parser, standardParser, prop_parse_pretty)
 
 import Language.Haskell.TH (lookupTypeName, Type(..))
 
@@ -56,9 +59,9 @@ machineDynamics :: Either (ParseErrorBundle Text Void) (DenotationChart Int E)
 machineDynamics = runParser (parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" machineDynamicsT
 
-parsePrim :: Parser E
+parsePrim :: PD.Parser E
 parsePrim = E <$> choice
-  [ Left <$> decimal
+  [ Left <$> intLiteral
   , Right "add" <$ symbol "add"
   , Right "sub" <$ symbol "sub"
   , Right "mul" <$ symbol "mul"
@@ -88,7 +91,7 @@ tm' =
       env = (forceRight syntax, "Arith")
       exampleTerm :: Text
       exampleTerm = "Add(Mul(1; Sub(500; 498)); 3)"
-  in case runReader (runParserT parser "(example term)" exampleTerm) env of
+  in case runParser (runReaderT parser env) "(example term)" exampleTerm of
        Left err   -> error $ errorBundlePretty err
        Right tm'' -> tm''
 
@@ -114,7 +117,30 @@ eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
   evalMachinePrimitive
   (Just . E . Left)
 
-evalTests :: Test ()
-evalTests = tests
-  [ expectEq (eval' tm) (Right (PrimInt 5))
+arithTests :: Test ()
+arithTests = tests
+  [ scope "eval" $ tests
+    [ expectEq (eval' tm) (Right (PrimInt 5))
+    ]
+  , scope "prop" $ tests
+    [ testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
+      (const Nothing) (undefined :: PL.Parser ())
+    ]
+  , let primParser =
+          E . Left  <$> (intLiteral :: Parser Int) <|>
+          E . Right <$> stringLiteral
+        parser = standardParser primParser
+        runP str = (runParser (runReaderT parser (forceRight syntax, "Arith"))
+          "(test)" str)
+        expectParse str tm = scope (Text.unpack str) $ case runP str of
+          Left err       -> fail $ errorBundlePretty err
+          Right parsedTm -> expectEq parsedTm tm
+        expectNoParse str = scope (Text.unpack str) $ case runP str of
+          Left _   -> ok
+          Right tm -> fail $ "parsed " ++ show tm
+    in scope "parse" $ tests
+    [ expectParse
+        "Za"
+        (Var "Za")
+    ]
   ]

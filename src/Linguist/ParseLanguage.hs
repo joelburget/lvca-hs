@@ -1,6 +1,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies               #-}
-module Linguist.ParseLanguage where
+module Linguist.ParseLanguage
+  ( Parser
+  , standardParser
+  , prop_parse_pretty
+  ) where
 
 import           Control.Applicative  ((<$))
 import           Control.Lens
@@ -10,20 +14,18 @@ import           Data.Map             (Map)
 import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
 import           Data.String          (IsString (fromString))
-import           Data.Text            (Text, pack, unpack)
+import           Data.Text            (Text, unpack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import Hedgehog hiding (Var)
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import           Hedgehog             hiding (Var)
 import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
-                                                        layoutPretty, Pretty(pretty), viaShow)
+                                                        layoutPretty, Pretty(pretty))
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
-import Text.Megaparsec.Char.Lexer (decimal)
 
 import           Linguist.ParseUtil
 import           Linguist.Types
 import           Linguist.Util
+
 
 -- TODO: we're not actually using Err.
 -- TODO: nice error messages
@@ -40,7 +42,7 @@ instance ShowErrorComponent Err where
 
 type ParseEnv = (SyntaxChart, SortName)
 
-type Parser a = ParsecT Err Text (Reader ParseEnv) a
+type Parser a = ReaderT ParseEnv (Parsec Err Text) a
 
 parseChart :: Lens' ParseEnv SyntaxChart
 parseChart = _1
@@ -55,11 +57,11 @@ standardParser parsePrim = do
       sortParsers = syntax <@&> \sortName (SortDef _vars operators) ->
 
         -- build a parser for each operator in this sort
-        let opParsers = operators <&> \(Operator name arity _desc) -> case arity of
-              ExternalArity sort -> PrimValue <$>
-                local (parseSort .~ sort) parsePrim
-              Arity valences -> (do
-                _ <- string $ fromString $ unpack name
+        let opParsers = operators <&> \(Operator name (Arity valences) _) ->
+              label (unpack name) $ do
+                _ <- try $ do
+                  _ <- string $ fromString $ unpack name
+                  notFollowedBy $ alphaNumChar <|> char '\'' <|> char '_'
                 subTms <- case valences of
                   [] -> Seq.empty <$ optional (symbol "()")
                   v:vs -> parens $ foldl
@@ -71,7 +73,7 @@ standardParser parsePrim = do
                     (Seq.singleton <$> parseValence parsePrim parseTerm v)
                     vs
                 -- TODO: convert Term to just use Sequence
-                pure $ Term name $ toList subTms) <?> unpack name
+                pure $ Term name $ toList subTms
 
         in asum opParsers <?> (unpack sortName ++ " operator")
 
@@ -104,9 +106,19 @@ parseValence parsePrim _parseTerm (External name) =
   -- TODO: do we need this local?
   PrimValue <$> local (parseSort .~ name) parsePrim
 
-prop_parse_pretty :: Property
-prop_parse_pretty = property $ do
-  let pretty' = renderStrict . layoutPretty defaultLayoutOptions . pretty
+prop_parse_pretty
+  :: (Show a, Pretty a, Eq a)
+  => SyntaxChart
+  -> SortName
+  -> (SortName -> Maybe (Gen a))
+  -> Parser a
+  -> Property
+prop_parse_pretty chart sort aGen aParser = property $ do
+  tm <- forAll $ genTerm chart sort aGen
+    -- (Just (Gen.int Range.exponentialBounded))
 
-  tm <- forAll $ genTerm $ Just $ Gen.int Range.exponentialBounded
-  parseMaybe (standardParser decimal) (pretty' tm) === Just tm
+  let pretty' = renderStrict . layoutPretty defaultLayoutOptions . pretty
+      parse'  = parseMaybe (runReaderT (standardParser aParser) (chart, sort))
+
+  annotate $ unpack $ pretty' tm
+  parse' (pretty' tm) === Just tm

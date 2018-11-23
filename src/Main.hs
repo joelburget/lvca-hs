@@ -60,9 +60,10 @@ allTests = scope "all tests" $ tests
   , scope "syntax-statics"         SimpleExample.prettyStaticTests
   , scope "simple-example.eval"    SimpleExample.evalTests
   , scope "simple-example.parse"   SimpleExample.parseTests
+  , scope "simple-example.props"   SimpleExample.propTests
   , scope "t-example.eval"         TExample.evalTests
   , scope "document"               Document.documentTests
-  , scope "arith"                  Arith.evalTests
+  , scope "arith"                  Arith.arithTests
   ]
 
 -- main :: IO ()

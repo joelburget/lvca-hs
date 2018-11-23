@@ -17,6 +17,7 @@ module Linguist.Languages.SimpleExample
   , matchesTests
   , evalTests
   , parseTests
+  , propTests
 
   , eval'
   ) where
@@ -28,25 +29,25 @@ import qualified Data.Map.Strict                       as Map
 import           Data.Text                             (Text)
 import qualified Data.Text                             as Text
 import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
-                                                        layoutPretty, Pretty(pretty), viaShow)
+                                                        layoutPretty, Pretty(pretty))
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
 import           EasyTest
 import           NeatInterpolation
 import           Text.Megaparsec
-import qualified Text.Megaparsec.Char.Lexer            as L
-import           Data.Sequence             (Seq)
-import Data.Diverse.Lens.Which
-import Text.Megaparsec.Char.Lexer (decimal)
+import           Data.Sequence                         (Seq)
+import           Data.Diverse.Lens.Which
+import qualified Hedgehog.Gen                          as Gen
+import qualified Hedgehog.Range                        as Range
 
-import qualified Linguist.ParseDenotationChart      as PD
+import qualified Linguist.ParseDenotationChart         as PD
 import           Linguist.ParseLanguage
 import           Linguist.Proceed
 import           Linguist.Types
 import           Linguist.Languages.MachineModel
 import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
-import           Linguist.Util (forceRight)
+import           Linguist.Util                         (forceRight)
 
 
 newtype E = E (Either Int Text)
@@ -58,16 +59,23 @@ instance AsFacet Text E where
   facet = _Wrapped . _Right
 
 instance Pretty E where
-  pretty = viaShow
+  pretty (E (Left  x)) = pretty x
+  pretty (E (Right x)) = pretty ("\"" <> x <> "\"")
 
 pattern PrimValue' :: Either Int Text -> Term E
 pattern PrimValue' x = PrimValue (E x)
 
+pattern TI :: Int -> Term E
+pattern TI x = Term "Num" [PrimValue' (Left x)]
+
+pattern TS :: Text -> Term E
+pattern TS x = Term "Str" [PrimValue' (Right x)]
+
 pattern VI :: Int -> Term E
-pattern VI x = PrimValue' (Left x)
+pattern VI x = Term "NumV" [PrimValue' (Left x)]
 
 pattern VS :: Text -> Term E
-pattern VS x = PrimValue' (Right x)
+pattern VS x = Term "StrV" [PrimValue' (Right x)]
 
 pattern PatternPrimVar :: Text -> Maybe Text -> Pattern a
 pattern PatternPrimVar ty name = PatternTm ty [PatternVar name]
@@ -104,35 +112,35 @@ syntax = SyntaxChart $ Map.fromList
 
 tm1, tm2 :: Term E
 tm1 = Term "Annotation"
-  [ VS "annotation" -- XXX need this to be a different type
+  [ TS "annotation" -- XXX need this to be a different type
   , Term "Let"
-    [ VI 1
+    [ TI 1
     , Binding ["x"]
       (Term "Plus"
         [ Var "x"
-        , VI 2
+        , TI 2
         ])
     ]
   ]
 
 tm2 = Term "Cat"
-  [ VS "foo"
-  , VS "bar"
+  [ TS "foo"
+  , TS "bar"
   ]
 
 evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive = \case
   "add" -> Just $ \case
-    VI x :< VI y :< Empty -> VI (x + y)
+    TI x :< TI y :< Empty -> VI (x + y)
     args                  -> error $ "bad call to plus: " ++ show args
   "mul" -> Just $ \case
-    VI x :< VI y :< Empty -> VI (x * y)
+    TI x :< TI y :< Empty -> VI (x * y)
     _                     -> error "bad call to times"
   "cat" -> Just $ \case
-    VS x :< VS y :< Empty -> VS (x <> y)
+    TS x :< TS y :< Empty -> VS (x <> y)
     _                     -> error "bad call to cat"
   "len" -> Just $ \case
-    VS x :< Empty -> VI (Text.length x)
+    TS x :< Empty -> VI (Text.length x)
     _             -> error "bad call to len"
   _ -> Nothing
 
@@ -211,7 +219,7 @@ dynamicsT = [text|
 
 parsePrim :: PD.Parser E
 parsePrim = E <$> choice
-  [ Left <$> decimal
+  [ Left <$> intLiteral
   , Right "add" <$ symbol "add"
   , Right "mul" <$ symbol "mul"
   , Right "cat" <$ symbol "cat"
@@ -261,15 +269,15 @@ p2' = meaningTermP (_Wrapped . _Right) p2
 p2 :: Prism' (Term E) (ValF (Free (MeaningF :+: ValF) Text))
 p2 = prism' rtl ltr where
   rtl = \case
-    NumV i      -> Term "NumV" [VI i]
-    StrV s      -> Term "StrV" [VS s]
+    NumV i      -> VI i
+    StrV s      -> VS s
     PrimLen a   -> Term "PrimLen" [ review p2' a ]
     PrimAdd a b -> Term "PrimAdd" [ review p2' a , review p2' b ]
     PrimMul a b -> Term "PrimMul" [ review p2' a , review p2' b ]
     PrimCat a b -> Term "PrimCat" [ review p2' a , review p2' b ]
   ltr = \case
-    Term "NumV" [VI i] -> Just (NumV i)
-    Term "StrV" [VS s] -> Just (StrV s)
+    VI i                  -> Just (NumV i)
+    VS s                  -> Just (StrV s)
     Term "PrimLen" [a]    -> PrimLen <$> preview p2' a
     Term "PrimAdd" [a, b] -> PrimAdd <$> preview p2' a <*> preview p2' b
     Term "PrimMul" [a, b] -> PrimMul <$> preview p2' a <*> preview p2' b
@@ -280,11 +288,11 @@ dynamicTests :: Test ()
 dynamicTests =
   let
       n1, n2, lenStr :: Term E
-      lenStr      = Term "Len" [ VS "str" ]
+      lenStr      = Term "Len" [ TS "str" ]
       times v1 v2 = Term "Times" [v1, v2]
       plus v1 v2  = Term "Plus" [v1, v2]
-      n1          = VI 1
-      n2          = VI 2
+      n1          = TI 1
+      n2          = TI 2
       x           = PatternVar (Just "x")
       patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
       env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
@@ -319,14 +327,14 @@ dynamicTests =
          in flip runReaderT env $ matches pat tm
        , expectJust $
          let pat = PatternVar (Just "n_2")
-             tm  = VI 2
+             tm  = TI 2
          in flip runReaderT env $ matches pat tm
        , expectJust $
          let pat = PatternTm "Plus"
                [ PatternVar (Just "n_1")
                , PatternVar (Just "n_2")
                ]
-             tm = Term "Plus" [Var "x", VI 2]
+             tm = Term "Plus" [Var "x", TI 2]
          in flip runReaderT env $ matches pat tm
 
        , expect $
@@ -420,8 +428,8 @@ minusTests = scope "minus" $
        -- , expect $
        --   let env = MatchesEnv syntax "Exp" $ Map.fromList
        --         -- TODO: we should be able to do this without providing values
-       --         [ ("x", VI 2)
-       --         , ("y", VI 2)
+       --         [ ("x", TI 2)
+       --         , ("y", TI 2)
        --         ]
        --   in (traceShowId $ flip runReaderT env (minus
        --        (PatternTm "plus" [x, y])
@@ -512,13 +520,15 @@ evalTests = tests
   , expect $ eval' tm2 == Right (VS "foobar")
   ]
 
+primParser :: Parser E
+primParser =
+  E . Left  <$> (intLiteral :: Parser Int) <|>
+  E . Right <$> stringLiteral
+
 parseTests :: Test ()
 parseTests =
-  let primParser =
-        E . Left  <$> (L.decimal :: Parser Int) <|>
-        E . Right <$> stringLiteral
-      parser = standardParser primParser
-      runP str = runReader (runParserT parser "(test)" str) (syntax, "Exp")
+  let parser = standardParser primParser
+      runP str = (runParser (runReaderT parser (syntax, "Exp")) "(test)" str)
       expectParse str tm = scope (Text.unpack str) $ case runP str of
         Left err       -> fail $ errorBundlePretty err
         Right parsedTm -> expectEq parsedTm tm
@@ -527,30 +537,44 @@ parseTests =
         Right tm -> fail $ "parsed " ++ show tm
   in scope "parse" $ tests
   [ expectParse
-      "Plus(1; 2)"
-      (Term "Plus" [VI 1, VI 2])
+      "Plus(Num(1); Num(2))"
+      (Term "Plus" [TI 1, TI 2])
   , expectParse
-      "Cat(\"abc\"; \"def\")"
-      (Term "Cat" [VS "abc", VS "def"])
+      "Cat(Str(\"abc\"); Str(\"def\"))"
+      (Term "Cat" [TS "abc", TS "def"])
   , expectParse
-      "\"\\\"quoted text\\\"\""
-      (VS "\\\"quoted text\\\"")
+      "Str(\"\\\"quoted text\\\"\")"
+      (TS "\\\"quoted text\\\"")
 
-  , expectNoParse "\"ab\\\""
+  , expectNoParse "Str(\"ab\\\")"
 
   -- Note this doesn't check but it should still parse
   , expectParse
-      "Cat(\"abc\"; 1)"
-      (Term "Cat" [VS "abc", VI 1])
+      "Cat(Str(\"abc\"); Num(1))"
+      (Term "Cat" [TS "abc", TI 1])
 
   , expectParse
-     "Let(1; x. Plus(x; 2))"
+     "Let(Num(1); x. Plus(x; Num(2)))"
      (Term "Let"
-       [ VI 1
+       [ TI 1
        , Binding ["x"]
          (Term "Plus"
            [ Var "x"
-           , VI 2
+           , TI 2
            ])
        ])
+
+  , expectParse "Num(0)" (TI 0)
+  ]
+
+propTests :: Test ()
+propTests = tests
+  [ testProperty $ prop_parse_pretty syntax "Exp"
+     (\case
+       "Num" -> Just (E . Left  <$> Gen.int (Range.exponentialBounded))
+       "Str" -> Just (E . Right <$>
+         Gen.text (Range.exponential 0 5000) Gen.unicode)
+       _     -> Nothing
+     )
+     primParser
   ]

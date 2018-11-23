@@ -92,9 +92,9 @@ module Linguist.Types
 import           Control.Lens              hiding (op)
 import           Control.Monad.Morph
 import           Control.Monad.Reader
-import           Data.Foldable             (fold, foldlM)
+import           Data.Foldable             (fold, foldlM, foldrM)
 import           Data.List                 (intersperse, find)
-import Data.Maybe (fromMaybe)
+import           Data.Maybe                (fromMaybe)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
@@ -105,12 +105,12 @@ import qualified Data.Text.Prettyprint.Doc as PP
 import           Data.Void                 (Void)
 import           EasyTest
 import           GHC.Exts                  (IsList (..))
-import           Hedgehog (MonadGen)
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import           Hedgehog                  (MonadGen)
+import qualified Hedgehog.Gen              as Gen
+import qualified Hedgehog.Range            as Range
 
 import           Linguist.FunctorUtil
-import           Linguist.Util as Util
+import           Linguist.Util             as Util
 
 
 -- syntax charts
@@ -215,26 +215,58 @@ data Term a
 genName :: MonadGen m => m Text
 genName = Gen.text (Range.exponential 1 500) Gen.alpha
 
-genTerm :: forall m a. MonadGen m => Maybe (m a) -> m (Term a)
-genTerm aGen =
-  let nonRecs = concat
-        [ case aGen of
-            Nothing    -> []
-            Just aGen' -> [ PrimValue <$> aGen' ]
-        , [ Var  <$> genName ]
-        , [ Term <$> genName <*> pure [] ]
-        ]
-      genTerm' = genTerm aGen
-      recs =
-        [ Gen.subtermM genTerm' (\x -> Term <$> genName <*> pure [ x ])
-        , Gen.subtermM2 genTerm' genTerm' (\x y -> Term <$> genName <*> pure [ x, y ])
-        , Gen.subtermM3 genTerm' genTerm' genTerm' (\x y z -> Term <$> genName <*> pure [ x, y, z ])
-        -- Term <$> genName <*> Gen.list (Range.exponential 1 100)
+genTerm
+  :: forall m a.
+     MonadGen m
+  => SyntaxChart
+  -> SortName
+  -> (SortName -> Maybe (m a))
+  -> m (Term a)
+genTerm chart@(SyntaxChart chart') sort genPrim =
+  let SortDef _vars operators = chart' ^?! ix sort
 
-        , Gen.subtermM genTerm'
-          (\x -> Binding <$> Gen.list (Range.exponential 1 100) genName <*> pure x)
+      opNames = _operatorName <$> operators
+
+      nonrec =
+        [ do
+             name <- genName
+             if name `elem` opNames
+             then Gen.discard
+             else pure $ Var name
         ]
-  in Gen.recursive Gen.choice nonRecs recs
+
+      -- TODO: express as fold
+      genArity :: [Valence] -> m [Term a]
+      genArity = foldrM
+        -- TODO: handle applied sorts
+        (\valence valences' -> case valence of
+          Valence binders (SortAp sort' []) -> do
+            tm <- genTerm chart sort' genPrim
+            case binders of
+              [] -> pure $ tm : valences'
+              _  -> do
+                names <- Gen.list (Range.singleton (length binders)) genName
+                pure $ Binding names tm : valences'
+          External sort' -> case genPrim sort' of
+            Just aGen' -> (:[]) . PrimValue <$> aGen'
+            -- TODO: discard by not trying to generate operators with externals
+            -- in them
+            Nothing    -> Gen.discard
+        )
+        []
+
+      termGen :: Text -> [Valence] -> m (Term a)
+      termGen name valences = Term name <$> genArity valences
+
+      rec = operators <&> \(Operator name (Arity valences) _desc) ->
+        termGen name valences
+
+  in Gen.sized $ \n ->
+       if n <= 1 then
+         Gen.choice nonrec
+       else
+         Gen.choice $ nonrec ++ fmap Gen.small rec
+
 
 instance Pretty a => Pretty (Term a) where
   pretty = \case

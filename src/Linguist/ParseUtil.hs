@@ -62,6 +62,9 @@ stringLiteral = fmap (pack . concat) $ char '"' *> many character <* char '"'
     character :: m String
     character = fmap return nonEscape <|> escape
 
+intLiteral :: (MonadParsec e Text m, Num a, Integral a) => m a
+intLiteral = L.signed sc (lexeme L.decimal)
+
 parseName :: MonadParsec e Text m => m Text
 parseName = pack
   <$> ((:)

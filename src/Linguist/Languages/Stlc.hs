@@ -1,6 +1,13 @@
 {-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TypeFamilies       #-}
-module Linguist.Languages.Stlc where
+module Linguist.Languages.Stlc
+  ( stlcTests
+  -- , stlcChart
+  -- , TermF(..)
+  -- , Term(..)
+  -- , dynamics
+  -- , stlcTm2
+  ) where
 
 import qualified Data.Map.Strict                 as Map
 import           Data.Void                       (Void)
@@ -9,10 +16,11 @@ import           NeatInterpolation
 import           Text.Megaparsec                 (errorBundlePretty, runParser)
 
 import           Linguist.FunctorUtil
-import           Linguist.ParseSyntaxDescription
-import           Linguist.Types hiding (Term)
-import qualified Linguist.Types as L
 import           Linguist.Languages.MachineModel
+import           Linguist.ParseLanguage          (prop_parse_pretty, Parser)
+import           Linguist.ParseSyntaxDescription hiding (Parser)
+import           Linguist.Types                  hiding (Term)
+import qualified Linguist.Types                  as L
 
 
 stlcChart :: SyntaxChart
@@ -91,6 +99,9 @@ stlcTests = tests
     in case result of
          Left err     -> crash $ errorBundlePretty err
          Right parsed -> expectEq parsed stlcChart
+
+  , scope "prop_parse_pretty" $ testProperty $ prop_parse_pretty stlcChart "Exp"
+    (const Nothing) (undefined :: Parser ())
   ]
 
 stlcTm1, stlcTm2 :: L.Term Void

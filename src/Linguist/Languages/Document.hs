@@ -14,8 +14,10 @@ import           NeatInterpolation
 import           Text.Megaparsec                    (ParseErrorBundle, runParser)
 
 import           Linguist.Languages.Document.Syntax
-import           Linguist.ParseSyntaxDescription
+import           Linguist.ParseLanguage             (prop_parse_pretty, Parser)
+import           Linguist.ParseSyntaxDescription    hiding (Parser)
 import           Linguist.Types                     (SyntaxChart, Term (..))
+import           Linguist.Util                      (forceRight)
 
 -- import qualified Data.Map as Map
 -- import           Linguist.TH
@@ -260,4 +262,7 @@ documentTests = tests
   [ do Just doc  <- pure $ textDocument ^? foldText
        Just doc' <- pure $ doc ^? foldTerm
        expectEq textDocument doc'
+  , scope "prop_parse_pretty" $ testProperty $
+    prop_parse_pretty (forceRight syntax) "Document"
+      (const Nothing) (undefined :: Parser ())
   ]
