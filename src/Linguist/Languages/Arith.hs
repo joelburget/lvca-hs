@@ -4,7 +4,6 @@
 
 module Linguist.Languages.Arith where
 
-import Control.Applicative ((<|>))
 import Control.Monad.Reader (runReaderT)
 import Control.Lens (pattern Empty, pattern (:<), _Right, _Wrapped)
 import Control.Applicative ((<$))
@@ -16,20 +15,20 @@ import           Data.Void                          (Void)
 import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
 import           EasyTest
 import           Data.Text.Prettyprint.Doc (Pretty(pretty), viaShow)
+import qualified Data.Map as Map
 
 import           Linguist.Languages.Arith.Syntax
 import           Linguist.ParseDenotationChart      (parseDenotationChart)
 import qualified Linguist.ParseDenotationChart      as PD
-import qualified Linguist.ParseLanguage             as PL
 import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
 import           Linguist.Proceed
 import           Linguist.Types                     -- (SyntaxChart, Term (..))
 import           Linguist.Util                      (forceRight)
-
-import qualified Data.Map as Map
 import           Linguist.TH
-import Linguist.ParseLanguage (Parser, standardParser, prop_parse_pretty)
+import           Linguist.ParseLanguage (Parser, ParseEnv(ParseEnv),
+  standardParser, prop_parse_pretty, ExternalStyle(UntaggedExternals),
+  ExternalParsers)
 
 import Language.Haskell.TH (lookupTypeName, Type(..))
 
@@ -47,8 +46,12 @@ instance Pretty E where
   pretty = viaShow
 
 $(do
-  Just t <- lookupTypeName "Integer"
-  mkTypes syntaxT $ Map.singleton "Integer" $ PromotedT t)
+  Just t <- lookupTypeName "Text"
+  Just i <- lookupTypeName "Int"
+  mkTypes syntaxT $ Map.fromList
+    [ ("Prim", PromotedT t)
+    , ("Int", PromotedT i)
+    ])
 
 makeLenses ''Arith
 
@@ -73,22 +76,22 @@ peanoDynamics
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
   "(arith peano dynamics)" peanoDynamicsT
 
-tm :: Term Int
-tm = Term "Add"
+example :: Term Int
+example = Term "Add"
   [ Term "Mul"
-    [ PrimValue 1
+    [ PrimValue "Int" 1
     , Term "Sub"
-      [ PrimValue 500
-      , PrimValue 498
+      [ PrimValue "Int" 500
+      , PrimValue "Int" 498
       ]
     ]
-  , PrimValue 3
+  , PrimValue "Int" 3
   ]
 
-tm' :: Term Int
+tm' :: Term E
 tm' =
-  let parser = standardParser undefined
-      env = (forceRight syntax, "Arith")
+  let parser = standardParser primParsers
+      env = ParseEnv (forceRight syntax) "Arith" UntaggedExternals
       exampleTerm :: Text
       exampleTerm = "Add(Mul(1; Sub(500; 498)); 3)"
   in case runParser (runReaderT parser env) "(example term)" exampleTerm of
@@ -96,7 +99,7 @@ tm' =
        Right tm'' -> tm''
 
 pattern PrimInt :: Int -> Term E
-pattern PrimInt i = PrimValue (E (Left i))
+pattern PrimInt i = PrimValue "Int" (E (Left i))
 
 evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive = \case
@@ -117,27 +120,27 @@ eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
   evalMachinePrimitive
   (Just . E . Left)
 
+primParsers :: ExternalParsers E
+primParsers = Map.singleton "Arith" $ Map.fromList
+  [ ("Int" , E . Left  <$> (intLiteral :: Parser Int))
+  , ("Prim", E . Right <$> stringLiteral)
+  ]
+
 arithTests :: Test ()
 arithTests = tests
   [ scope "eval" $ tests
-    [ expectEq (eval' tm) (Right (PrimInt 5))
+    [ expectEq (eval' example) (Right (PrimInt 5))
     ]
-  , scope "prop" $ tests
+  , scope "prop_parse_pretty" $ tests
     [ testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
-      (const Nothing) (undefined :: PL.Parser ())
+      (const Nothing) primParsers
     ]
-  , let primParser =
-          E . Left  <$> (intLiteral :: Parser Int) <|>
-          E . Right <$> stringLiteral
-        parser = standardParser primParser
-        runP str = (runParser (runReaderT parser (forceRight syntax, "Arith"))
-          "(test)" str)
+  , let parser = standardParser primParsers
+        parseEnv = ParseEnv (forceRight syntax) "Arith" UntaggedExternals
+        runP str = runParser (runReaderT parser parseEnv) "(test)" str
         expectParse str tm = scope (Text.unpack str) $ case runP str of
           Left err       -> fail $ errorBundlePretty err
           Right parsedTm -> expectEq parsedTm tm
-        expectNoParse str = scope (Text.unpack str) $ case runP str of
-          Left _   -> ok
-          Right tm -> fail $ "parsed " ++ show tm
     in scope "parse" $ tests
     [ expectParse
         "Za"

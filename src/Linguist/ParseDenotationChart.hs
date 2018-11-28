@@ -1,8 +1,6 @@
 module Linguist.ParseDenotationChart where
 
--- import           Control.Applicative           (($>))
-import Control.Monad
-import Control.Lens (review)
+import           Control.Lens                  (review)
 import           Data.Foldable                 (asum)
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
@@ -49,20 +47,14 @@ parsePattern' parseA = asum
                _  -> BindingPattern binders body
 
        name <- parseName
-       option (PatternVar (Just name)) $
-         parens $ PatternTm name <$> betweenSemis `sepBy` symbol ";"
-  , PatternPrimVal <$> braces parseA
+       option (PatternVar (Just name)) $ asum
+         [ parens $ PatternTm name <$> betweenSemis `sepBy` symbol ";"
+         , braces $ PatternPrimVal name <$> (asum
+             [ Nothing <$  symbol "_" <?> "wildcard pattern"
+             , Just    <$> parseA
+             ])
+         ]
   ] <?> "non-union pattern"
-
-endBy' :: (MonadPlus m, MonadParsec e s m) => m a -> m sep -> m [a]
-endBy' p sep = many $ try $ do
-  x <- p
-  re x sep
-{-# INLINE endBy' #-}
-
-re :: Monad m => a -> m b -> m a
-re x = liftM (const x)
-{-# INLINE re #-}
 
 parseBinders :: Parser [Text]
 parseBinders = try parseName `endBy'` symbol "."
@@ -71,25 +63,28 @@ parseBinders = try parseName `endBy'` symbol "."
 parseDenotationRhs :: AsFacet Text b => Parser b -> Parser (Term b)
 parseDenotationRhs parseB = asum
   [ do name <- parseName
-       option (Var name) $ parens $ do
-         let boundTerm = do
-               binders <- parseBinders
-               tm      <- parseDenotationRhs parseB
-               pure $ case binders of
-                 [] -> tm
-                 _  -> Binding binders tm
-         Term name <$> boundTerm `sepBy` symbol ";"
-  , do meaningVar <- oxfordBrackets $
-         Term "MeaningPatternVar" . (:[]) . PrimValue . review (facet @Text) <$>
-         parseName
+       option (Var name) $ asum
+         [ parens $ do
+           let boundTerm = do
+                 binders <- parseBinders
+                 tm      <- parseDenotationRhs parseB
+                 pure $ case binders of
+                   [] -> tm
+                   _  -> Binding binders tm
+           Term name <$> boundTerm `sepBy` symbol ";"
+         , PrimValue name <$> braces parseB
+         ]
+  , do meaningVar <- oxfordBrackets $ do
+         name <- parseName
+         pure $ Term "MeaningPatternVar"
+           [ PrimValue "Text" (review (facet @Text) name) ]
        option meaningVar $ brackets $ do
          to   <- parseName
          _    <- symbol "/"
          from <- parseName
          pure $ Term "Renaming"
-           [ PrimValue $ review (facet @Text) from
-           , PrimValue $ review (facet @Text) to
+           [ PrimValue "Text" $ review (facet @Text) from
+           , PrimValue "Text" $ review (facet @Text) to
            , meaningVar
            ]
-  , PrimValue <$> braces parseB
   ] <?> "non-union pattern"

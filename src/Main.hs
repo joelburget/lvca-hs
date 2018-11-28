@@ -44,7 +44,7 @@ main = do
     let env = (forceRight Arith.syntax, forceRight Arith.machineDynamics, const Nothing)
         steps :: [StateStep Int]
         steps = iterate (\tm -> runReader (error "TODO" tm) env) $
-          StateStep [] (Descending Arith.tm)
+          StateStep [] (Descending Arith.example)
     in State (zipper steps & fromWithin traverse) False
   pure ()
 

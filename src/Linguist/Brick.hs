@@ -126,10 +126,10 @@ drawFocus = \case
 
 showTermSlot :: TmShow a => Term a -> Widget ()
 showTermSlot = \case
-  Term name _ -> txt $ "[" <> name <> "]"
-  Var name    -> txt name
-  Binding _ _ -> txt "TODO: binding"
-  PrimValue a -> drawPrim a
+  Term name _      -> txt $ "[" <> name <> "]"
+  Var name         -> txt name
+  Binding _ _      -> txt "TODO: binding"
+  PrimValue name a -> txt name <+> txt "{" <+> drawPrim a <+> txt "}"
 
 drawBinding :: (Text, Term a) -> Widget ()
 drawBinding _ = txt "binding"
@@ -145,7 +145,8 @@ drawTm = \case
     <=>
     padLeft (Pad 2) (drawTm subterm)
   Var name   -> txt name
-  PrimValue primVal -> drawPrim primVal -- str $ either show show primVal
+  PrimValue name primVal ->
+    txt name <+> txt "{" <+> drawPrim primVal <+> txt "}"
 
 app :: TmShow s => App (State s) a ()
 app = App

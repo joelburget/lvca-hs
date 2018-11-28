@@ -28,27 +28,25 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
     parseOperator
 
 parseOperator :: Parser Operator
-parseOperator = Operator
-  <$> parseName
-  <*> parseArity
-  <*> option "" stringLiteral
+parseOperator = asum
+  [ Operator
+    <$> parseName
+    <*> parseArity
+    <*> option "" stringLiteral
+  , External
+    <$> braces (parseName)
+    <*> option "" stringLiteral
+  ]
 
 parseArity :: Parser Arity
-parseArity = fmap Arity $ option [] $ asum
-  [ parens $ option [] $ parseValence `sepBy1` symbol ";"
-
-  -- you can elide the parens in the special case of a singleton external
-  , fmap (:[]) parseExternal
-  ]
+parseArity = fmap Arity $ option [] $
+  parens $ option [] $ parseValence `sepBy1` symbol ";"
 
 parseValence :: Parser Valence
-parseValence = asum
-  [ parseExternal
-  , do
-       names <- parseSort `sepBy1` symbol "."
-       let Just (sorts, result) = unsnoc names
-       pure $ Valence sorts result
-  ]
+parseValence = do
+  names <- parseSort `sepBy1` symbol "."
+  let Just (sorts, result) = unsnoc names
+  pure $ Valence sorts result
 
 parseSort :: Parser Sort
 parseSort = SortAp
@@ -57,6 +55,3 @@ parseSort = SortAp
     [ SortAp <$> parseName <*> pure []
     , parens parseSort
     ])
-
-parseExternal :: Parser Valence
-parseExternal = braces $ External <$> parseName

@@ -57,10 +57,14 @@ deriving instance (Eq   a) => Eq   (MeaningF a)
 deriving instance (Show a) => Show (MeaningF a)
 
 meaningPatternVar :: a -> Term a
-meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue name ]
+meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue "Text" name ]
 
 (//) :: Text -> Text -> Term Text -> Term Text
-(//) to from term = Term "Renaming" [PrimValue from, PrimValue to, term]
+(//) to from term = Term "Renaming"
+  [ PrimValue "Text" from
+  , PrimValue "Text" to
+  , term
+  ]
 
 -- The core of this function is the call to meaningTermP, to which we need to
 -- pass a prism that it can use on its children. That prism is this one, but
@@ -72,7 +76,11 @@ meaningTermP :: forall a f.
 meaningTermP textP fP = prism' rtl ltr where
 
   primValP :: Prism' (Term a) Text
-  primValP = _PrimValue . textP
+  primValP = _PrimValue . prism'
+    (\name -> ("Text", review textP name))
+    (\case
+      ("Text", name) -> preview textP name
+      _              -> Nothing)
 
   subP :: Prism' (Term a) (Free (MeaningF :+: f) Text)
   subP = meaningTermP textP fP
@@ -100,7 +108,8 @@ meaningTermP textP fP = prism' rtl ltr where
         , review subP term
         ]
       Value meaning -> Term "Value" [ review subP meaning ]
-      MeaningPatternVar name -> Term "MeaningPatternVar" [ PrimValue $ review textP name ]
+      MeaningPatternVar name -> Term "MeaningPatternVar"
+        [ PrimValue "Text" $ review textP name ]
     Free (InR f) -> review fP f
 
   ltr :: Term a -> Maybe (Free (MeaningF :+: f) Text)
@@ -123,7 +132,7 @@ meaningTermP textP fP = prism' rtl ltr where
       <*> preview subP term
     Term "Value" [ meaning ] -> fmap (Free . InL) $ Value
       <$> preview subP meaning
-    Term "MeaningPatternVar" [ PrimValue name ] -> fmap (Free . InL) $
+    Term "MeaningPatternVar" [ PrimValue "Text" name ] -> fmap (Free . InL) $
       MeaningPatternVar <$> preview textP name
     other -> fmap (Free . InR) $ preview fP other
 

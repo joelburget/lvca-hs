@@ -22,9 +22,9 @@ module Linguist.Languages.SimpleExample
   , eval'
   ) where
 
-import           Control.Applicative                   ((<|>))
 import           Control.Lens                          hiding (from, to)
 import           Control.Monad.Reader
+import           Data.Map.Strict                       (Map)
 import qualified Data.Map.Strict                       as Map
 import           Data.Text                             (Text)
 import qualified Data.Text                             as Text
@@ -62,23 +62,20 @@ instance Pretty E where
   pretty (E (Left  x)) = pretty x
   pretty (E (Right x)) = pretty ("\"" <> x <> "\"")
 
-pattern PrimValue' :: Either Int Text -> Term E
-pattern PrimValue' x = PrimValue (E x)
+pattern PrimValue' :: Text -> Either Int Text -> Term E
+pattern PrimValue' name x = PrimValue name (E x)
 
 pattern TI :: Int -> Term E
-pattern TI x = Term "Num" [PrimValue' (Left x)]
+pattern TI x = PrimValue' "Num" (Left x)
 
 pattern TS :: Text -> Term E
-pattern TS x = Term "Str" [PrimValue' (Right x)]
+pattern TS x = PrimValue' "Str" (Right x)
 
 pattern VI :: Int -> Term E
-pattern VI x = Term "NumV" [PrimValue' (Left x)]
+pattern VI x = PrimValue' "NumV" (Left x)
 
 pattern VS :: Text -> Term E
-pattern VS x = Term "StrV" [PrimValue' (Right x)]
-
-pattern PatternPrimVar :: Text -> Maybe Text -> Pattern a
-pattern PatternPrimVar ty name = PatternTm ty [PatternVar name]
+pattern VS x = PrimValue' "StrV" (Right x)
 
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
@@ -88,8 +85,8 @@ syntax = SyntaxChart $ Map.fromList
     , Operator "Str" (Arity []) "strings"
     ])
   , ("Exp", SortDef []
-    [ Operator "Num"   (ExternalArity "Num") "numeral"
-    , Operator "Str"   (ExternalArity "Str") "literal"
+    [ External "Num" "numeral"
+    , External "Str" "literal"
     , Operator "Plus"
       (Arity ["Exp", "Exp"]) "addition"
     , Operator "Times"
@@ -102,7 +99,7 @@ syntax = SyntaxChart $ Map.fromList
     --   Check for anything matching this that it has a binding pattern in the
     --   second slot
     , Operator "Let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
-    , Operator "Annotation" (Arity [External "Annotation", "Exp"]) "annotation"
+    , Operator "Annotation" (Arity ["Exp", "Exp"]) "annotation"
     ])
   , ("List", SortDef ["a"]
     [ Operator "Nil" (Arity []) ""
@@ -199,14 +196,14 @@ dynamicsT :: Text
 dynamicsT = [text|
   [[ Plus(n1; n2) ]] = Eval([[ n1 ]]; n1'.
                          Eval([[ n2 ]]; n2'.
-                           PrimApp({add}; n1'; n2')))
+                           PrimApp(Str{add}; n1'; n2')))
   [[ Times(n1; n2) ]] = Eval([[ n1 ]]; n1'.
                           Eval([[ n2 ]]; n2'.
-                            PrimApp({mul}; n1'; n2')))
+                            PrimApp(Str{mul}; n1'; n2')))
   [[ Cat(n1; n2) ]]   = Eval([[ n1 ]]; n1'.
                           Eval([[ n2 ]]; n2'.
-                            PrimApp({cat}; n1'; n2')))
-  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp({len}; e1'))
+                            PrimApp(Str{cat}; n1'; n2')))
+  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp(Str{len}; e1'))
   [[ Let(e; v. body) ]]         = Eval([[ e ]]; e'.
                                     Eval(
   // XXX change x to v and this no longer works -- accidental capture!
@@ -384,14 +381,14 @@ completePatternTests = scope "completePattern" $ tests
   , expectEq'
       (runMatches syntax "Exp" completePattern)
       (Just (PatternUnion
-        [ PatternTm "Num"        [PatternPrimVar "Num" Nothing]
-        , PatternTm "Str"        [PatternPrimVar "Str" Nothing]
+        [ PatternPrimVal "Num" Nothing
+        , PatternPrimVal "Str" Nothing
         , PatternTm "Plus"       [PatternAny, PatternAny]
         , PatternTm "Times"      [PatternAny, PatternAny]
         , PatternTm "Cat"        [PatternAny, PatternAny]
         , PatternTm "Len"        [PatternAny]
         , PatternTm "Let"        [PatternAny, PatternAny]
-        , PatternTm "Annotation" [PatternPrimVar "Annotation" Nothing, PatternAny]
+        , PatternTm "Annotation" [PatternAny, PatternAny]
         ]))
   ]
 
@@ -399,7 +396,7 @@ minusTests :: Test ()
 minusTests = scope "minus" $
   let x = PatternVar (Just "x")
       y = PatternVar (Just "y")
-      num = PatternPrimVar "num" Nothing
+      num = PatternPrimVal "num" Nothing
       any' = PatternAny
   in tests
        [ expectEq' (runMatches undefined undefined (minus x x)) (Just PatternEmpty)
@@ -414,11 +411,11 @@ minusTests = scope "minus" $
        , expectEq'
          (runMatches syntax "Exp" (minus
            (PatternTm "plus"
-             [ PatternPrimVar "num" Nothing
+             [ PatternPrimVal "num" Nothing
              , x
              ])
            (PatternTm "plus"
-             [ PatternPrimVar "num" Nothing
+             [ PatternPrimVal "num" Nothing
              , y
              ])))
          (Just PatternEmpty)
@@ -434,8 +431,8 @@ minusTests = scope "minus" $
        --   in (traceShowId $ flip runReaderT env (minus
        --        (PatternTm "plus" [x, y])
        --        (PatternTm "plus"
-       --          [ PatternPrimVar "num" Nothing
-       --          , PatternPrimVar "num" Nothing
+       --          [ PatternPrimVal "num" Nothing
+       --          , PatternPrimVal "num" Nothing
        --          ])))
        --        ==
        --        Just PatternEmpty
@@ -447,14 +444,14 @@ prettySyntaxChartTests = tests
     (renderStrict (layoutPretty defaultLayoutOptions (pretty syntax)))
     (Text.init [text|
       Exp ::=
-        Num[Num]
-        Str[Str]
+        {Num}
+        {Str}
         Plus(Exp; Exp)
         Times(Exp; Exp)
         Cat(Exp; Exp)
         Len(Exp)
         Let(Exp; Exp.Exp)
-        Annotation([Annotation]; Exp)
+        Annotation(Exp; Exp)
       List a ::=
         Nil
         Cons(a; List a)
@@ -516,45 +513,56 @@ eval' = eval $ mkEvalEnv "Exp" syntax (forceRight dynamics') evalMachinePrimitiv
 
 evalTests :: Test ()
 evalTests = tests
-  [ expect $ eval' tm1 == Right (VI 3)
-  , expect $ eval' tm2 == Right (VS "foobar")
+  [ expectEq (eval' tm1) (Right (VI 3))
+  -- , expectEq (eval' tm2) (Right (VS "foobar"))
   ]
 
-primParser :: Parser E
-primParser =
-  E . Left  <$> (intLiteral :: Parser Int) <|>
-  E . Right <$> stringLiteral
+primParsers :: Map SortName (Map Text (Parser E))
+primParsers = Map.singleton "Exp" $ Map.fromList
+  [ ("Num", E . Left  <$> (intLiteral :: Parser Int))
+  , ("Str", E . Right <$> stringLiteral)
+  ]
 
 parseTests :: Test ()
 parseTests =
-  let parser = standardParser primParser
-      runP str = (runParser (runReaderT parser (syntax, "Exp")) "(test)" str)
-      expectParse str tm = scope (Text.unpack str) $ case runP str of
+  let parser = standardParser primParsers
+      runP sty str = runParser
+        (runReaderT parser (ParseEnv syntax "Exp" sty))
+        "(test)" str
+      expectParse sty str tm = scope (Text.unpack str) $ case runP sty str of
         Left err       -> fail $ errorBundlePretty err
         Right parsedTm -> expectEq parsedTm tm
-      expectNoParse str = scope (Text.unpack str) $ case runP str of
+      expectNoParse sty str = scope (Text.unpack str) $ case runP sty str of
         Left _   -> ok
         Right tm -> fail $ "parsed " ++ show tm
   in scope "parse" $ tests
-  [ expectParse
-      "Plus(Num(1); Num(2))"
+  [ expectParse UntaggedExternals
+      "Plus(1; 2)"
       (Term "Plus" [TI 1, TI 2])
-  , expectParse
-      "Cat(Str(\"abc\"); Str(\"def\"))"
+  , expectParse UntaggedExternals
+      "Cat(\"abc\"; \"def\")"
       (Term "Cat" [TS "abc", TS "def"])
-  , expectParse
-      "Str(\"\\\"quoted text\\\"\")"
+  , expectParse UntaggedExternals
+      "\"\\\"quoted text\\\"\""
       (TS "\\\"quoted text\\\"")
 
-  , expectNoParse "Str(\"ab\\\")"
+  , expectNoParse UntaggedExternals "\"ab\\\""
+  , expectNoParse TaggedExternals "\"ab\\\""
 
   -- Note this doesn't check but it should still parse
-  , expectParse
-      "Cat(Str(\"abc\"); Num(1))"
+  , expectParse UntaggedExternals
+      "Cat(\"abc\"; 1)"
       (Term "Cat" [TS "abc", TI 1])
+  , expectNoParse UntaggedExternals
+      "Cat(Str{\"abc\"}; Num{1})"
+  , expectParse TaggedExternals
+      "Cat(Str{\"abc\"}; Num{1})"
+      (Term "Cat" [TS "abc", TI 1])
+  , expectNoParse TaggedExternals
+      "Cat(\"abc\"; 1)"
 
-  , expectParse
-     "Let(Num(1); x. Plus(x; Num(2)))"
+  , expectParse UntaggedExternals
+     "Let(1; x. Plus(x; 2))"
      (Term "Let"
        [ TI 1
        , Binding ["x"]
@@ -564,7 +572,7 @@ parseTests =
            ])
        ])
 
-  , expectParse "Num(0)" (TI 0)
+  , expectParse UntaggedExternals "0" (TI 0)
   ]
 
 propTests :: Test ()
@@ -576,5 +584,5 @@ propTests = tests
          Gen.text (Range.exponential 0 5000) Gen.unicode)
        _     -> Nothing
      )
-     primParser
+     primParsers
   ]

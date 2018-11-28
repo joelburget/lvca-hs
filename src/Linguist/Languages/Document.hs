@@ -12,16 +12,14 @@ import           Data.Void                          (Void, absurd)
 import           EasyTest
 import           NeatInterpolation
 import           Text.Megaparsec                    (ParseErrorBundle, runParser)
+import           Data.Text.Prettyprint.Doc          (Pretty(..))
 
 import           Linguist.Languages.Document.Syntax
-import           Linguist.ParseLanguage             (prop_parse_pretty, Parser)
+import           Linguist.ParseLanguage
+import           Linguist.ParseUtil                 (noParse)
 import           Linguist.ParseSyntaxDescription    hiding (Parser)
-import           Linguist.Types                     (SyntaxChart, Term (..))
+import           Linguist.Types                     -- (SyntaxChart, Term (..))
 import           Linguist.Util                      (forceRight)
-
--- import qualified Data.Map as Map
--- import           Linguist.TH
--- import Language.Haskell.TH (lookupTypeName, Type(..), mkName)
 
 data InlineEmbed
 
@@ -53,7 +51,20 @@ syntax = runParser parseSyntaxDescription "(document syntax)" syntaxText
 --     , ("Text",        PromotedT t)
 --     ])
 
-type Term' a b = Term (Which '[a, b, Text])
+newtype Embed a b = Embed (Which '[a, b, Text])
+  deriving (Show, Eq)
+
+instance (Pretty a, Pretty b) => Pretty (Embed a b) where
+  pretty (Embed embed) = switchN embed (
+    casesN (pretty @a
+         ./ pretty @b
+         ./ pretty @Text
+         ./ nil
+      )
+    )
+
+
+type Term' a b = Term (Embed a b)
 
 model :: Prism' (Term' a b) (Document a b)
 model = prism' bwd fwd where
@@ -94,20 +105,21 @@ blockP :: Prism' (Term' a b) (Block a b)
 blockP = prism' bwd fwd where
 
   fwd = \case
-    Term "Header" [level, PrimValue val] -> Header
+    Term "Header" [level, PrimValue "Text" (Embed val)] -> Header
       <$> preview headerLevelP level
       <*> trialN' @2 val
-    Term "Paragraph" [inline] -> Paragraph <$> preview inlineP inline
-    Term "BlockEmbed" [PrimValue val] -> BlockEmbed <$> trialN' @0 val
+    Term "Paragraph" [inline]  -> Paragraph <$> preview inlineP inline
+    PrimValue "BlockEmbed" (Embed val) -> BlockEmbed <$> trialN' @0 val
     _ -> Nothing
 
   bwd = \case
     Header level t -> Term "Header"
       [ (review headerLevelP) level
-      , PrimValue (pickN @2 t)
+      , PrimValue "Text" (Embed (pickN @2 t))
       ]
     Paragraph inline -> Term "Paragraph" [review inlineP inline]
-    BlockEmbed embed -> Term "BlockEmbed" [PrimValue (pickN @0 embed)]
+    BlockEmbed embed -> Term "BlockEmbed"
+      [ PrimValue "BlockEmbed" (Embed (pickN @0 embed)) ]
 
 headerLevelP :: Prism' (Term x) HeaderLevel
 headerLevelP = prism' bwd fwd where
@@ -144,15 +156,17 @@ inlineAtomP = prism' bwd fwd where
   bwd = \case
     InlineAtom attrs t -> Term "InlineAtom"
       [ review (maybeP attributeP) attrs
-      , PrimValue (pickN @2 t)
+      , PrimValue "Text" (Embed (pickN @2 t))
       ]
-    InlineEmbed embed -> Term "InlineEmbed" [PrimValue (pickN @1 embed)]
+    InlineEmbed embed -> Term "InlineEmbed"
+      [ PrimValue "InlineEmbed" (Embed (pickN @1 embed)) ]
 
   fwd = \case
-    Term "InlineAtom" [attrs, PrimValue val] -> InlineAtom
+    Term "InlineAtom" [attrs, PrimValue "Text" (Embed val)] -> InlineAtom
       <$> preview (maybeP attributeP) attrs
       <*> trialN' @2 val
-    Term "InlineEmbed" [PrimValue val] -> InlineEmbed <$> trialN' @1 val
+    Term "InlineEmbed" [PrimValue "InlineEmbed" (Embed val)] ->
+      InlineEmbed <$> trialN' @1 val
     _ -> Nothing
 
 attributeP :: Prism' (Term x) Attribute
@@ -264,5 +278,12 @@ documentTests = tests
        expectEq textDocument doc'
   , scope "prop_parse_pretty" $ testProperty $
     prop_parse_pretty (forceRight syntax) "Document"
-      (const Nothing) (undefined :: Parser ())
+      (const Nothing) externalParsers
+  ]
+
+externalParsers :: ExternalParsers (Embed Void Void)
+externalParsers = makeExternalParsers
+  [ "Block"      :-> [ "BlockEmbed"  :-> noParse ]
+  , "InlineAtom" :-> [ "InlineEmbed" :-> noParse ]
+  , "Text"       :-> [ "Text"        :-> noParse ]
   ]

@@ -1,23 +1,15 @@
 {-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TypeFamilies       #-}
-module Linguist.Languages.Stlc
-  ( stlcTests
-  -- , stlcChart
-  -- , TermF(..)
-  -- , Term(..)
-  -- , dynamics
-  -- , stlcTm2
-  ) where
+{-# LANGUAGE TypeFamilies      #-}
+module Linguist.Languages.Stlc (stlcTests) where
 
+import           Control.Monad.Reader            (runReaderT)
 import qualified Data.Map.Strict                 as Map
 import           Data.Void                       (Void)
 import           EasyTest
 import           NeatInterpolation
 import           Text.Megaparsec                 (errorBundlePretty, runParser)
 
-import           Linguist.FunctorUtil
-import           Linguist.Languages.MachineModel
-import           Linguist.ParseLanguage          (prop_parse_pretty, Parser)
+import           Linguist.ParseLanguage
 import           Linguist.ParseSyntaxDescription hiding (Parser)
 import           Linguist.Types                  hiding (Term)
 import qualified Linguist.Types                  as L
@@ -48,31 +40,35 @@ stlcChart = SyntaxChart $ Map.fromList
 --     Cbn "body" "applicand")
 --   ]
 
-data TermF e
-  = LamF   !e
-  | ApF !e !e
+-- data TermF e
+--   = LamF   !e
+--   | ApF !e !e
 
-data Term
-  = Lam !(Either Term Pat)
-  | Ap  !(Either Term Pat) !(Either Term Pat)
+-- data Term
+--   = Lam !(Either Term Pat)
+--   | Ap  !(Either Term Pat) !(Either Term Pat)
 
-dynamics :: DenotationChart' (TermF :+: PatF) MeaningF
-dynamics = DenotationChart'
-  [ FixL (ApF
-      (FixL (LamF (FixR (BindingPatF ["x"] (FixIn (PatVarF (Just "body")))))))
-      (FixR (PatVarF (Just "applicand"))))
-    :->
-    Free
-      (Eval (Pure "applicand")
-      "foo"
-      (Pure "body"))
-  ]
+-- dynamics :: DenotationChart' (TermF :+: PatF) MeaningF
+-- dynamics = DenotationChart'
+--   [ FixL (ApF
+--       (FixL (LamF (FixR (BindingPatF ["x"] (FixIn (PatVarF (Just "body")))))))
+--       (FixR (PatVarF (Just "applicand"))))
+--     :->
+--     Free
+--       (Eval (Pure "applicand")
+--       "foo"
+--       (Pure "body"))
+--   ]
 
 stlcTests :: Test ()
 stlcTests = tests
-  [ expectJust $ runMatches stlcChart "Exp" $ matches
-    (PatternTm "lam" [BindingPattern ["x"] (PatternVar (Just "body"))])
-    stlcTm1
+  [ scope "match" $
+      expectJust $ runMatches stlcChart "Exp" $ matches
+        (PatternTm "lam"
+          [ PatternVar (Just "ty")
+          , BindingPattern ["x"] (PatternVar (Just "body"))
+          ])
+        stlcTm1
   , scope "parsing chart" $
     let result = runParser parseSyntaxDescription "(test)"
           [text|
@@ -101,9 +97,32 @@ stlcTests = tests
          Right parsed -> expectEq parsed stlcChart
 
   , scope "prop_parse_pretty" $ testProperty $ prop_parse_pretty stlcChart "Exp"
-    (const Nothing) (undefined :: Parser ())
+    (const Nothing) noExternalParsers
+
+  , let parser = standardParser noExternalParsers
+        runP = runParser
+          (runReaderT parser (ParseEnv stlcChart "Exp" UntaggedExternals))
+          "(test)"
+        expectParse str tm = case runP str of
+          Left err       -> fail $ errorBundlePretty err
+          Right parsedTm -> expectEq parsedTm tm
+
+    in scope "parse" $ tests
+         [ expectParse "lam(ty; x. ap(x; x))" stlcTm1
+         , expectParse [text| ap(
+               lam(ty; x. ap(x; x));
+               lam(ty; x. ap(x; x))
+             )
+             |]
+             stlcTm2
+         , expectParse "lam(nat(); a. a)" $
+           L.Term "lam"
+             [ L.Term "nat" []
+             , L.Binding [ "a" ] (L.Var "a")
+             ]
+         ]
   ]
 
 stlcTm1, stlcTm2 :: L.Term Void
-stlcTm1 = L.Term "lam" [Binding ["x"] (L.Term "ap" [Var "x", Var "x"])]
+stlcTm1 = L.Term "lam" [Var "ty", Binding ["x"] (L.Term "ap" [Var "x", Var "x"])]
 stlcTm2 = L.Term "ap" [stlcTm1, stlcTm1]

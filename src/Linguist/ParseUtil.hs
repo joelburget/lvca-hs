@@ -1,6 +1,6 @@
 module Linguist.ParseUtil where
 
-import           Control.Monad              (MonadPlus, void)
+import           Control.Monad              (MonadPlus, liftM, void)
 import           Data.Text                  (Text, pack)
 import           Data.Void                  (Void)
 import           Text.Megaparsec
@@ -88,3 +88,13 @@ parseVoid = empty <?> "void parse"
 
 noParse :: MonadParsec e t m => m a
 noParse = empty <?> "no parse"
+
+endBy' :: (MonadPlus m, MonadParsec e s m) => m a -> m sep -> m [a]
+endBy' p sep = many $ try $ do
+  x <- p
+  re x sep
+{-# INLINE endBy' #-}
+
+re :: Monad m => a -> m b -> m a
+re x = liftM (const x)
+{-# INLINE re #-}

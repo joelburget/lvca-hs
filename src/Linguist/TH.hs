@@ -37,14 +37,14 @@ mkTypes tDesc externals = do
           SortAp name [] -> mkCon name
           SortAp name applicands
             -> foldl AppT (mkCon name) (fmap handleSort applicands)
-        handleValence = \case
-          Valence _ sort -> (defaultBang, handleSort sort)
-          External name  -> case Map.lookup name externals of
-            Nothing -> error $ "unhandled binding external: " ++ unpack name
-            Just ty -> (defaultBang, ty)
+        handleValence (Valence _ sort) = (defaultBang, handleSort sort)
         handleArity (Arity valences) = fmap handleValence valences
-        ops' = ops <&> \(Operator name arity _)
-          -> NormalC (mkName' name) (handleArity arity)
+        ops' = ops <&> \case
+          Operator name arity _ -> NormalC (mkName' name) (handleArity arity)
+          External name       _ -> case Map.lookup name externals of
+            Nothing -> error $ "unhandled binding external: " ++ unpack name
+            Just ty -> NormalC (mkName' name) [(defaultBang, ty)]
+
     -- lensDecls <- makeLenses sortName'
     -- pure $ DataD [] sortName' vars' Nothing ops' [] : lensDecls
     pure [DataD [] sortName' vars' Nothing ops' []]

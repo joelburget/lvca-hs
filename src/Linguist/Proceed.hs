@@ -32,6 +32,9 @@ import           Linguist.Util        ((??))
 
 import Debug.Trace
 
+emitTrace :: Bool
+emitTrace = False
+
 data EvalEnv a b = EvalEnv
   { _evalSort       :: !SortName
   , _evalSyntax     :: !SyntaxChart
@@ -63,9 +66,6 @@ eval
   => EvalEnv a b -> Term a -> Either String (Term b)
 eval env tm = runReader (runExceptT (eval' tm)) env
 
-emitTrace :: Bool
-emitTrace = False
-
 emit :: Applicative f => Int -> String -> f ()
 emit frames = when emitTrace . traceM . indent frames
 
@@ -96,7 +96,7 @@ specialPretty = \case
   Binding names tm ->
     hsep (punctuate dot (fmap pretty names)) <> dot <+> specialPretty tm
   Var name         -> pretty name
-  PrimValue a      -> pretty a
+  PrimValue name a -> pretty name <> "{" <> pretty a <> "}"
 
 rename :: Text -> Text -> Term a -> Term a
 rename from to tm = case tm of
@@ -144,11 +144,11 @@ eval''
      )
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
-eval'' (PrimValue a) = do
+eval'' (PrimValue name a) = do
   EvalEnv{_evalPrimConv=f} <- ask
   case f a of
     Nothing -> throwError "bad prim value"
-    Just b  -> pure $ PrimValue b
+    Just b  -> pure $ PrimValue name b
 eval'' (Var name) = do
   val <- view $ evalBVars . at name
   val ?? "couldn't look up variable " ++ show name
@@ -158,8 +158,13 @@ eval'' tm = do
     runReaderT (findMatch dChart tm) (MatchesEnv sChart sort Map.empty)
     ?? "couldn't find match for: " ++ show tm
 
+  frames <- view evalFrames
+  emit frames $ "assignments:"
+  ifor_ assignments $ \i a -> emit frames $ show i <> " -> " <> show a
+
   let update env = env
-        & evalPatternVars     %~ Map.union assignments
+        -- & evalPatternVars     %~ Map.union assignments
+        & evalPatternVars     .~ assignments
         & evalCorrespondences <>~ correspondences
   local update $ runInstructions meaning
 
@@ -180,7 +185,8 @@ eval'' tm = do
           pure b
 
         runInstructions' = \case
-          Term "PrimApp" (PrimValue val : args) -> do
+          -- XXX decide what the tag should be here
+          Term "PrimApp" (PrimValue "Prim" val : args) -> do
             EvalEnv{_evalPrimApp=evalPrim} <- ask
             f <- evalPrim =<< getText val
               ?? "couldn't look up evaluator for this primitive"
@@ -192,9 +198,9 @@ eval'' tm = do
             pure $ f $ Seq.fromList args'
           Term "Eval"
             [ Term "Renaming"
-              [ PrimValue from
-              , PrimValue to
-              , patName@(Term "MeaningPatternVar" [PrimValue patternName])
+              [ PrimValue "Text" from
+              , PrimValue "Text" to
+              , patName@(Term "MeaningPatternVar" [PrimValue "Text" patternName])
               ]
             , rhs
             ] -> do
@@ -207,7 +213,7 @@ eval'' tm = do
             local (evalPatternVars . at patternName' ?~ tm''') $
               runInstructions $ Term "Eval" [patName, rhs]
           Term "Eval"
-            [ Term "MeaningPatternVar" [PrimValue fromVar]
+            [ Term "MeaningPatternVar" [PrimValue "Text" fromVar]
             , Binding [name] to
             ] -> do
             fromVar' <- getText fromVar ?? "not text: " ++ show fromVar
@@ -225,7 +231,7 @@ eval'' tm = do
             val' <- val ?? "couldn't look up variable"
             pure val'
 
-          Term "MeaningPatternVar" [PrimValue name] -> do
+          Term "MeaningPatternVar" [PrimValue "Text" name] -> do
             throwError $ "should never evaluate a pattern var on its own ("
               ++ show name ++ ")"
 
