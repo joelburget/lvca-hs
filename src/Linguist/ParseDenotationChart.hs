@@ -13,6 +13,7 @@ import           Linguist.Types
 
 type Parser a = Parsec Void Text a
 
+-- TODO: add tagged / untagged options for consistency with standard parser
 parseDenotationChart
   :: AsFacet Text b => Parser a -> Parser b -> Parser (DenotationChart a b)
 parseDenotationChart parseA parseB = do
@@ -49,7 +50,7 @@ parsePattern' parseA = asum
        name <- parseName
        option (PatternVar (Just name)) $ asum
          [ parens $ PatternTm name <$> betweenSemis `sepBy` symbol ";"
-         , braces $ PatternPrimVal name <$> (asum
+         , braces $ PatternPrimVal <$> (asum
              [ Nothing <$  symbol "_" <?> "wildcard pattern"
              , Just    <$> parseA
              ])
@@ -62,7 +63,8 @@ parseBinders = try parseName `endBy'` symbol "."
 
 parseDenotationRhs :: AsFacet Text b => Parser b -> Parser (Term b)
 parseDenotationRhs parseB = asum
-  [ do name <- parseName
+  [ PrimValue <$> braces parseB
+  , do name <- parseName
        option (Var name) $ asum
          [ parens $ do
            let boundTerm = do
@@ -72,19 +74,18 @@ parseDenotationRhs parseB = asum
                    [] -> tm
                    _  -> Binding binders tm
            Term name <$> boundTerm `sepBy` symbol ";"
-         , PrimValue name <$> braces parseB
          ]
   , do meaningVar <- oxfordBrackets $ do
          name <- parseName
          pure $ Term "MeaningPatternVar"
-           [ PrimValue "Text" (review (facet @Text) name) ]
+           [ PrimValue (review (facet @Text) name) ]
        option meaningVar $ brackets $ do
          to   <- parseName
          _    <- symbol "/"
          from <- parseName
          pure $ Term "Renaming"
-           [ PrimValue "Text" $ review (facet @Text) from
-           , PrimValue "Text" $ review (facet @Text) to
+           [ PrimValue $ review (facet @Text) from
+           , PrimValue $ review (facet @Text) to
            , meaningVar
            ]
   ] <?> "non-union pattern"

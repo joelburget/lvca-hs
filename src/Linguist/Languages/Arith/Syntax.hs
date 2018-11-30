@@ -15,8 +15,11 @@ Arith ::=
   // numbers
   Z
   S(Arith)
-  {Prim}
   {Int}
+
+// external types:
+//   Prim
+//   Int
   |]
 
 -- Meaning in terms of add, sub, and mul primitives.
@@ -27,15 +30,15 @@ machineDynamicsT :: Text
 machineDynamicsT = [text|
   [[ Add(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
-                        PrimApp(Prim{add}; a'; b')))
+                        PrimApp({add}; a'; b')))
   [[ Sub(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
-                        PrimApp(Prim{sub}; a'; b')))
+                        PrimApp({sub}; a'; b')))
   [[ Mul(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
-                        PrimApp(Prim{mul}; a'; b')))
-  [[ Z()       ]] = Int{0}
-  [[ S(a)      ]] = PrimApp(Prim{add}; [[ a ]]; Int{1})
+                        PrimApp({mul}; a'; b')))
+  [[ Z()       ]] = {0}
+  [[ S(a)      ]] = PrimApp({add}; [[ a ]]; {1})
   |]
 
 -- Meaning in terms of peano numbers.

@@ -17,20 +17,25 @@ module Linguist.Types
     -- | Syntax definition.
     SortName
   , Sort(..)
+  , externalName
+  , _SortAp
+  , _External
   , SyntaxChart(..)
   , SortDef(..)
   , sortOperators
   , sortVariables
+  , sortSubst
   , Operator(..)
-  , _Operator
-  , _External
   , operatorName
   , operatorDesc
   , operatorArity
   , Arity(..)
-  -- , pattern ExternalArity
+  , valences
+  , pattern ExternalArity
   , exampleArity
   , Valence(..)
+  , valenceSubst
+  , valenceSorts
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -50,8 +55,6 @@ module Linguist.Types
   , _PrimValue
   , subterms
   , termName
-  , value
-  , valueTag
 
   -- * Patterns
   -- ** Pattern
@@ -120,17 +123,30 @@ import qualified Hedgehog.Range            as Range
 import           Linguist.FunctorUtil
 import           Linguist.Util             as Util
 
-import Debug.Trace
-
 
 -- syntax charts
 
 type SortName = Text
-data Sort = SortAp !SortName ![Sort]
+data Sort
+  = SortAp !SortName ![Sort]
+  | External { _externalName :: !Text }
   deriving (Eq, Show)
 
 instance IsString Sort where
-  fromString s = SortAp (fromString s) []
+  fromString s
+    |  head s == '{'
+    && last s == '}'
+    = External $ Text.init $ fromString $ tail s
+    | otherwise = SortAp (fromString s) []
+
+sortSubst :: Map Text Sort -> Sort -> Sort
+sortSubst varVals = \case
+  e@External{} -> e
+  SortAp name [] -> Map.findWithDefault (SortAp name []) name varVals
+  SortAp name subSorts ->
+    -- TODO: we need to cleanly separate variables from concrete sort names
+    let subSorts' = sortSubst varVals <$> subSorts
+    in SortAp name subSorts'
 
 -- | A syntax chart defines the abstract syntax of a language, specified by a
 -- collection of operators and their arities. The abstract syntax provides a
@@ -166,12 +182,7 @@ data Operator = Operator
   { _operatorName  :: !Text  -- ^ operator name
   , _operatorArity :: !Arity -- ^ arity
   , _operatorDesc  :: !Text  -- ^ description
-  }
-  | External
-  { _operatorName :: !Text -- ^ operator name
-  , _operatorDesc :: !Text -- ^ description
-  }
-  deriving (Eq, Show)
+  } deriving (Eq, Show)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
 -- of its arguments.
@@ -180,14 +191,21 @@ data Operator = Operator
 --
 -- To specify an arity, the resulting sort (the last @Exp@ above) is
 -- unnecessary, since it's always clear from context.
-data Arity
-  = Arity ![Valence]
+newtype Arity = Arity { _valences :: [Valence] }
   deriving (Eq, Show)
 
 instance IsList Arity where
   type Item Arity  = Valence
   fromList         = Arity
   toList (Arity l) = l
+
+-- | The arity of an operator holding only an external
+pattern ExternalArity :: SortName -> Arity
+pattern ExternalArity name = Arity [ Valence [] (External name) ]
+
+-- | Apply a sort-substitution to a valence
+valenceSubst :: Map Text Sort -> Valence -> Valence
+valenceSubst m (Valence as b) = Valence (sortSubst m <$> as) (sortSubst m b)
 
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
@@ -199,8 +217,12 @@ data Valence = Valence
   }
   deriving (Eq, Show)
 
+-- | Traverse the sorts of both binders and body.
+valenceSorts :: Traversal' Valence Sort
+valenceSorts f (Valence sorts result)
+  = Valence <$> traverse f sorts <*> f result
+
 instance IsString Valence where
-  -- TODO: should we return an External when you pass "[nat]"?
   fromString = Valence [] . fromString
 
 -- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
@@ -218,10 +240,7 @@ data Term a
     ![Text]
     !(Term a)
   | Var !Text
-  | PrimValue
-    { _valueTag :: !Text
-    , _value    :: !a
-    }
+  | PrimValue !a
   deriving (Eq, Show)
 
 genName :: MonadGen m => m Text
@@ -233,57 +252,51 @@ genTerm
   :: forall m a.
      MonadGen m
   => SyntaxChart
-  -> SortName
+  -> Sort
   -> (SortName -> Maybe (m a))
   -> m (Term a)
-genTerm chart@(SyntaxChart chart') sort genPrim = do
-  traceM $ "sort: " ++ show sort
-  traceM $ "chart': " ++ show chart'
-  let SortDef _vars operators = chart' ^?! ix sort
+genTerm _chart (External name) genPrim = case genPrim name of
+  Nothing  -> Gen.discard
+  Just gen -> PrimValue <$> gen
+genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
+    let SortDef vars operators = chart' ^?! ix sortHead
+        sortVarVals = Map.fromList $ zip vars sortArgs
 
-      opNames = _operatorName <$> operators
+        opNames = _operatorName <$> operators
 
-      nonrec =
-        [ do
-             name <- genName
-             if name `elem` opNames
-             then Gen.discard
-             else pure $ Var name
-        ]
+        nonrec =
+          [ do
+               name <- genName
+               if name `elem` opNames
+               then Gen.discard
+               else pure $ Var name
+          ]
 
-      -- TODO: express as fold
-      genArity :: [Valence] -> m [Term a]
-      genArity = foldrM
-        -- TODO: handle applied sorts
-        (\valence valences' -> case valence of
-          Valence binders x@(SortAp sort' _) -> do
-            traceM $ "x: " ++ show x
-            -- XXX must have variable mapping
-            tm <- genTerm chart sort' genPrim
-            case binders of
-              [] -> pure $ tm : valences'
-              _  -> do
-                names <- Gen.list (Range.singleton (length binders)) genName
-                pure $ Binding names tm : valences'
-        )
-        []
+        genArity :: [Valence] -> m [Term a]
+        genArity = foldrM
+          -- TODO: handle applied sorts
+          (\valence valences' -> case valence of
+            Valence binders sort -> do
+              tm <- genTerm chart (sortSubst sortVarVals sort) genPrim
+              case binders of
+                [] -> pure $ tm : valences'
+                _  -> do
+                  names <- Gen.list (Range.singleton (length binders)) genName
+                  pure $ Binding names tm : valences'
+          )
+          []
 
-      termGen :: Text -> [Valence] -> m (Term a)
-      termGen name valences = Term name <$> genArity valences
+        genTerm' :: Text -> [Valence] -> m (Term a)
+        genTerm' name valences = Term name <$> genArity valences
 
-      rec = operators <&> \case
-        Operator name (Arity valences) _desc -> termGen name valences
-        External name                  _desc -> case genPrim name of
-          Just aGen' -> PrimValue name <$> aGen'
-          -- TODO: discard by not trying to generate operators with externals
-          -- in them
-          Nothing    -> Gen.discard
+        rec = operators <&> \(Operator name (Arity valences) _desc) ->
+          genTerm' name valences
 
-  Gen.sized $ \n ->
-       if n <= 1 then
-         Gen.choice nonrec
-       else
-         Gen.choice $ nonrec ++ fmap Gen.small rec
+    Gen.sized $ \n ->
+         if n <= 1 then
+           Gen.choice nonrec
+         else
+           Gen.choice $ nonrec ++ fmap Gen.small rec
 
 
 instance Pretty a => Pretty (Term a) where
@@ -292,8 +305,8 @@ instance Pretty a => Pretty (Term a) where
       pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
     Binding names tm ->
       hsep (punctuate dot (fmap pretty names)) <> dot PP.<+> pretty tm
-    Var name         -> pretty name
-    PrimValue name a -> pretty name <> braces (pretty a)
+    Var name    -> pretty name
+    PrimValue a -> braces (pretty a)
 
 -- | A pattern matches a term.
 --
@@ -310,7 +323,7 @@ data Pattern a
   -- TODO: Add non-binding, yet named variables, eg _foo
   -- | A variable pattern that matches everything, generating a substitution
   | PatternVar !(Maybe Text)
-  | PatternPrimVal !Text !(Maybe a)
+  | PatternPrimVal !(Maybe a)
   -- | The union of patterns
   | PatternUnion ![Pattern a]
   deriving (Eq, Show)
@@ -369,6 +382,7 @@ instance Ixed (Term a) where
     Term name tms -> Term name <$> ix k f tms
     _             -> pure tm
 
+-- TODO: do we have to normalize here?
 isComplete :: Eq a => PatternCheckResult a -> Bool
 isComplete (PatternCheckResult uc _) = uc == PatternUnion []
 
@@ -385,29 +399,27 @@ applySubst subst@(Subst assignments correspondences) tm = case tm of
     assignments ^? ix name'
   _                   -> tm
 
+-- | Match any instance of this operator
 toPattern :: Operator -> Pattern a
 toPattern (Operator name (Arity valences) _desc)
-  = PatternTm name $ const PatternAny <$> valences
-toPattern (External name _desc)
-  = PatternPrimVal name Nothing
+  = PatternTm name $ valences <&> \case
+      Valence [] External{} -> PatternPrimVal Nothing
+      _valence              -> PatternAny
 
 toPatternTests :: Test ()
 toPatternTests = scope "toPattern" $
   let toPat :: Operator -> Pattern Void
       toPat = toPattern
   in tests
-    [ expect $
-      toPat (Operator "num" (Arity []) "numbers")
-      ==
-      PatternTm "num" []
-    , expect $
-      toPat (Operator "plus"  (Arity ["Exp", "Exp"]) "addition")
-      ==
-      PatternTm "plus" [PatternAny, PatternAny]
-    , expect $
-      toPat (External "num" "numeral")
-      ==
-      PatternPrimVal "num" Nothing
+    [ expectEq
+      (toPat (Operator "num" (Arity []) "numbers"))
+      (PatternTm "num" [])
+    , expectEq
+      (toPat (Operator "plus"  (Arity ["Exp", "Exp"]) "addition"))
+      (PatternTm "plus" [PatternAny, PatternAny])
+    , expectEq
+      (toPat (Operator "num" (ExternalArity "num") "numbers"))
+      (PatternTm "num" [ PatternPrimVal Nothing ])
     ]
 
 data MatchesEnv a = MatchesEnv
@@ -438,18 +450,18 @@ matches pat (Var name) = do
     Just termVal -> matches pat termVal
     Nothing      -> noMatch
 
-matches (PatternTm name1 subpatterns) (Term name2 subterms) = do
-  if name1 /= name2
-  then noMatch
-  else do
+matches (PatternTm name1 subpatterns) (Term name2 subterms)
+  | name1 /= name2
+  = noMatch
+  | otherwise = do
     mMatches <- sequence $ fmap sequence $
       pairWith matches subpatterns subterms
     mconcat <$> lift mMatches
 -- TODO: write context of var names?
-matches (PatternPrimVal pName pVal) (PrimValue name val)
-  | pName == name && pVal == Nothing
+matches (PatternPrimVal pVal) (PrimValue val)
+  | pVal == Nothing
   = emptyMatch
-  | pName == name && pVal == Just val
+  | pVal == Just val
   = emptyMatch
   | otherwise
   = noMatch
@@ -466,8 +478,7 @@ matches (PatternUnion pats) tm = do
 matches _ _ = noMatch
 
 runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
-runMatches chart sort
-  = flip runReaderT (MatchesEnv chart sort Map.empty)
+runMatches chart sort = flip runReaderT (MatchesEnv chart sort Map.empty)
 
 getSort :: Matching a SortDef
 getSort = do
@@ -477,15 +488,7 @@ getSort = do
 completePattern :: Matching a (Pattern a)
 completePattern = do
   SortDef _vars operators <- getSort
-
-  pure $ PatternUnion $ operators <&> \case
-    Operator opName (Arity valences) _desc -> PatternTm opName $
-      valences <&> \case
-        -- This requires the convention that externals are always stored by
-        -- themselves in a term named after their type. Perhaps the match
-        -- should just be PatternAny?
-        _valence      -> PatternAny
-    External name _ -> PatternPrimVal name Nothing
+  pure $ PatternUnion $ toPattern <$> operators
 
 minus :: Eq a => Pattern a -> Pattern a -> Matching a (Pattern a)
 minus _ (PatternVar _) = pure PatternEmpty
@@ -509,8 +512,8 @@ minus (PatternUnion pats) x = do
 -- remove each pattern from pat one at a time
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
-minus x@(PatternPrimVal nameA a) (PatternPrimVal nameB b)
-  = pure $ if nameA == nameB && a == b then PatternEmpty else x
+minus x@(PatternPrimVal a) (PatternPrimVal b)
+  = pure $ if a == b then PatternEmpty else x
 minus x@PatternPrimVal{} _ = pure x
 
 minus x@PatternTm{} BindingPattern{}      = pure x
@@ -642,9 +645,9 @@ instance Pretty SyntaxChart where
 
 instance Pretty Operator where
   pretty (Operator name arity _desc) = case arity of
-    Arity [] -> pretty name
-    _        -> pretty name <> pretty arity
-  pretty (External name _desc) = braces (pretty name)
+    -- Elide parens if it's just an external
+    ExternalArity name' -> pretty name <> braces (pretty name')
+    _                   -> pretty name <> pretty arity
 
 instance Pretty Arity where
   pretty (Arity valences) = case valences of
@@ -652,6 +655,7 @@ instance Pretty Arity where
     _  -> parens $ hsep $ punctuate semi $ fmap pretty valences
 
 instance Pretty Sort where
+  pretty (External name)    = braces $ pretty name
   pretty (SortAp name args) = hsep $ pretty name : fmap pretty args
 
 instance Pretty Valence where
@@ -659,10 +663,13 @@ instance Pretty Valence where
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
 
+makeLenses ''Sort
+makePrisms ''Sort
 makeLenses ''SortDef
+makeLenses ''Arity
+makeWrapped ''Arity
 makeLenses ''Pattern
 makeLenses ''Operator
-makePrisms ''Operator
 makeLenses ''Term
 makePrisms ''Term
 makeLenses ''PatternCheckResult

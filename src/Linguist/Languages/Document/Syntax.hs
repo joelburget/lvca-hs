@@ -12,9 +12,9 @@ syntaxText =
 Document ::= Document(List Block)
 
 Block ::=
-  Header(HeaderLevel; Text)
+  Header(HeaderLevel; {Text})
   Paragraph(Inline)
-  {BlockEmbed}
+  BlockEmbed{BlockEmbed}
 
 HeaderLevel ::=
   H1
@@ -25,10 +25,8 @@ Inline ::= Inline(List InlineAtom)
 
 InlineAtom ::=
   // ideally a list of attributes but sets are much harder to model
-  InlineAtom(Maybe Attribute; Text)
+  InlineAtom(Maybe Attribute; {Text})
   {InlineEmbed}
-
-Text ::= {Text}
 
 Attribute ::=
   Bold

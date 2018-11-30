@@ -27,15 +27,27 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
   pure $ L.IndentMany Nothing (pure . (name,) . (SortDef variables))
     parseOperator
 
+-- The first two cases are sugar so you can write:
+-- - `{Num}` instead of
+-- - `Num{Num}` instead of
+-- - `Num({Num})`
 parseOperator :: Parser Operator
 parseOperator = asum
-  [ Operator
-    <$> parseName
-    <*> parseArity
-    <*> option "" stringLiteral
-  , External
-    <$> braces (parseName)
-    <*> option "" stringLiteral
+  [ do -- sugar for `{Num}`
+       name <- braces parseName
+       Operator name (ExternalArity name) <$> option "" stringLiteral
+  , do
+       name <- parseName
+       asum
+         [ -- sugar for `Num{Num}`
+           Operator name
+           <$> braces (ExternalArity <$> parseName)
+           <*> option "" stringLiteral
+           -- unsweetened
+         , Operator name
+           <$> parseArity
+           <*> option "" stringLiteral
+         ]
   ]
 
 parseArity :: Parser Arity
@@ -49,9 +61,12 @@ parseValence = do
   pure $ Valence sorts result
 
 parseSort :: Parser Sort
-parseSort = SortAp
-  <$> parseName
-  <*> many (asum
-    [ SortAp <$> parseName <*> pure []
-    , parens parseSort
-    ])
+parseSort = asum
+  [ braces $ External <$> parseName
+  , SortAp
+      <$> parseName
+      <*> many (asum
+        [ SortAp <$> parseName <*> pure []
+        , parens parseSort
+        ])
+  ]

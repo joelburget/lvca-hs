@@ -57,12 +57,12 @@ deriving instance (Eq   a) => Eq   (MeaningF a)
 deriving instance (Show a) => Show (MeaningF a)
 
 meaningPatternVar :: a -> Term a
-meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue "Text" name ]
+meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue name ]
 
 (//) :: Text -> Text -> Term Text -> Term Text
 (//) to from term = Term "Renaming"
-  [ PrimValue "Text" from
-  , PrimValue "Text" to
+  [ PrimValue from
+  , PrimValue to
   , term
   ]
 
@@ -76,11 +76,7 @@ meaningTermP :: forall a f.
 meaningTermP textP fP = prism' rtl ltr where
 
   primValP :: Prism' (Term a) Text
-  primValP = _PrimValue . prism'
-    (\name -> ("Text", review textP name))
-    (\case
-      ("Text", name) -> preview textP name
-      _              -> Nothing)
+  primValP = _PrimValue . textP
 
   subP :: Prism' (Term a) (Free (MeaningF :+: f) Text)
   subP = meaningTermP textP fP
@@ -109,7 +105,7 @@ meaningTermP textP fP = prism' rtl ltr where
         ]
       Value meaning -> Term "Value" [ review subP meaning ]
       MeaningPatternVar name -> Term "MeaningPatternVar"
-        [ PrimValue "Text" $ review textP name ]
+        [ PrimValue $ review textP name ]
     Free (InR f) -> review fP f
 
   ltr :: Term a -> Maybe (Free (MeaningF :+: f) Text)
@@ -132,7 +128,7 @@ meaningTermP textP fP = prism' rtl ltr where
       <*> preview subP term
     Term "Value" [ meaning ] -> fmap (Free . InL) $ Value
       <$> preview subP meaning
-    Term "MeaningPatternVar" [ PrimValue "Text" name ] -> fmap (Free . InL) $
+    Term "MeaningPatternVar" [ PrimValue name ] -> fmap (Free . InL) $
       MeaningPatternVar <$> preview textP name
     other -> fmap (Free . InR) $ preview fP other
 

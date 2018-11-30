@@ -1,21 +1,22 @@
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeFamilies     #-}
+{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies    #-}
 
 module Linguist.Languages.Arith where
 
-import Control.Monad.Reader (runReaderT)
-import Control.Lens (pattern Empty, pattern (:<), _Right, _Wrapped)
-import Control.Applicative ((<$))
-import Data.Text (Text)
-import qualified Data.Text as Text
-import Data.Sequence (Seq)
+import           Control.Applicative                ((<$))
+import           Control.Monad.Reader               (runReaderT)
+import           Control.Lens                       (pattern Empty, pattern (:<), _Right, _Wrapped)
 import           Control.Lens.TH
+import           Data.Diverse.Lens.Which
+import qualified Data.Map                           as Map
+import           Data.Sequence                      (Seq)
+import           Data.Text                          (Text)
+import           Data.Text.Prettyprint.Doc          (Pretty(pretty), viaShow)
 import           Data.Void                          (Void)
-import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
 import           EasyTest
-import           Data.Text.Prettyprint.Doc (Pretty(pretty), viaShow)
-import qualified Data.Map as Map
+import           Language.Haskell.TH                (lookupTypeName, Type(..))
+import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
 
 import           Linguist.Languages.Arith.Syntax
 import           Linguist.ParseDenotationChart      (parseDenotationChart)
@@ -26,13 +27,8 @@ import           Linguist.Proceed
 import           Linguist.Types                     -- (SyntaxChart, Term (..))
 import           Linguist.Util                      (forceRight)
 import           Linguist.TH
-import           Linguist.ParseLanguage (Parser, ParseEnv(ParseEnv),
-  standardParser, prop_parse_pretty, ExternalStyle(UntaggedExternals),
-  ExternalParsers)
+import           Linguist.ParseLanguage
 
-import Language.Haskell.TH (lookupTypeName, Type(..))
-
-import Data.Diverse.Lens.Which
 
 newtype E = E { unE :: Either Int Text }
   deriving (Eq, Show)
@@ -50,7 +46,7 @@ $(do
   Just i <- lookupTypeName "Int"
   mkTypes syntaxT $ Map.fromList
     [ ("Prim", PromotedT t)
-    , ("Int", PromotedT i)
+    , ("Int",  PromotedT i)
     ])
 
 makeLenses ''Arith
@@ -79,27 +75,27 @@ peanoDynamics = runParser (parseDenotationChart noParse noParse)
 example :: Term Int
 example = Term "Add"
   [ Term "Mul"
-    [ PrimValue "Int" 1
+    [ Term "Int" [ PrimValue 1 ]
     , Term "Sub"
-      [ PrimValue "Int" 500
-      , PrimValue "Int" 498
+      [ Term "Int" [ PrimValue 500 ]
+      , Term "Int" [ PrimValue 498 ]
       ]
     ]
-  , PrimValue "Int" 3
+  , Term "Int" [ PrimValue 3 ]
   ]
 
 tm' :: Term E
 tm' =
-  let parser = standardParser primParsers
-      env = ParseEnv (forceRight syntax) "Arith" UntaggedExternals
+  let env = ParseEnv (forceRight syntax) "Arith" UntaggedExternals primParsers
+      parse = runReaderT standardParser env
       exampleTerm :: Text
       exampleTerm = "Add(Mul(1; Sub(500; 498)); 3)"
-  in case runParser (runReaderT parser env) "(example term)" exampleTerm of
+  in case runParser parse "(example term)" exampleTerm of
        Left err   -> error $ errorBundlePretty err
        Right tm'' -> tm''
 
 pattern PrimInt :: Int -> Term E
-pattern PrimInt i = PrimValue "Int" (E (Left i))
+pattern PrimInt i = Term "Int" [ PrimValue (E (Left i)) ]
 
 evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive = \case
@@ -121,29 +117,19 @@ eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
   (Just . E . Left)
 
 primParsers :: ExternalParsers E
-primParsers = Map.singleton "Arith" $ Map.fromList
-  [ ("Int" , E . Left  <$> (intLiteral :: Parser Int))
+primParsers = makeExternalParsers
+  [ ("Int" , E . Left  <$> (intLiteral :: ExternalParser Int))
   , ("Prim", E . Right <$> stringLiteral)
   ]
 
 arithTests :: Test ()
 arithTests = tests
-  [ scope "eval" $ tests
-    [ expectEq (eval' example) (Right (PrimInt 5))
-    ]
-  , scope "prop_parse_pretty" $ tests
-    [ testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
+  [ scope "eval" $ expectEq (eval' example) (Right (PrimInt 5))
+  , scope "prop_parse_pretty" $
+    testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
       (const Nothing) primParsers
-    ]
-  , let parser = standardParser primParsers
-        parseEnv = ParseEnv (forceRight syntax) "Arith" UntaggedExternals
-        runP str = runParser (runReaderT parser parseEnv) "(test)" str
-        expectParse str tm = scope (Text.unpack str) $ case runP str of
-          Left err       -> fail $ errorBundlePretty err
-          Right parsedTm -> expectEq parsedTm tm
-    in scope "parse" $ tests
-    [ expectParse
-        "Za"
-        (Var "Za")
-    ]
+  , scope "parse" $ parseTest
+      (ParseEnv (forceRight syntax) "Arith" UntaggedExternals primParsers)
+      "Za"
+      (Var "Za")
   ]

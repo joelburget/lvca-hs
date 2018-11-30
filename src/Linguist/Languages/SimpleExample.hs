@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TypeFamilies      #-}
 module Linguist.Languages.SimpleExample
   ( syntax
   -- , dynamics
@@ -24,7 +24,6 @@ module Linguist.Languages.SimpleExample
 
 import           Control.Lens                          hiding (from, to)
 import           Control.Monad.Reader
-import           Data.Map.Strict                       (Map)
 import qualified Data.Map.Strict                       as Map
 import           Data.Text                             (Text)
 import qualified Data.Text                             as Text
@@ -63,7 +62,7 @@ instance Pretty E where
   pretty (E (Right x)) = pretty ("\"" <> x <> "\"")
 
 pattern PrimValue' :: Text -> Either Int Text -> Term E
-pattern PrimValue' name x = PrimValue name (E x)
+pattern PrimValue' name x = Term name [ PrimValue (E x) ]
 
 pattern TI :: Int -> Term E
 pattern TI x = PrimValue' "Num" (Left x)
@@ -85,8 +84,8 @@ syntax = SyntaxChart $ Map.fromList
     , Operator "Str" (Arity []) "strings"
     ])
   , ("Exp", SortDef []
-    [ External "Num" "numeral"
-    , External "Str" "literal"
+    [ Operator "Num" (ExternalArity "Num") "literal number"
+    , Operator "Str" (ExternalArity "Str") "literal string"
     , Operator "Plus"
       (Arity ["Exp", "Exp"]) "addition"
     , Operator "Times"
@@ -196,14 +195,14 @@ dynamicsT :: Text
 dynamicsT = [text|
   [[ Plus(n1; n2) ]] = Eval([[ n1 ]]; n1'.
                          Eval([[ n2 ]]; n2'.
-                           PrimApp(Str{add}; n1'; n2')))
+                           PrimApp(Str({add}); n1'; n2')))
   [[ Times(n1; n2) ]] = Eval([[ n1 ]]; n1'.
                           Eval([[ n2 ]]; n2'.
-                            PrimApp(Str{mul}; n1'; n2')))
+                            PrimApp(Str({mul}); n1'; n2')))
   [[ Cat(n1; n2) ]]   = Eval([[ n1 ]]; n1'.
                           Eval([[ n2 ]]; n2'.
-                            PrimApp(Str{cat}; n1'; n2')))
-  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp(Str{len}; e1'))
+                            PrimApp(Str({cat}); n1'; n2')))
+  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp(Str({len}); e1'))
   [[ Let(e; v. body) ]]         = Eval([[ e ]]; e'.
                                     Eval(
   // XXX change x to v and this no longer works -- accidental capture!
@@ -381,14 +380,14 @@ completePatternTests = scope "completePattern" $ tests
   , expectEq'
       (runMatches syntax "Exp" completePattern)
       (Just (PatternUnion
-        [ PatternPrimVal "Num" Nothing
-        , PatternPrimVal "Str" Nothing
-        , PatternTm "Plus"       [PatternAny, PatternAny]
-        , PatternTm "Times"      [PatternAny, PatternAny]
-        , PatternTm "Cat"        [PatternAny, PatternAny]
-        , PatternTm "Len"        [PatternAny]
-        , PatternTm "Let"        [PatternAny, PatternAny]
-        , PatternTm "Annotation" [PatternAny, PatternAny]
+        [ PatternTm "Num"        [ PatternPrimVal Nothing ]
+        , PatternTm "Str"        [ PatternPrimVal Nothing ]
+        , PatternTm "Plus"       [ PatternAny, PatternAny ]
+        , PatternTm "Times"      [ PatternAny, PatternAny ]
+        , PatternTm "Cat"        [ PatternAny, PatternAny ]
+        , PatternTm "Len"        [ PatternAny             ]
+        , PatternTm "Let"        [ PatternAny, PatternAny ]
+        , PatternTm "Annotation" [ PatternAny, PatternAny ]
         ]))
   ]
 
@@ -396,7 +395,7 @@ minusTests :: Test ()
 minusTests = scope "minus" $
   let x = PatternVar (Just "x")
       y = PatternVar (Just "y")
-      num = PatternPrimVal "num" Nothing
+      num = PatternTm "num" [ PatternPrimVal Nothing ]
       any' = PatternAny
   in tests
        [ expectEq' (runMatches undefined undefined (minus x x)) (Just PatternEmpty)
@@ -411,11 +410,11 @@ minusTests = scope "minus" $
        , expectEq'
          (runMatches syntax "Exp" (minus
            (PatternTm "plus"
-             [ PatternPrimVal "num" Nothing
+             [ PatternTm "num" [ PatternPrimVal Nothing ]
              , x
              ])
            (PatternTm "plus"
-             [ PatternPrimVal "num" Nothing
+             [ PatternTm "num" [ PatternPrimVal Nothing ]
              , y
              ])))
          (Just PatternEmpty)
@@ -444,8 +443,8 @@ prettySyntaxChartTests = tests
     (renderStrict (layoutPretty defaultLayoutOptions (pretty syntax)))
     (Text.init [text|
       Exp ::=
-        {Num}
-        {Str}
+        Num{Num}
+        Str{Str}
         Plus(Exp; Exp)
         Times(Exp; Exp)
         Cat(Exp; Exp)
@@ -517,17 +516,16 @@ evalTests = tests
   -- , expectEq (eval' tm2) (Right (VS "foobar"))
   ]
 
-primParsers :: Map SortName (Map Text (Parser E))
-primParsers = Map.singleton "Exp" $ Map.fromList
-  [ ("Num", E . Left  <$> (intLiteral :: Parser Int))
+primParsers :: ExternalParsers E
+primParsers = makeExternalParsers
+  [ ("Num", E . Left  <$> (intLiteral :: ExternalParser Int))
   , ("Str", E . Right <$> stringLiteral)
   ]
 
 parseTests :: Test ()
 parseTests =
-  let parser = standardParser primParsers
-      runP sty str = runParser
-        (runReaderT parser (ParseEnv syntax "Exp" sty))
+  let runP sty str = runParser
+        (runReaderT standardParser (ParseEnv syntax "Exp" sty primParsers))
         "(test)" str
       expectParse sty str tm = scope (Text.unpack str) $ case runP sty str of
         Left err       -> fail $ errorBundlePretty err

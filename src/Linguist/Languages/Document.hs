@@ -105,21 +105,21 @@ blockP :: Prism' (Term' a b) (Block a b)
 blockP = prism' bwd fwd where
 
   fwd = \case
-    Term "Header" [level, PrimValue "Text" (Embed val)] -> Header
+    Term "Header" [level, PrimValue (Embed val)] -> Header
       <$> preview headerLevelP level
       <*> trialN' @2 val
     Term "Paragraph" [inline]  -> Paragraph <$> preview inlineP inline
-    PrimValue "BlockEmbed" (Embed val) -> BlockEmbed <$> trialN' @0 val
+    Term "BlockEmbed" [ PrimValue (Embed val) ] -> BlockEmbed <$> trialN' @0 val
     _ -> Nothing
 
   bwd = \case
     Header level t -> Term "Header"
       [ (review headerLevelP) level
-      , PrimValue "Text" (Embed (pickN @2 t))
+      , PrimValue (Embed (pickN @2 t))
       ]
     Paragraph inline -> Term "Paragraph" [review inlineP inline]
     BlockEmbed embed -> Term "BlockEmbed"
-      [ PrimValue "BlockEmbed" (Embed (pickN @0 embed)) ]
+      [ PrimValue (Embed (pickN @0 embed)) ]
 
 headerLevelP :: Prism' (Term x) HeaderLevel
 headerLevelP = prism' bwd fwd where
@@ -156,16 +156,16 @@ inlineAtomP = prism' bwd fwd where
   bwd = \case
     InlineAtom attrs t -> Term "InlineAtom"
       [ review (maybeP attributeP) attrs
-      , PrimValue "Text" (Embed (pickN @2 t))
+      , PrimValue (Embed (pickN @2 t))
       ]
     InlineEmbed embed -> Term "InlineEmbed"
-      [ PrimValue "InlineEmbed" (Embed (pickN @1 embed)) ]
+      [ PrimValue (Embed (pickN @1 embed)) ]
 
   fwd = \case
-    Term "InlineAtom" [attrs, PrimValue "Text" (Embed val)] -> InlineAtom
+    Term "InlineAtom" [attrs, PrimValue (Embed val)] -> InlineAtom
       <$> preview (maybeP attributeP) attrs
       <*> trialN' @2 val
-    Term "InlineEmbed" [PrimValue "InlineEmbed" (Embed val)] ->
+    Term "InlineEmbed" [PrimValue (Embed val)] ->
       InlineEmbed <$> trialN' @1 val
     _ -> Nothing
 
@@ -274,8 +274,15 @@ textDocument = [text|
 documentTests :: Test ()
 documentTests = tests
   [ do Just doc  <- pure $ textDocument ^? foldText
-       Just doc' <- pure $ doc ^? foldTerm
+       Just doc' <- pure $ doc          ^? foldTerm
        expectEq textDocument doc'
+
+  , scope "parse" $ parseTest
+      (ParseEnv (forceRight syntax) "Document" UntaggedExternals
+        externalParsers)
+      "Document(Cons(a; a))" $
+      Term "Document" [ Term "Cons" [ Var "a", Var "a" ] ]
+
   , scope "prop_parse_pretty" $ testProperty $
     prop_parse_pretty (forceRight syntax) "Document"
       (const Nothing) externalParsers
@@ -283,7 +290,7 @@ documentTests = tests
 
 externalParsers :: ExternalParsers (Embed Void Void)
 externalParsers = makeExternalParsers
-  [ "Block"      :-> [ "BlockEmbed"  :-> noParse ]
-  , "InlineAtom" :-> [ "InlineEmbed" :-> noParse ]
-  , "Text"       :-> [ "Text"        :-> noParse ]
+  [ "BlockEmbed"  :-> noParse
+  , "InlineEmbed" :-> noParse
+  , "Text"        :-> noParse
   ]

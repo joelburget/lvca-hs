@@ -12,7 +12,7 @@ import           Language.Haskell.TH
 import           Text.Megaparsec                 (runParser)
 
 import           Linguist.ParseSyntaxDescription
-import           Linguist.Types
+import           Linguist.Types                  hiding (valences)
 
 mkName' :: Text -> Name
 mkName' = mkName . unpack
@@ -37,13 +37,13 @@ mkTypes tDesc externals = do
           SortAp name [] -> mkCon name
           SortAp name applicands
             -> foldl AppT (mkCon name) (fmap handleSort applicands)
+          External name -> case Map.lookup name externals of
+            Nothing -> error $ "unhandled binding external: " ++ unpack name
+            Just ty -> ty
         handleValence (Valence _ sort) = (defaultBang, handleSort sort)
         handleArity (Arity valences) = fmap handleValence valences
         ops' = ops <&> \case
           Operator name arity _ -> NormalC (mkName' name) (handleArity arity)
-          External name       _ -> case Map.lookup name externals of
-            Nothing -> error $ "unhandled binding external: " ++ unpack name
-            Just ty -> NormalC (mkName' name) [(defaultBang, ty)]
 
     -- lensDecls <- makeLenses sortName'
     -- pure $ DataD [] sortName' vars' Nothing ops' [] : lensDecls

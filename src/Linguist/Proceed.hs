@@ -95,8 +95,8 @@ specialPretty = \case
          parens (hsep $ punctuate semi $ fmap specialPretty subtms)
   Binding names tm ->
     hsep (punctuate dot (fmap pretty names)) <> dot <+> specialPretty tm
-  Var name         -> pretty name
-  PrimValue name a -> pretty name <> "{" <> pretty a <> "}"
+  Var name    -> pretty name
+  PrimValue a -> "{" <> pretty a <> "}"
 
 rename :: Text -> Text -> Term a -> Term a
 rename from to tm = case tm of
@@ -144,11 +144,11 @@ eval''
      )
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
-eval'' (PrimValue name a) = do
+eval'' (PrimValue a) = do
   EvalEnv{_evalPrimConv=f} <- ask
   case f a of
     Nothing -> throwError "bad prim value"
-    Just b  -> pure $ PrimValue name b
+    Just b  -> pure $ PrimValue b
 eval'' (Var name) = do
   val <- view $ evalBVars . at name
   val ?? "couldn't look up variable " ++ show name
@@ -186,7 +186,7 @@ eval'' tm = do
 
         runInstructions' = \case
           -- XXX decide what the tag should be here
-          Term "PrimApp" (PrimValue "Prim" val : args) -> do
+          Term "PrimApp" (PrimValue val : args) -> do
             EvalEnv{_evalPrimApp=evalPrim} <- ask
             f <- evalPrim =<< getText val
               ?? "couldn't look up evaluator for this primitive"
@@ -198,9 +198,9 @@ eval'' tm = do
             pure $ f $ Seq.fromList args'
           Term "Eval"
             [ Term "Renaming"
-              [ PrimValue "Text" from
-              , PrimValue "Text" to
-              , patName@(Term "MeaningPatternVar" [PrimValue "Text" patternName])
+              [ PrimValue from
+              , PrimValue to
+              , patName@(Term "MeaningPatternVar" [PrimValue patternName])
               ]
             , rhs
             ] -> do
@@ -213,7 +213,7 @@ eval'' tm = do
             local (evalPatternVars . at patternName' ?~ tm''') $
               runInstructions $ Term "Eval" [patName, rhs]
           Term "Eval"
-            [ Term "MeaningPatternVar" [PrimValue "Text" fromVar]
+            [ Term "MeaningPatternVar" [PrimValue fromVar]
             , Binding [name] to
             ] -> do
             fromVar' <- getText fromVar ?? "not text: " ++ show fromVar
@@ -231,7 +231,7 @@ eval'' tm = do
             val' <- val ?? "couldn't look up variable"
             pure val'
 
-          Term "MeaningPatternVar" [PrimValue "Text" name] -> do
+          Term "MeaningPatternVar" [PrimValue name] -> do
             throwError $ "should never evaluate a pattern var on its own ("
               ++ show name ++ ")"
 

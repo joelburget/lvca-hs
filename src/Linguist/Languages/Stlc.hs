@@ -2,7 +2,6 @@
 {-# LANGUAGE TypeFamilies      #-}
 module Linguist.Languages.Stlc (stlcTests) where
 
-import           Control.Monad.Reader            (runReaderT)
 import qualified Data.Map.Strict                 as Map
 import           Data.Void                       (Void)
 import           EasyTest
@@ -99,13 +98,8 @@ stlcTests = tests
   , scope "prop_parse_pretty" $ testProperty $ prop_parse_pretty stlcChart "Exp"
     (const Nothing) noExternalParsers
 
-  , let parser = standardParser noExternalParsers
-        runP = runParser
-          (runReaderT parser (ParseEnv stlcChart "Exp" UntaggedExternals))
-          "(test)"
-        expectParse str tm = case runP str of
-          Left err       -> fail $ errorBundlePretty err
-          Right parsedTm -> expectEq parsedTm tm
+  , let expectParse = parseTest $
+          ParseEnv stlcChart "Exp" UntaggedExternals noExternalParsers
 
     in scope "parse" $ tests
          [ expectParse "lam(ty; x. ap(x; x))" stlcTm1
