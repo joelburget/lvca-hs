@@ -55,6 +55,7 @@ module Linguist.Types
   , _PrimValue
   , subterms
   , termName
+  , identify
 
   -- * Patterns
   -- ** Pattern
@@ -99,9 +100,14 @@ module Linguist.Types
   ) where
 
 
+import           Codec.Serialise
+import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
+import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
 import           Control.Lens              hiding (op)
 import           Control.Monad.Morph
 import           Control.Monad.Reader
+import qualified Crypto.Hash.SHA256        as SHA256
+import           Data.ByteString           (ByteString)
 import           Data.Foldable             (fold, foldlM, foldrM)
 import           Data.List                 (intersperse, find)
 import           Data.Maybe                (fromMaybe)
@@ -122,7 +128,6 @@ import qualified Hedgehog.Range            as Range
 
 import           Linguist.FunctorUtil
 import           Linguist.Util             as Util
-
 
 -- syntax charts
 
@@ -242,6 +247,31 @@ data Term a
   | Var !Text
   | PrimValue !a
   deriving (Eq, Show)
+
+instance Serialise a => Serialise (Term a) where
+  encode tm =
+    let (tag, content) = case tm of
+          Term      name  subtms -> (0, encode name  <> encode subtms)
+          Binding   names body   -> (1, encode names <> encode body  )
+          Var       name         -> (2, encode name                  )
+          PrimValue a            -> (3, encode a                     )
+    in encodeListLen 2 <> encodeWord tag <> content
+
+  decode = do
+    decodeListLenOf 2
+    tag <- decodeWord
+    case tag of
+      0 -> Term      <$> decode <*> decode
+      1 -> Binding   <$> decode <*> decode
+      2 -> Var       <$> decode
+      3 -> PrimValue <$> decode
+      _ -> fail "invalid Term encoding"
+
+newtype Sha256 = Sha256 ByteString
+
+-- | Content-identify a term via the sha-256 hash of its cbor serialization.
+identify :: Serialise a => Term a -> Sha256
+identify = Sha256 . SHA256.hashlazy . serialise
 
 genName :: MonadGen m => m Text
 genName = Text.cons

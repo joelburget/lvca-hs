@@ -58,7 +58,11 @@ executable linguist
     recursion-schemes,
     free,
     multirec >= 0.7.8,
-    hedgehog
+    hedgehog,
+    cborg,
+    serialise,
+    cryptohash-sha256,
+    bytestring
   hs-source-dirs:      src
   default-language:    Haskell2010
 
