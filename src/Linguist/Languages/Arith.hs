@@ -128,6 +128,8 @@ arithTests = tests
   , scope "prop_parse_pretty" $
     testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
       (const Nothing) primParsers
+  , scope "prop_serialise_identity" $ testProperty $
+    prop_serialise_identity @() (forceRight syntax) "Arith" (const Nothing)
   , scope "parse" $ parseTest
       (ParseEnv (forceRight syntax) "Arith" UntaggedExternals primParsers)
       "Za"

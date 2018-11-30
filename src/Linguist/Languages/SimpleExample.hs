@@ -1,6 +1,7 @@
 {-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE DeriveGeneric     #-}
 module Linguist.Languages.SimpleExample
   ( syntax
   -- , dynamics
@@ -22,6 +23,7 @@ module Linguist.Languages.SimpleExample
   , eval'
   ) where
 
+import           Codec.Serialise
 import           Control.Lens                          hiding (from, to)
 import           Control.Monad.Reader
 import qualified Data.Map.Strict                       as Map
@@ -32,6 +34,7 @@ import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
 import           EasyTest
+import           GHC.Generics                          (Generic)
 import           NeatInterpolation
 import           Text.Megaparsec
 import           Data.Sequence                         (Seq)
@@ -50,7 +53,9 @@ import           Linguist.Util                         (forceRight)
 
 
 newtype E = E (Either Int Text)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance Serialise E
 
 makeWrapped ''E
 
@@ -574,13 +579,16 @@ parseTests =
   ]
 
 propTests :: Test ()
-propTests = tests
-  [ testProperty $ prop_parse_pretty syntax "Exp"
-     (\case
-       "Num" -> Just (E . Left  <$> Gen.int (Range.exponentialBounded))
-       "Str" -> Just (E . Right <$>
-         Gen.text (Range.exponential 0 5000) Gen.unicode)
-       _     -> Nothing
-     )
-     primParsers
-  ]
+propTests =
+  let aGen = \case
+        "Num" -> Just $ E . Left  <$> Gen.int Range.exponentialBounded
+        "Str" -> Just $ E . Right <$>
+          Gen.text (Range.exponential 0 5000) Gen.unicode
+        _     -> Nothing
+  in tests
+       [ scope "prop_parse_pretty" $ testProperty $
+         prop_parse_pretty syntax "Exp" aGen primParsers
+
+       , scope "prop_serialise_identity" $ testProperty $
+         prop_serialise_identity syntax "Exp" aGen
+       ]

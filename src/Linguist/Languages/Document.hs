@@ -286,6 +286,9 @@ documentTests = tests
   , scope "prop_parse_pretty" $ testProperty $
     prop_parse_pretty (forceRight syntax) "Document"
       (const Nothing) externalParsers
+
+  , scope "prop_serialise_identity" $ testProperty $
+    prop_serialise_identity @() (forceRight syntax) "Document" (const Nothing)
   ]
 
 externalParsers :: ExternalParsers (Embed Void Void)

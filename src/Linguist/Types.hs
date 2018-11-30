@@ -97,6 +97,7 @@ module Linguist.Types
   -- * Tests
   , toPatternTests
   , genTerm
+  , prop_serialise_identity
   ) where
 
 
@@ -122,7 +123,8 @@ import qualified Data.Text.Prettyprint.Doc as PP
 import           Data.Void                 (Void)
 import           EasyTest
 import           GHC.Exts                  (IsList (..))
-import           Hedgehog                  (MonadGen)
+import           Hedgehog                  (MonadGen, GenT, Property,
+                                            property, forAll, (===))
 import qualified Hedgehog.Gen              as Gen
 import qualified Hedgehog.Range            as Range
 
@@ -266,6 +268,17 @@ instance Serialise a => Serialise (Term a) where
       2 -> Var       <$> decode
       3 -> PrimValue <$> decode
       _ -> fail "invalid Term encoding"
+
+prop_serialise_identity
+  :: (Show a, Eq a, Serialise a)
+  => SyntaxChart
+  -> Sort
+  -> (SortName -> Maybe (GenT Identity a))
+  -> Property
+prop_serialise_identity chart sort aGen = property $ do
+  tm <- forAll $ genTerm chart sort aGen
+  -- (this is serialiseIdentity from Codec.Serialise.Properties)
+  tm === (deserialise . serialise) tm
 
 newtype Sha256 = Sha256 ByteString
 
