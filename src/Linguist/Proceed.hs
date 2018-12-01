@@ -36,17 +36,19 @@ emitTrace :: Bool
 emitTrace = False
 
 data EvalEnv a b = EvalEnv
-  { _evalSort       :: !SortName
-  , _evalSyntax     :: !SyntaxChart
-  , _evalDenotation :: !(DenotationChart a b)
-  , _evalPatternVars    :: !(Map Text (Term a))
+  { _evalSort            :: !SortName
+  , _evalSyntax          :: !SyntaxChart
+  , _evalDenotation      :: !(DenotationChart a b)
+  , _evalPatternVars     :: !(Map Text (Term a))
   , _evalCorrespondences :: ![(Text, Text)]
   -- TODO: remove?
-  , _evalBVars      :: !(Map Text (Term b))
-  , _evalFrames     :: !Int
-  , _evalPrimApp    :: !(Text -> Maybe (Seq (Term b) -> Term b))
-  , _evalPrimConv   :: !(a -> Maybe b)
+  , _evalBVars           :: !(Map Text (Term b))
+  , _evalFrames          :: !Int
+  , _evalPrimApp         :: !(Text -> Maybe (Seq (Term b) -> Term b))
+  , _evalPrimConv        :: !(a -> Maybe b)
   }
+
+makeLenses ''EvalEnv
 
 mkEvalEnv
   :: SortName
@@ -55,13 +57,12 @@ mkEvalEnv
   -> (Text -> Maybe (Seq (Term b) -> Term b))
   -> (a -> Maybe b)
   -> EvalEnv a b
-mkEvalEnv sort sChart dChart = EvalEnv sort sChart dChart Map.empty [] Map.empty 0
-
-makeLenses ''EvalEnv
+mkEvalEnv sort sChart dChart
+  = EvalEnv sort sChart dChart Map.empty [] Map.empty 0
 
 eval
   :: ( Eq a, Show a, Pretty a
-     , Eq b, Show b, AsFacet Text b, Pretty b
+     , Eq b, Show b, Pretty b, AsFacet Text b
      )
   => EvalEnv a b -> Term a -> Either String (Term b)
 eval env tm = runReader (runExceptT (eval' tm)) env
@@ -124,7 +125,7 @@ getText = preview (facet @Text)
 eval'
   :: forall a b.
      ( Eq a, Show a, Pretty a
-     , Eq b, Show b, AsFacet Text b, Pretty b
+     , Eq b, Show b, Pretty b, AsFacet Text b
      )
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
@@ -140,7 +141,7 @@ eval' a = do
 eval''
   :: forall a b.
      ( Eq a, Show a, Pretty a
-     , Eq b, Show b, AsFacet Text b, Pretty b
+     , Eq b, Show b, Pretty b, AsFacet Text b
      )
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
