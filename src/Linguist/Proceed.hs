@@ -173,7 +173,7 @@ eval'' tm = do
     runReaderT (findMatch dChart tm) (MatchesEnv sChart sort Map.empty)
     ?? "couldn't find match for: " ++ show tm
 
-  showAll "pattern assignments" patternAssignments
+  emitAll "pattern assignments" patternAssignments
 
   let update env = env
         & evalPatternVars      .~ patternAssignments
@@ -188,14 +188,14 @@ eval'' tm = do
           varVals <- view evalVarVals
           emit "CALL runInstructions:"
           emit $ "- " ++ render (PrettyEither <$> a)
-          showAll "pattern vars" patVars
-          showAll "variables" varVals
+          emitAll "pattern vars" patVars
+          emitAll "variables" varVals
           b <- local (evalFrames %~ succ) $ runInstructions' a
           emit "RET runInstructions:"
           emit $ "- " ++ render b
           pure b
 
-        showAll label vals =
+        emitAll label vals =
           if null vals
             then emit $ "(no " <> label <> ")"
             else do emit $ label <> ":"
