@@ -93,14 +93,14 @@ standardParser = do
   --
   -- Example:
   --
-  -- Block ::= Header(HeaderLevel; {Text})
-  -- ^ traverse (each sort)
-  --           ^ sortOperators
-  --                 ^ operatorArity
-  --                  ^            ^ valences . traverse
-  --                  ^            ^ valenceSorts
-  --                               ^ filtered (is _External)
-  --                                ^ externalName
+  -- > Block ::= Header(HeaderLevel; {Text})
+  -- > ^ traverse (each sort)
+  -- >           ^ sortOperators
+  -- >                 ^ operatorArity
+  -- >                  ^            ^ valences . traverse
+  -- >                  ^            ^ valenceSorts
+  -- >                               ^ filtered (is _External)
+  -- >                                ^ externalName
   for_ (syntax
     ^.. traverse
       . sortOperators
