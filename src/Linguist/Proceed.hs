@@ -222,7 +222,6 @@ eval'' tm = do
 
           Term "PrimApp" (PrimValue val : args) -> do
             EvalEnv{_evalPrimApp=evalPrim} <- ask
-            emit $ "val: " ++ show val
             val' <- case val of
               Left _  -> throwError "invariant violation: found a pattern \
                 \variable where a primitive value was expected"
@@ -265,10 +264,7 @@ eval'' tm = do
 
             local (evalVarVals . at name ?~ from''') $ runInstructions to
 
-          Term "Value" [v] -> do
-            emit "here: Term Value"
-            emit $ render $ PrettyEither <$> v
-            fullyResolve =<< erase v
+          Term "Value" [v] -> fullyResolve =<< erase v
 
           Var name -> do
             val  <- view $ evalVarVals . at name
