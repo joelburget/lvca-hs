@@ -123,24 +123,14 @@ erase = traverse $ \case
   Right b   -> pure b
 
 fullyResolve
-  :: (MonadError String m, MonadReader (EvalEnv a b) m, Pretty b, Show b, Show a)
+  :: (MonadError String m, MonadReader (EvalEnv a b) m)
   => Term b
   -> m (Term b)
 fullyResolve tm = case tm of
   Term name subtms  -> Term name <$> traverse fullyResolve subtms
   Binding names tm' -> Binding names <$> fullyResolve tm'
-  Var name -> do
-    val     <- view $ evalVarVals . at name
-    varVals <- view evalVarVals
-    patVars <- view evalPatternVars
-    case val of
-      Just val' -> do
-        emit $ show name
-        emit $ render val'
-      Nothing -> do
-        emit $ show varVals
-        emit $ show patVars
-    val ?? "couldn't look up var " ++ show name
+  Var name -> view (evalVarVals . at name)
+    ??? "couldn't look up var " ++ show name
   PrimValue{} -> pure tm
 
 getText :: (MonadError String m, Show a) => Either Text a -> m Text
