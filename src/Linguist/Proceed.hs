@@ -27,12 +27,19 @@ import           Data.Text.Prettyprint.Doc.Render.Terminal
 import           Data.Traversable          (for)
 
 import           Linguist.Types hiding     (matches)
-import           Linguist.Util             ((??))
+import           Linguist.Util             ((??), (???))
 
 import Debug.Trace
 
 emitTrace :: Bool
 emitTrace = False
+
+-- | Used as a newtype wrapper for its 'Pretty' instance.
+newtype PrettyEither b = PrettyEither (Either Text b)
+
+instance Pretty b => Pretty (PrettyEither b) where
+  pretty (PrettyEither (Left  x)) = "\"" <> pretty x <> "\""
+  pretty (PrettyEither (Right x)) = pretty x
 
 data EvalEnv a b = EvalEnv
   { _evalSort            :: !SortName
@@ -136,10 +143,10 @@ fullyResolve tm = case tm of
     val ?? "couldn't look up var " ++ show name
   PrimValue{} -> pure tm
 
-getText :: Either Text b -> Maybe Text
+getText :: (MonadError String m, Show a) => Either Text a -> m Text
 getText = \case
-  Left text -> Just text
-  Right _   -> Nothing
+  Left text -> pure text
+  Right a   -> throwError $ "not text: " ++ show a
 
 eval'
   :: forall a b.
@@ -155,12 +162,6 @@ eval' a = do
   emit "RET eval':"
   emit $ "- " ++ render b
   pure b
-
-newtype PrettyEither b = PrettyEither (Either Text b)
-
-instance Pretty b => Pretty (PrettyEither b) where
-  pretty (PrettyEither (Left  x)) = "\"" <> pretty x <> "\""
-  pretty (PrettyEither (Right x)) = pretty x
 
 eval''
   :: forall a b.
@@ -191,7 +192,7 @@ eval'' tm = do
   showAll "pattern assignments" patternAssignments
 
   let update env = env
-        & evalPatternVars     .~ patternAssignments
+        & evalPatternVars      .~ patternAssignments
         & evalCorrespondences <>~ correspondences
   local update $ runInstructions meaning
 
@@ -215,6 +216,26 @@ eval'' tm = do
                     ifor_ vals $ \name val ->
                       emit $ "* " ++ unpack name ++ " -> " ++ render val
 
+        resolveBody = \case
+          Term "Renaming"
+            [ PrimValue from
+            , PrimValue to
+            , Term "MeaningPatternVar" [ PrimValue patternName ]
+            ] -> do
+            patternName' <- getText patternName
+            rename
+              <$> getText from
+              <*> getText to
+              <*> (view (evalPatternVars . at patternName')
+                    ??? "couldn't look up term to rename")
+
+          Term "MeaningPatternVar" [ PrimValue fromVar ] -> do
+            fromVar' <- getText fromVar
+            view (evalPatternVars . at fromVar')
+              ??? "couldn't look up " ++ show fromVar'
+
+          _ -> throwError "bad term passed to resolveBody"
+
         runInstructions'
           :: Term (Either Text b)
           -> ExceptT String (Reader (EvalEnv a b)) (Term b)
@@ -229,47 +250,19 @@ eval'' tm = do
             f <- evalPrim val'
               ?? "couldn't look up evaluator for this primitive"
             args' <- for args $ \case
-              Var name -> do
-                val'' <- view $ evalVarVals . at name
-                val'' ?? "couldn't find value for " ++ show name
+              Var name -> view (evalVarVals . at name)
+                ??? "couldn't find value for " ++ show name
               other -> erase other
             pure $ f $ Seq.fromList args'
 
-          Term "Eval"
-            [ Term "Renaming"
-              [ PrimValue from
-              , PrimValue to
-              , patName@(Term "MeaningPatternVar" [PrimValue patternName])
-              ]
-            , rhs
-            ] -> do
-            from'        <- getText from        ?? "not text: " ++ show from
-            to'          <- getText to          ?? "not text: " ++ show to
-            patternName' <- getText patternName ?? "not text: " ++ show patternName
-            tm'          <- view $ evalPatternVars . at patternName'
-            tm''         <- tm' ?? "couldn't look up term to rename"
-            let tm''' = rename from' to' tm''
-            local (evalPatternVars . at patternName' ?~ tm''') $
-              runInstructions $ Term "Eval" [patName, rhs]
+          Term "Eval" [ body , Binding [name] to ] -> do
+            result <- (fullyResolve <=< eval' <=< resolveBody) body
+            local (evalVarVals . at name ?~ result) $ runInstructions to
 
-          Term "Eval"
-            [ Term "MeaningPatternVar" [PrimValue fromVar]
-            , Binding [name] to
-            ] -> do
-            fromVar' <- getText fromVar ?? "not text: " ++ show fromVar
-            from     <- view $ evalPatternVars . at fromVar'
-            from'    <- from ?? "couldn't look up " ++ show fromVar'
-            from''   <- eval' from' -- Term a -> Term b
-            from'''  <- fullyResolve from''
+          Term "Value" [ v ] -> fullyResolve =<< erase v
 
-            local (evalVarVals . at name ?~ from''') $ runInstructions to
-
-          Term "Value" [v] -> fullyResolve =<< erase v
-
-          Var name -> do
-            val  <- view $ evalVarVals . at name
-            val' <- val ?? "couldn't look up variable"
-            pure val'
+          Var name -> view (evalVarVals . at name)
+            ??? "couldn't look up variable"
 
           Term "MeaningPatternVar" [PrimValue name] -> do
             throwError $ "should never evaluate a pattern var on its own ("

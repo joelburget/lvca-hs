@@ -39,6 +39,13 @@ mapAccumM f = flip (runStateT . (traverse (StateT . (flip f))))
 Nothing  ?? err = throwError err
 infix 0 ??
 
+-- | Lift an 'm Maybe' to 'm'
+(???) :: MonadError e m => m (Maybe a) -> e -> m a
+m ??? err = do
+  m' <- m
+  m' ?? err
+infix 0 ???
+
 -- | Indexed form of '<&>'
 (<@&>) :: FunctorWithIndex i f => f a -> (i -> a -> b) -> f b
 (<@&>) = flip imap
