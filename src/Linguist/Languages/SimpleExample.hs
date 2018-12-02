@@ -223,11 +223,11 @@ dynamicsT = [text|
 
 parsePrim :: PD.Parser E
 parsePrim = E <$> choice
-  [ Left <$> intLiteral
-  , Right "add" <$ symbol "add"
-  , Right "mul" <$ symbol "mul"
-  , Right "cat" <$ symbol "cat"
-  , Right "len" <$ symbol "len"
+  [ Left        <$> intLiteral
+  , Right "add" <$  symbol "add"
+  , Right "mul" <$  symbol "mul"
+  , Right "cat" <$  symbol "cat"
+  , Right "len" <$  symbol "len"
   ]
 
 dynamics'
