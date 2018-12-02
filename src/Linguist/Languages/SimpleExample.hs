@@ -260,11 +260,11 @@ p1 = prism' rtl ltr where
       ]
     Annotation () a -> PatternTm "Annotation" [ review p1' a ]
   ltr = \case
-    PatternTm "Plus"       [a, b] -> Plus <$> preview p1' a <*> preview p1' b
+    PatternTm "Plus"       [a, b] -> Plus  <$> preview p1' a <*> preview p1' b
     PatternTm "Times"      [a, b] -> Times <$> preview p1' a <*> preview p1' b
-    PatternTm "Cat"        [a, b] -> Cat <$> preview p1' a <*> preview p1' b
-    PatternTm "Len"        [a]    -> Len <$> preview p1' a
-    PatternTm "Let"        [a, b] -> Let <$> preview p1' a <*> preview p1' b
+    PatternTm "Cat"        [a, b] -> Cat   <$> preview p1' a <*> preview p1' b
+    PatternTm "Len"        [a]    -> Len   <$> preview p1' a
+    PatternTm "Let"        [a, b] -> Let   <$> preview p1' a <*> preview p1' b
     PatternTm "Annotation" [a]    -> Annotation () <$> preview p1' a
     _                             -> Nothing
 
