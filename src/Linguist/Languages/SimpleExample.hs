@@ -66,6 +66,10 @@ instance Pretty E where
   pretty (E (Left  x)) = pretty x
   pretty (E (Right x)) = pretty ("\"" <> x <> "\"")
 
+instance Pretty (Either Text E) where
+  pretty (Left  x) = pretty x
+  pretty (Right x) = pretty x
+
 pattern PrimValue' :: Text -> Either Int Text -> Term E
 pattern PrimValue' name x = Term name [ PrimValue (E x) ]
 
@@ -129,14 +133,14 @@ tm2 = Term "Cat"
   , TS "bar"
   ]
 
-evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
-evalMachinePrimitive = \case
+evalMachinePrimitive :: E -> Maybe (Seq (Term E) -> Term E)
+evalMachinePrimitive (E (Right str)) = case str of
   "add" -> Just $ \case
     TI x :< TI y :< Empty -> VI (x + y)
-    args                  -> error $ "bad call to plus: " ++ show args
+    args                  -> error $ "bad call to add: " ++ show args
   "mul" -> Just $ \case
     TI x :< TI y :< Empty -> VI (x * y)
-    _                     -> error "bad call to times"
+    _                     -> error "bad call to mul"
   "cat" -> Just $ \case
     TS x :< TS y :< Empty -> VS (x <> y)
     _                     -> error "bad call to cat"
@@ -144,6 +148,7 @@ evalMachinePrimitive = \case
     TS x :< Empty -> VI (Text.length x)
     _             -> error "bad call to len"
   _ -> Nothing
+evalMachinePrimitive _ = Nothing
 
 data TermF t e
   = Plus       !e !e
@@ -200,14 +205,14 @@ dynamicsT :: Text
 dynamicsT = [text|
   [[ Plus(n1; n2) ]] = Eval([[ n1 ]]; n1'.
                          Eval([[ n2 ]]; n2'.
-                           PrimApp(Str({add}); n1'; n2')))
+                           PrimApp({add}; n1'; n2')))
   [[ Times(n1; n2) ]] = Eval([[ n1 ]]; n1'.
                           Eval([[ n2 ]]; n2'.
-                            PrimApp(Str({mul}); n1'; n2')))
+                            PrimApp({mul}; n1'; n2')))
   [[ Cat(n1; n2) ]]   = Eval([[ n1 ]]; n1'.
                           Eval([[ n2 ]]; n2'.
-                            PrimApp(Str({cat}); n1'; n2')))
-  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp(Str({len}); e1'))
+                            PrimApp({cat}; n1'; n2')))
+  [[ Len(e) ]]                  = Eval([[ e ]]; e1'. PrimApp({len}; e1'))
   [[ Let(e; v. body) ]]         = Eval([[ e ]]; e'.
                                     Eval(
   // XXX change x to v and this no longer works -- accidental capture!
@@ -216,6 +221,8 @@ dynamicsT = [text|
                                     )
                                   )
   [[ Annotation(_; contents) ]] = Eval([[ contents ]]; contents'. contents')
+  [[ Num(i) ]] = Eval([[ i ]]; i'. Value(Num(i')))
+  [[ Str(s) ]] = Eval([[ s ]]; s'. Value(Str(s')))
   |]
 
 parsePrim :: PD.Parser E
@@ -227,7 +234,8 @@ parsePrim = E <$> choice
   , Right "len" <$ symbol "len"
   ]
 
-dynamics' :: Either (ParseErrorBundle Text Void) (DenotationChart E E)
+dynamics'
+  :: Either (ParseErrorBundle Text Void) (DenotationChart E (Either Text E))
 dynamics' = runParser (PD.parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" dynamicsT
 
@@ -513,12 +521,14 @@ matchesTests = scope "matches" $
        ]
 
 eval' :: Term E -> Either String (Term E)
-eval' = eval $ mkEvalEnv "Exp" syntax (forceRight dynamics') evalMachinePrimitive Just
+eval' = eval $ mkEvalEnv "Exp" syntax (forceRight dynamics')
+  evalMachinePrimitive
+  Just
 
 evalTests :: Test ()
 evalTests = tests
   [ expectEq (eval' tm1) (Right (VI 3))
-  -- , expectEq (eval' tm2) (Right (VS "foobar"))
+  , expectEq (eval' tm2) (Right (VS "foobar"))
   ]
 
 primParsers :: ExternalParsers E

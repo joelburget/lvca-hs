@@ -248,7 +248,7 @@ data Term a
     !(Term a)
   | Var !Text
   | PrimValue !a
-  deriving (Eq, Show)
+  deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Serialise a => Serialise (Term a) where
   encode tm =
@@ -383,7 +383,7 @@ pattern PatternEmpty = PatternUnion []
 -- A denotation chart maps from patterns to their denotation. Patterns are
 -- checked from top to bottom.
 --
--- We check for completeness and reduncancy using a very similar algorithm to
+-- We check for completeness and redundancy using a very similar algorithm to
 -- Haskell's pattern match checks. These could also be compiled efficiently in
 -- a similar way.
 newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]

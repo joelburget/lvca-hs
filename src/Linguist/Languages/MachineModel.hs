@@ -56,13 +56,13 @@ data MeaningF a
 deriving instance (Eq   a) => Eq   (MeaningF a)
 deriving instance (Show a) => Show (MeaningF a)
 
-meaningPatternVar :: a -> Term a
-meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue name ]
+meaningPatternVar :: Text -> Term (Either Text a)
+meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue (Left name) ]
 
-(//) :: Text -> Text -> Term Text -> Term Text
+(//) :: Text -> Text -> Term (Either Text a) -> Term (Either Text a)
 (//) to from term = Term "Renaming"
-  [ PrimValue from
-  , PrimValue to
+  [ PrimValue (Left from)
+  , PrimValue (Left to)
   , term
   ]
 

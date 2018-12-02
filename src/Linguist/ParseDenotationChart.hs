@@ -1,11 +1,9 @@
 module Linguist.ParseDenotationChart where
 
-import           Control.Lens                  (review)
 import           Data.Foldable                 (asum)
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
-import           Data.Diverse.Lens.Which
 
 import           Linguist.ParseUtil
 import           Linguist.Types
@@ -18,14 +16,14 @@ type Parser a = Parsec
 
 -- TODO: add tagged / untagged options for consistency with standard parser
 parseDenotationChart
-  :: AsFacet Text b => Parser a -> Parser b -> Parser (DenotationChart a b)
+  :: Parser a -> Parser b -> Parser (DenotationChart a (Either Text b))
 parseDenotationChart parseA parseB = do
   _ <- scn -- TODO: principled whitespace handling
   DenotationChart <$> many (parseDenotationLine parseA parseB) <* eof
   <?> "denotation chart"
 
 parseDenotationLine
-  :: AsFacet Text b => Parser a -> Parser b -> Parser (Pattern a, Term b)
+  :: Parser a -> Parser b -> Parser (Pattern a, Term (Either Text b))
 parseDenotationLine parseA parseB = (,)
   <$> oxfordBrackets (parsePattern parseA)
   <*  symbol "="
@@ -64,12 +62,15 @@ parseBinders :: Parser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
-parseDenotationRhs :: AsFacet Text b => Parser b -> Parser (Term b)
+parseDenotationRhs :: Parser b -> Parser (Term (Either Text b))
 parseDenotationRhs parseB = asum
-  [ PrimValue <$> braces parseB
+  [ PrimValue . Right <$> braces parseB
   , do name <- parseName
        option (Var name) $ asum
-         [ parens $ do
+         [ -- sugar for e.g. `Int{0}`
+           do b <- braces parseB
+              pure $ Term name [ PrimValue (Right b) ]
+         , parens $ do
            let boundTerm = do
                  binders <- parseBinders
                  tm      <- parseDenotationRhs parseB
@@ -80,15 +81,14 @@ parseDenotationRhs parseB = asum
          ]
   , do meaningVar <- oxfordBrackets $ do
          name <- parseName
-         pure $ Term "MeaningPatternVar"
-           [ PrimValue (review (facet @Text) name) ]
+         pure $ Term "MeaningPatternVar" [ PrimValue $ Left name ]
        option meaningVar $ brackets $ do
          to   <- parseName
          _    <- symbol "/"
          from <- parseName
          pure $ Term "Renaming"
-           [ PrimValue $ review (facet @Text) from
-           , PrimValue $ review (facet @Text) to
+           [ PrimValue $ Left from
+           , PrimValue $ Left to
            , meaningVar
            ]
   ] <?> "non-union pattern"

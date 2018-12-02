@@ -16,7 +16,6 @@ import           Data.Text                          (Text)
 import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
 import           Data.Void                          (Void)
 import           EasyTest
-import           Language.Haskell.TH                (lookupTypeName, Type(..))
 import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
 
 import           Linguist.Languages.Arith.Syntax
@@ -65,15 +64,18 @@ parsePrim = E <$> choice
   , Right "mul" <$ symbol "mul"
   ]
 
--- machineDynamics
---   :: Either (ParseErrorBundle Text Void) (DenotationChart Void Int)
--- machineDynamics = runParser (parseDenotationChart noParse parsePrim)
---   "(arith machine dynamics)" machineDynamicsT
+machineDynamics
+  :: Either (ParseErrorBundle Text Void) (DenotationChart Void (Either Text E))
+machineDynamics = runParser (parseDenotationChart noParse parsePrim)
+  "(arith machine dynamics)" machineDynamicsT
 
 peanoDynamics
-  :: Either (ParseErrorBundle Text Void) (DenotationChart Void Void)
+  :: Either (ParseErrorBundle Text Void) (DenotationChart Void (Either Text Void))
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
   "(arith peano dynamics)" peanoDynamicsT
+
+pattern S' :: Term a -> Term a
+pattern Z' ::           Term a
 
 pattern S' x = Term "S" [ x ]
 pattern Z'   = Term "Z" [   ]
@@ -81,13 +83,13 @@ pattern Z'   = Term "Z" [   ]
 example :: Term Void
 example = Term "Add"
   [ Term "Mul"
-    [ Term "Int" [ S' Z' ]
+    [ S' Z'
     , Term "Sub"
-      [ Term "Int" [ S' (S' Z') ]
-      , Term "Int" [ S' Z' ]
+      [ S' (S' Z')
+      , S' Z'
       ]
     ]
-  , Term "Int" [ S' (S' (S' Z')) ]
+  , S' (S' (S' Z'))
   ]
 
 tm' :: Term E
@@ -103,8 +105,8 @@ tm' =
 pattern PrimInt :: Int -> Term E
 pattern PrimInt i = Term "Int" [ PrimValue (E (Left i)) ]
 
-evalMachinePrimitive :: Text -> Maybe (Seq (Term E) -> Term E)
-evalMachinePrimitive = \case
+evalMachinePrimitive :: E -> Maybe (Seq (Term E) -> Term E)
+evalMachinePrimitive (E (Right str)) = case str of
   "add" -> Just $ \case
     PrimInt x :< PrimInt y :< Empty -> PrimInt (x + y)
     args -> error $ "bad call to add: " ++ show args
@@ -115,18 +117,19 @@ evalMachinePrimitive = \case
     PrimInt x :< PrimInt y :< Empty -> PrimInt (x * y)
     args -> error $ "bad call to mul: " ++ show args
   _ -> Nothing
+evalMachinePrimitive _ = Nothing
 
--- machineEval :: Term Void -> Either String (Term E)
--- machineEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
---   (forceRight machineDynamics)
---   evalMachinePrimitive
---   (Just . E . Left)
+machineEval :: Term Void -> Either String (Term E)
+machineEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
+  (forceRight machineDynamics)
+  evalMachinePrimitive
+  (const Nothing)
 
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
   (forceRight peanoDynamics)
   (const Nothing)
-  Just
+  (const Nothing)
 
 primParsers :: ExternalParsers E
 primParsers = makeExternalParsers
@@ -136,8 +139,8 @@ primParsers = makeExternalParsers
 
 arithTests :: Test ()
 arithTests = tests
-  -- [ scope "eval" $ expectEq (machineEval example) (Right (PrimInt 5))
-  [ scope "prop_parse_pretty" $
+  [ scope "eval" $ expectEq (machineEval example) (Right (PrimInt 4))
+  , scope "prop_parse_pretty" $
     testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
       (const Nothing) primParsers
   , scope "prop_serialise_identity" $ testProperty $

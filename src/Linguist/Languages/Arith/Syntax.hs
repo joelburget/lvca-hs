@@ -24,7 +24,8 @@ codomainT2 :: Text
 codomainT2 = [text|
   Int ::=
     Z()
-    Z(Int)
+    S(Int)
+    Rec(Int; Int; Int. Int. Int)
   |]
 
 -- Meaning of terms with int externals in terms of add, sub, and mul
@@ -44,9 +45,7 @@ machineDynamicsT = [text|
                       Eval([[ b ]]; b'.
                         PrimApp({mul}; a'; b')))
   [[ Z()       ]] = Value(Int{0})
-  [[ S(a)      ]] = PrimApp({add}; [[ a ]]; Int{1})
-  [[ Int(i)    ]] = Value(Int([[ i ]]))
-  // Int(1) -> Int(1)
+  [[ S(a)      ]] = Eval([[ a ]]; a'. PrimApp({add}; a'; Int{1}))
   |]
 
 -- Meaning in terms of peano numbers.

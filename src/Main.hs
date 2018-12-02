@@ -4,6 +4,7 @@ import           Brick
 import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Zipper
+import           Data.Void (Void)
 import           EasyTest
 
 import           Linguist.Brick
@@ -42,7 +43,7 @@ main = do
     --     steps = iterate (\tm -> runReader (proceed tm) env) $
     --       StateStep [] (Descending SimpleExample.tm1)
     let env = (forceRight Arith.syntax, forceRight Arith.machineDynamics, const Nothing)
-        steps :: [StateStep Int]
+        steps :: [StateStep Void]
         steps = iterate (\tm -> runReader (error "TODO" tm) env) $
           StateStep [] (Descending Arith.example)
     in State (zipper steps & fromWithin traverse) False

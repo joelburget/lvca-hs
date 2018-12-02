@@ -4,12 +4,12 @@
 module Linguist.Languages.TExample where
 -- Godel's system t
 
-import Control.Lens (Prism, Prism', prism, prism', review, preview)
-import qualified Data.Map.Strict  as Map
+import           Data.Void                 (Void)
+import           Control.Lens              (Prism, Prism', prism, prism', review, preview)
+import qualified Data.Map.Strict           as Map
 import           EasyTest
-import           Prelude          hiding (succ)
-import Data.Text (Text)
-import qualified Data.Text as Text
+import           Prelude                   hiding (succ)
+import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 
 import           Linguist.Proceed
@@ -17,7 +17,6 @@ import           Linguist.Types
 import           Linguist.Languages.MachineModel
 import Linguist.FunctorUtil
 
-import Debug.Trace
 
 data T
 
@@ -82,10 +81,10 @@ dynamics' = DenotationChart'
     FreeIn (Eval (Pure "arg") "arg'" (Pure "body"))
   ]
 
-dynamics :: DenotationChart T Text
-dynamics = mkDenotationChart id tmPatP valTmP dynamics'
+-- dynamics :: DenotationChart T Void
+-- dynamics = mkDenotationChart id tmPatP valTmP dynamics'
 
-dynamics2 :: DenotationChart T Text
+dynamics2 :: DenotationChart T (Either Text Void)
 dynamics2 = DenotationChart
   [ PatternTm "Z" []
     :->
@@ -161,15 +160,15 @@ succ = Term "Lam" [Term "Nat" [], Binding ["x"] (Term "S" [Var "x"])]
 lamapp = Term "Ap" [succ, z]
 lamapp2 = Term "Ap" [succ, lamapp]
 
-zv, szv, sszv :: Term Text
+zv, szv, sszv :: Term Void
 zv = Term "Zv" []
 szv = Term "Sv" [zv]
 sszv = Term "Sv" [szv]
 
-eval' :: Term T -> Either String (Term Text)
+eval' :: Term T -> Either String (Term Void)
 eval' = eval $
   mkEvalEnv "Exp" syntax dynamics2
-    (\name -> trace (Text.unpack name) Nothing) -- (const Nothing)
+    (const Nothing)
     (const Nothing)
 
 evalTests :: Test ()
