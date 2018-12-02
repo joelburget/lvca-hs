@@ -77,9 +77,6 @@ emit msg = do
   frames <- view evalFrames
   when emitTrace $ traceM $ indent frames msg
 
-emitD :: MonadReader (EvalEnv a b) m => Doc AnsiStyle -> m ()
-emitD = emit . unpack . renderStrict . layoutPretty defaultLayoutOptions
-
 render :: Pretty a => Term a -> String
 render
   = unpack
@@ -117,10 +114,18 @@ rename from to tm = case tm of
   Var name -> if name == from then Var to else tm
   PrimValue{} -> tm
 
-erase :: Term (Either Text b) -> ExceptT String (Reader (EvalEnv a b)) (Term b)
-erase = traverse $ \case
-  Left text -> throwError $ "when erasing, found pattern var " ++ unpack text
+-- | Downcast a term that can't contain pattern variables
+downcast
+  :: Term (Either Text b) -> ExceptT String (Reader (EvalEnv a b)) (Term b)
+downcast = traverse $ \case
   Right b   -> pure b
+  Left text -> throwError $
+    "when downcasting, found pattern var " ++ unpack text
+
+getText :: (MonadError String m, Show a) => Either Text a -> m Text
+getText = \case
+  Left text -> pure text
+  Right a   -> throwError $ "not text: " ++ show a
 
 fullyResolve
   :: (MonadError String m, MonadReader (EvalEnv a b) m)
@@ -132,11 +137,6 @@ fullyResolve tm = case tm of
   Var name -> view (evalVarVals . at name)
     ??? "couldn't look up var " ++ show name
   PrimValue{} -> pure tm
-
-getText :: (MonadError String m, Show a) => Either Text a -> m Text
-getText = \case
-  Left text -> pure text
-  Right a   -> throwError $ "not text: " ++ show a
 
 eval'
   :: forall a b.
@@ -160,19 +160,13 @@ eval''
      )
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
--- TODO: are these first two cases kosher? wrong domain to be analyzed here?
 eval'' (PrimValue a) = do
-  -- testing whether these cases are hit
-  emitD $ annotate (color Red) "PRIMVALUE eval"
   EvalEnv{_evalPrimConv=f} <- ask
   case f a of
     Nothing -> throwError "bad prim value"
     Just b  -> pure $ PrimValue b
-eval'' (Var name) = do
-  -- testing whether these cases are hit
-  emitD $ annotate (color Red) "VAR eval"
-  val <- view $ evalVarVals . at name
-  val ?? "couldn't look up variable " ++ show name
+eval'' (Var name)
+  = view (evalVarVals . at name) ??? "couldn't look up variable " ++ show name
 eval'' tm = do
   EvalEnv sort sChart dChart _ _ _ _ _ _ <- ask
   (Subst patternAssignments correspondences, meaning) <-
@@ -186,7 +180,9 @@ eval'' tm = do
         & evalCorrespondences <>~ correspondences
   local update $ runInstructions meaning
 
-  where runInstructions :: Term (Either Text b) -> ExceptT String (Reader (EvalEnv a b)) (Term b)
+  where runInstructions
+          :: Term (Either Text b)
+          -> ExceptT String (Reader (EvalEnv a b)) (Term b)
         runInstructions a = do
           patVars <- view evalPatternVars
           varVals <- view evalVarVals
@@ -231,34 +227,29 @@ eval'' tm = do
           -> ExceptT String (Reader (EvalEnv a b)) (Term b)
         runInstructions' = \case
 
-          Term "PrimApp" (PrimValue val : args) -> do
+          Term "PrimApp" (val@PrimValue{} : args) -> do
             EvalEnv{_evalPrimApp=evalPrim} <- ask
-            val' <- case val of
-              Left _  -> throwError "invariant violation: found a pattern \
-                \variable where a primitive value was expected"
-              Right x -> pure x
+            PrimValue val' <- downcast val
             f <- evalPrim val'
               ?? "couldn't look up evaluator for this primitive"
             args' <- for args $ \case
               Var name -> view (evalVarVals . at name)
                 ??? "couldn't find value for " ++ show name
-              other -> erase other
+              other -> downcast other
             pure $ f $ Seq.fromList args'
 
           Term "Eval" [ body , Binding [name] to ] -> do
             result <- (fullyResolve <=< eval' <=< resolveBody) body
             local (evalVarVals . at name ?~ result) $ runInstructions to
 
-          Term "Value" [ v ] -> fullyResolve =<< erase v
-
-          Var name -> view (evalVarVals . at name)
-            ??? "couldn't look up variable"
+          Term "Value" [ v ] -> fullyResolve =<< downcast v
 
           Term "MeaningPatternVar" [PrimValue name] -> do
             throwError $ "should never evaluate a pattern var on its own ("
               ++ show name ++ ")"
 
-          tm'@PrimValue{} -> erase tm'
+          Var name -> view (evalVarVals . at name)
+            ??? "couldn't look up variable " ++ show name
 
           other -> do
             emit $ "unexpected term: " ++ render (PrettyEither <$> other)

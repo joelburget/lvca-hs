@@ -10,6 +10,7 @@ module Linguist.Languages.SimpleExample
   , E
   , tm1
   , tm2
+  , tm3
   , dynamicTests
   , minusTests
   , completePatternTests
@@ -111,7 +112,7 @@ syntax = SyntaxChart $ Map.fromList
     ])
   ]
 
-tm1, tm2 :: Term E
+tm1, tm2, tm3 :: Term E
 tm1 = Term "Annotation"
   [ TS "annotation"
   , Term "Let"
@@ -129,19 +130,26 @@ tm2 = Term "Cat"
   , TS "bar"
   ]
 
+tm3 = Term "Times"
+  [ Term "Len"
+    [ TS "hippo"
+    ]
+  , TI 3
+  ]
+
 evalMachinePrimitive :: E -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive (E (Right str)) = case str of
   "add" -> Just $ \case
-    TI x :< TI y :< Empty -> VI (x + y)
+    VI x :< VI y :< Empty -> VI (x + y)
     args                  -> error $ "bad call to add: " ++ show args
   "mul" -> Just $ \case
-    TI x :< TI y :< Empty -> VI (x * y)
+    VI x :< VI y :< Empty -> VI (x * y)
     _                     -> error "bad call to mul"
   "cat" -> Just $ \case
-    TS x :< TS y :< Empty -> VS (x <> y)
+    VS x :< VS y :< Empty -> VS (x <> y)
     _                     -> error "bad call to cat"
   "len" -> Just $ \case
-    TS x :< Empty -> VI (Text.length x)
+    VS x :< Empty -> VI (Text.length x)
     _             -> error "bad call to len"
   _ -> Nothing
 evalMachinePrimitive _ = Nothing
@@ -217,8 +225,8 @@ dynamicsT = [text|
                                     )
                                   )
   [[ Annotation(_; contents) ]] = Eval([[ contents ]]; contents'. contents')
-  [[ Num(i) ]] = Eval([[ i ]]; i'. Value(Num(i')))
-  [[ Str(s) ]] = Eval([[ s ]]; s'. Value(Str(s')))
+  [[ Num(i) ]] = Eval([[ i ]]; i'. Value(NumV(i')))
+  [[ Str(s) ]] = Eval([[ s ]]; s'. Value(StrV(s')))
   |]
 
 parsePrim :: PD.Parser E
@@ -525,6 +533,7 @@ evalTests :: Test ()
 evalTests = tests
   [ expectEq (eval' tm1) (Right (VI 3))
   , expectEq (eval' tm2) (Right (VS "foobar"))
+  , expectEq (eval' tm3) (Right (VI 15))
   ]
 
 primParsers :: ExternalParsers E
