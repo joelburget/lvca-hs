@@ -5,6 +5,7 @@
 module Linguist.Languages.Arith where
 
 import           Control.Applicative                ((<$))
+import           Control.Arrow                      ((>>>))
 import           Control.Monad.Reader               (runReaderT)
 import           Control.Lens                       (pattern Empty, pattern (:<), _Right, _Wrapped)
 import           Control.Lens.TH
@@ -12,7 +13,7 @@ import           Data.Diverse.Lens.Which
 import qualified Data.Map                           as Map
 import           Data.Sequence                      (Seq)
 import           Data.Text                          (Text)
-import           Data.Text.Prettyprint.Doc          (Pretty(pretty), viaShow)
+import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
 import           Data.Void                          (Void)
 import           EasyTest
 import           Language.Haskell.TH                (lookupTypeName, Type(..))
@@ -24,7 +25,7 @@ import qualified Linguist.ParseDenotationChart      as PD
 import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
 import           Linguist.Proceed
-import           Linguist.Types                     -- (SyntaxChart, Term (..))
+import           Linguist.Types
 import           Linguist.Util                      (forceRight)
 import           Linguist.TH
 import           Linguist.ParseLanguage
@@ -39,24 +40,22 @@ instance AsFacet Text E where
   facet = _Wrapped . _Right
 
 instance Pretty E where
-  pretty = viaShow
+  pretty = unE >>> \case
+    Left  i -> pretty i
+    Right t -> "\"" <> pretty t <> "\""
 
-$(do
-  Just t <- lookupTypeName "Text"
-  Just i <- lookupTypeName "Int"
-  mkTypes syntaxT $ Map.fromList
-    [ ("Prim", PromotedT t)
-    , ("Int",  PromotedT i)
-    ])
+$(mkTypes domainT Map.empty)
+  -- Just t <- lookupTypeName "Text"
+  -- Just i <- lookupTypeName "Int"
+  -- mkTypes domainT $ Map.fromList
+  --   [ ("Prim", PromotedT t)
+  --   , ("Int",  PromotedT i)
+  --   ])
 
 makeLenses ''Arith
 
 syntax :: Either (ParseErrorBundle Text Void) SyntaxChart
-syntax = runParser parseSyntaxDescription "(arith syntax)" syntaxT
-
-machineDynamics :: Either (ParseErrorBundle Text Void) (DenotationChart Int E)
-machineDynamics = runParser (parseDenotationChart noParse parsePrim)
-  "(arith machine dynamics)" machineDynamicsT
+syntax = runParser parseSyntaxDescription "(arith syntax)" domainT
 
 parsePrim :: PD.Parser E
 parsePrim = E <$> choice
@@ -66,22 +65,29 @@ parsePrim = E <$> choice
   , Right "mul" <$ symbol "mul"
   ]
 
+-- machineDynamics
+--   :: Either (ParseErrorBundle Text Void) (DenotationChart Void Int)
+-- machineDynamics = runParser (parseDenotationChart noParse parsePrim)
+--   "(arith machine dynamics)" machineDynamicsT
+
 peanoDynamics
-  :: AsFacet Text a
-  => Either (ParseErrorBundle Text Void) (DenotationChart Int a)
+  :: Either (ParseErrorBundle Text Void) (DenotationChart Void Void)
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
   "(arith peano dynamics)" peanoDynamicsT
 
-example :: Term Int
+pattern S' x = Term "S" [ x ]
+pattern Z'   = Term "Z" [   ]
+
+example :: Term Void
 example = Term "Add"
   [ Term "Mul"
-    [ Term "Int" [ PrimValue 1 ]
+    [ Term "Int" [ S' Z' ]
     , Term "Sub"
-      [ Term "Int" [ PrimValue 500 ]
-      , Term "Int" [ PrimValue 498 ]
+      [ Term "Int" [ S' (S' Z') ]
+      , Term "Int" [ S' Z' ]
       ]
     ]
-  , Term "Int" [ PrimValue 3 ]
+  , Term "Int" [ S' (S' (S' Z')) ]
   ]
 
 tm' :: Term E
@@ -110,11 +116,17 @@ evalMachinePrimitive = \case
     args -> error $ "bad call to mul: " ++ show args
   _ -> Nothing
 
-eval' :: Term Int -> Either String (Term E)
-eval' = eval $ mkEvalEnv "Arith" (forceRight syntax)
-  (forceRight machineDynamics)
-  evalMachinePrimitive
-  (Just . E . Left)
+-- machineEval :: Term Void -> Either String (Term E)
+-- machineEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
+--   (forceRight machineDynamics)
+--   evalMachinePrimitive
+--   (Just . E . Left)
+
+peanoEval :: Term Void -> Either String (Term Void)
+peanoEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
+  (forceRight peanoDynamics)
+  (const Nothing)
+  Just
 
 primParsers :: ExternalParsers E
 primParsers = makeExternalParsers
@@ -124,8 +136,8 @@ primParsers = makeExternalParsers
 
 arithTests :: Test ()
 arithTests = tests
-  [ scope "eval" $ expectEq (eval' example) (Right (PrimInt 5))
-  , scope "prop_parse_pretty" $
+  -- [ scope "eval" $ expectEq (machineEval example) (Right (PrimInt 5))
+  [ scope "prop_parse_pretty" $
     testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
       (const Nothing) primParsers
   , scope "prop_serialise_identity" $ testProperty $

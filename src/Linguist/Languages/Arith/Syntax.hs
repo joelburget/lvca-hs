@@ -5,8 +5,8 @@ module Linguist.Languages.Arith.Syntax where
 import           Data.Text         (Text)
 import           NeatInterpolation
 
-syntaxT :: Text
-syntaxT = [text|
+domainT :: Text
+domainT = [text|
 Arith ::=
   Add(Arith; Arith)
   Sub(Arith; Arith)
@@ -15,14 +15,20 @@ Arith ::=
   // numbers
   Z
   S(Arith)
-  {Int}
-
-// external types:
-//   Prim
-//   Int
   |]
 
--- Meaning in terms of add, sub, and mul primitives.
+codomainT1 :: Text
+codomainT1 = "Int ::= {Int}"
+
+codomainT2 :: Text
+codomainT2 = [text|
+  Int ::=
+    Z()
+    Z(Int)
+  |]
+
+-- Meaning of terms with int externals in terms of add, sub, and mul
+-- primitives.
 --
 -- Due to using machine primitives this has an operational feel because we need
 -- to evaluate terms before handing them to primitives.
@@ -37,8 +43,10 @@ machineDynamicsT = [text|
   [[ Mul(a; b) ]] = Eval([[ a ]]; a'.
                       Eval([[ b ]]; b'.
                         PrimApp({mul}; a'; b')))
-  [[ Z()       ]] = {0}
-  [[ S(a)      ]] = PrimApp({add}; [[ a ]]; {1})
+  [[ Z()       ]] = Value(Int{0})
+  [[ S(a)      ]] = PrimApp({add}; [[ a ]]; Int{1})
+  [[ Int(i)    ]] = Value(Int([[ i ]]))
+  // Int(1) -> Int(1)
   |]
 
 -- Meaning in terms of peano numbers.

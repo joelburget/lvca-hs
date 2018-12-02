@@ -11,7 +11,10 @@ import           Linguist.ParseUtil
 import           Linguist.Types
 
 
-type Parser a = Parsec Void Text a
+type Parser a = Parsec
+  Void -- error type
+  Text -- stream type
+  a
 
 -- TODO: add tagged / untagged options for consistency with standard parser
 parseDenotationChart

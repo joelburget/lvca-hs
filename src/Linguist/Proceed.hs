@@ -33,7 +33,7 @@ import           Linguist.Util        ((??))
 import Debug.Trace
 
 emitTrace :: Bool
-emitTrace = False
+emitTrace = True
 
 data EvalEnv a b = EvalEnv
   { _evalSort            :: !SortName
@@ -41,8 +41,7 @@ data EvalEnv a b = EvalEnv
   , _evalDenotation      :: !(DenotationChart a b)
   , _evalPatternVars     :: !(Map Text (Term a))
   , _evalCorrespondences :: ![(Text, Text)]
-  -- TODO: remove?
-  , _evalBVars           :: !(Map Text (Term b))
+  , _evalVarVals         :: !(Map Text (Term b))
   , _evalFrames          :: !Int
   , _evalPrimApp         :: !(Text -> Maybe (Seq (Term b) -> Term b))
   , _evalPrimConv        :: !(a -> Maybe b)
@@ -67,8 +66,13 @@ eval
   => EvalEnv a b -> Term a -> Either String (Term b)
 eval env tm = runReader (runExceptT (eval' tm)) env
 
-emit :: Applicative f => Int -> String -> f ()
-emit frames = when emitTrace . traceM . indent frames
+emit :: MonadReader (EvalEnv a b) m => String -> m ()
+emit msg = do
+  frames <- view evalFrames
+  when emitTrace $ traceM $ indent frames msg
+
+emitD :: MonadReader (EvalEnv a b) m => Doc AnsiStyle -> m ()
+emitD = emit . unpack . renderStrict . layoutPretty defaultLayoutOptions
 
 render :: Pretty a => Term a -> String
 render
@@ -97,7 +101,7 @@ specialPretty = \case
   Binding names tm ->
     hsep (punctuate dot (fmap pretty names)) <> dot <+> specialPretty tm
   Var name    -> pretty name
-  PrimValue a -> "{" <> pretty a <> "}"
+  PrimValue a -> annotate (color Blue) $ "{" <> pretty a <> "}"
 
 rename :: Text -> Text -> Term a -> Term a
 rename from to tm = case tm of
@@ -108,14 +112,23 @@ rename from to tm = case tm of
   PrimValue{} -> tm
 
 fullyResolve
-  :: (MonadError String m, MonadReader (EvalEnv a b) m)
+  :: (MonadError String m, MonadReader (EvalEnv a b) m, Pretty b, Show b, Show a)
   => Term b
   -> m (Term b)
 fullyResolve tm = case tm of
   Term name subtms -> Term name <$> traverse fullyResolve subtms
   Binding names tm' -> Binding names <$> fullyResolve tm'
   Var name -> do
-    val <- view $ evalBVars . at name
+    val <- view $ evalVarVals . at name
+    varVals <- view evalVarVals
+    patVars <- view evalPatternVars
+    case val of
+      Just val' -> do
+        emit $ show name
+        emit $ render val'
+      Nothing -> do
+        emit $ show varVals
+        emit $ show patVars
     val ?? "couldn't look up var " ++ show name
   PrimValue{} -> pure tm
 
@@ -130,12 +143,11 @@ eval'
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
 eval' a = do
-  frames <- view evalFrames
-  emit frames "CALL eval':"
-  emit frames $ "- " ++ render a
+  emit "CALL eval':"
+  emit $ "- " ++ render a
   b <- local (evalFrames %~ succ) $ eval'' a
-  emit frames "RET eval':"
-  emit frames $ "- " ++ render b
+  emit "RET eval':"
+  emit $ "- " ++ render b
   pure b
 
 eval''
@@ -145,13 +157,18 @@ eval''
      )
   => Term a
   -> ExceptT String (Reader (EvalEnv a b)) (Term b)
+-- TODO: are these first two cases kosher? wrong domain to be analyzed here?
 eval'' (PrimValue a) = do
+  -- testing whether these cases are hit
+  emitD $ annotate (color Red) "PRIMVALUE eval"
   EvalEnv{_evalPrimConv=f} <- ask
   case f a of
     Nothing -> throwError "bad prim value"
     Just b  -> pure $ PrimValue b
 eval'' (Var name) = do
-  val <- view $ evalBVars . at name
+  -- testing whether these cases are hit
+  emitD $ annotate (color Red) "VAR eval"
+  val <- view $ evalVarVals . at name
   val ?? "couldn't look up variable " ++ show name
 eval'' tm = do
   EvalEnv sort sChart dChart _ _ _ _ _ _ <- ask
@@ -159,41 +176,37 @@ eval'' tm = do
     runReaderT (findMatch dChart tm) (MatchesEnv sChart sort Map.empty)
     ?? "couldn't find match for: " ++ show tm
 
-  frames <- view evalFrames
-  emit frames $ "assignments:"
-  ifor_ assignments $ \i a -> emit frames $ show i <> " -> " <> show a
+  emit "assignments:"
+  ifor_ assignments $ \i a -> emit $ show i <> " -> " <> render a
 
   let update env = env
-        -- & evalPatternVars     %~ Map.union assignments
         & evalPatternVars     .~ assignments
         & evalCorrespondences <>~ correspondences
   local update $ runInstructions meaning
 
   where runInstructions :: Term b -> ExceptT String (Reader (EvalEnv a b)) (Term b)
         runInstructions a = do
-          frames          <- view evalFrames
-          patVars         <- view evalPatternVars
-          bVars           <- view evalBVars
-          emit frames "CALL runInstructions:"
-          emit frames $ "- " ++ render a
+          patVars <- view evalPatternVars
+          varVals <- view evalVarVals
+          emit "CALL runInstructions:"
+          emit $ "- " ++ render a
           ifor_ patVars $ \name val ->
-            emit frames $ "+ " ++ unpack name ++ ": " ++ render val
-          ifor_ bVars $ \name val ->
-            emit frames $ "* " ++ unpack name ++ ": " ++ render val
+            emit $ "+ " ++ unpack name ++ ": " ++ render val
+          ifor_ varVals $ \name val ->
+            emit $ "* " ++ unpack name ++ ": " ++ render val
           b <- local (evalFrames %~ succ) $ runInstructions' a
-          emit frames "RET runInstructions:"
-          emit frames $ "- " ++ render b
+          emit "RET runInstructions:"
+          emit $ "- " ++ render b
           pure b
 
         runInstructions' = \case
-          -- XXX decide what the tag should be here
           Term "PrimApp" (PrimValue val : args) -> do
             EvalEnv{_evalPrimApp=evalPrim} <- ask
             f <- evalPrim =<< getText val
               ?? "couldn't look up evaluator for this primitive"
             args' <- for args $ \case
               Var name -> do
-                val' <- view $ evalBVars . at name
+                val' <- view $ evalVarVals . at name
                 val' ?? "couldn't find value for " ++ show name
               other -> pure other
             pure $ f $ Seq.fromList args'
@@ -223,12 +236,14 @@ eval'' tm = do
             from''   <- eval' from' -- Term a -> Term b
             from'''  <- fullyResolve from''
 
-            local (evalBVars . at name ?~ from''') $ runInstructions to
+            local (evalVarVals . at name ?~ from''') $ runInstructions to
 
-          Term "Value" [v] -> fullyResolve v
+          Term "Value" [v] -> do
+            emit "here: Term Value"
+            fullyResolve v
 
           Var name -> do
-            val  <- view $ evalBVars . at name
+            val  <- view $ evalVarVals . at name
             val' <- val ?? "couldn't look up variable"
             pure val'
 
@@ -238,4 +253,4 @@ eval'' tm = do
 
           tm'@PrimValue{} -> pure tm'
 
-          other -> throwError $ "unexpected term: " ++ show other
+          other -> throwError $ "unexpected term: " ++ render other
