@@ -117,7 +117,7 @@ syntax = SyntaxChart $ Map.fromList
 
 tm1, tm2 :: Term E
 tm1 = Term "Annotation"
-  [ TS "annotation" -- XXX need this to be a different type
+  [ TS "annotation"
   , Term "Let"
     [ TI 1
     , Binding ["x"]
