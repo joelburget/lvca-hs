@@ -66,10 +66,6 @@ instance Pretty E where
   pretty (E (Left  x)) = pretty x
   pretty (E (Right x)) = pretty ("\"" <> x <> "\"")
 
-instance Pretty (Either Text E) where
-  pretty (Left  x) = pretty x
-  pretty (Right x) = pretty x
-
 pattern PrimValue' :: Text -> Either Int Text -> Term E
 pattern PrimValue' name x = Term name [ PrimValue (E x) ]
 
