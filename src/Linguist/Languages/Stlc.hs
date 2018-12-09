@@ -39,7 +39,7 @@ stlcChart = SyntaxChart $ Map.fromList
 --     Cbn "body" "applicand")
 --   ]
 
--- data TermF e
+-- data ExpF e
 --   = LamF   !e
 --   | ApF !e !e
 
@@ -47,7 +47,7 @@ stlcChart = SyntaxChart $ Map.fromList
 --   = Lam !(Either Term Pat)
 --   | Ap  !(Either Term Pat) !(Either Term Pat)
 
--- dynamics :: DenotationChart' (TermF :+: PatF) MeaningF
+-- dynamics :: DenotationChart' (ExpF :+: PatF) MeaningF
 -- dynamics = DenotationChart'
 --   [ FixL (ApF
 --       (FixL (LamF (FixR (BindingPatF ["x"] (FixIn (PatVarF (Just "body")))))))

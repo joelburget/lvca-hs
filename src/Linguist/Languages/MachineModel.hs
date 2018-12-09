@@ -1,15 +1,14 @@
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE KindSignatures     #-}
-{-# LANGUAGE StandaloneDeriving     #-}
-{-# LANGUAGE PolyKinds     #-}
+{-# LANGUAGE PolyKinds          #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell    #-}
 module Linguist.Languages.MachineModel
   ( MeaningF(..)
   , meaningPatternVar
   , (//)
 
-  , meaningTermP
+  , meaningP
   , mkDenotationChart
-  , patTermP
 
   -- * Evaluation
   , StackFrame(..)
@@ -22,10 +21,10 @@ module Linguist.Languages.MachineModel
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Control.Lens
-  (Prism', _1, _2, (%~), preview, review, prism', (&))
+  (Prism', _1, _2, (%~), preview, review, prism', (&), _Left)
 import Data.Text (Text)
 
-import Linguist.Types
+import Linguist.Types                      hiding (patP, termP)
 import Linguist.FunctorUtil
 
 
@@ -56,6 +55,42 @@ data MeaningF a
 deriving instance (Eq   a) => Eq   (MeaningF a)
 deriving instance (Show a) => Show (MeaningF a)
 
+instance Show1 MeaningF where
+  liftShowsPrec showsf showListf p tm = showParen (p > 10) $ case tm of
+    PrimApp name args ->
+        ss "PrimApp "
+      . showsPrec 11 name
+      . ss " "
+      . showListf args
+    Eval from name to ->
+        ss "Eval "
+      . showsf 11 from
+      . ss " "
+      . showsPrec 11 name
+      . ss " "
+      . showsf 11 to
+    Renaming from to tm' ->
+        ss "Renaming "
+      . showsPrec 11 from
+      . ss " "
+      . showsPrec 11 to
+      . ss " "
+      . showsf 11 tm'
+    Value tm'              -> ss "Value " . showsf 11 tm'
+    MeaningPatternVar name -> ss "MeaningPatternVar " . showsPrec 11 name
+    where ss = showString
+
+instance Eq1 MeaningF where
+  liftEq eqf (PrimApp name1 args1) (PrimApp name2 args2)
+    = name1 == name2 && and (zipWith eqf args1 args2)
+  liftEq eqf (Eval from1 name1 to1) (Eval from2 name2 to2)
+    = eqf from1 from2 && name1 == name2 && eqf to1 to2
+  liftEq eqf (Renaming from1 to1 tm'1) (Renaming from2 to2 tm'2)
+    = from1 == from2 && to1 == to2 && eqf tm'1 tm'2
+  liftEq eqf (Value v1) (Value v2) = eqf v1 v2
+  liftEq _ (MeaningPatternVar v1) (MeaningPatternVar v2) = v1 == v2
+  liftEq _ _ _ = False
+
 meaningPatternVar :: Text -> Term (Either Text a)
 meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue (Left name) ]
 
@@ -66,100 +101,68 @@ meaningPatternVar name = Term "MeaningPatternVar" [ PrimValue (Left name) ]
   , term
   ]
 
--- The core of this function is the call to meaningTermP, to which we need to
--- pass a prism that it can use on its children. That prism is this one, but
--- generalized.
-meaningTermP :: forall a f.
-     Prism' a Text
-  -> Prism' (Term a) (f (Free (MeaningF :+: f) Text))
-  -> Prism' (Term a)    (Free (MeaningF :+: f) Text)
-meaningTermP textP fP = prism' rtl ltr where
+meaningP
+  :: Prism' (Term (Either Text a))           (Fix f)
+  -> Prism' (Term (Either Text a)) (MeaningF (Fix f))
+meaningP p = prism' rtl ltr where
+  primValP :: Prism' (Term (Either Text a)) Text
+  primValP = _PrimValue . _Left
 
-  primValP :: Prism' (Term a) Text
-  primValP = _PrimValue . textP
-
-  subP :: Prism' (Term a) (Free (MeaningF :+: f) Text)
-  subP = meaningTermP textP fP
-
-  rtl :: Free (MeaningF :+: f) Text -> Term a
   rtl = \case
-    Pure name -> Var name
-    Free (InL f) -> case f of
-      PrimApp name args -> Term "PrimApp"
-        [ review primValP name
-        , review (listP subP) args
-        ]
-      -- Bind from name to -> Term "Bind"
-      --   [ review subP from
-      --   , review primValP name
-      --   , review subP to
-      --   ]
-      Eval from name to -> Term "Eval"
-        [ review subP from
-        , Binding [name] (review subP to)
-        ]
-      Renaming old new term -> Term "Renaming"
-        [ review primValP old
-        , review primValP new
-        , review subP term
-        ]
-      Value meaning -> Term "Value" [ review subP meaning ]
-      MeaningPatternVar name -> Term "MeaningPatternVar"
-        [ PrimValue $ review textP name ]
-    Free (InR f) -> review fP f
+    PrimApp name args -> Term "PrimApp"
+      [ review primValP name
+      , review (listP p) args
+      ]
+    -- Bind from name to -> Term "Bind"
+    --   [ review p from
+    --   , review primValP name
+    --   , review p to
+    --   ]
+    Eval from name to -> Term "Eval"
+      [ review p from
+      , Binding [name] (review p to)
+      ]
+    Renaming old new term -> Term "Renaming"
+      [ review primValP old
+      , review primValP new
+      , review p term
+      ]
+    Value meaning -> Term "Value" [ review p meaning ]
+    MeaningPatternVar name -> Term "MeaningPatternVar"
+      [ PrimValue $ review _Left name ]
 
-  ltr :: Term a -> Maybe (Free (MeaningF :+: f) Text)
   ltr = \case
-    Var name -> Just $ Pure name
-    Term "PrimApp" [name, args] -> fmap (Free . InL) $ PrimApp
+    -- Var name -> Just $ Pure name
+    Term "PrimApp" [name, args] -> PrimApp
       <$> preview primValP name
-      <*> preview (listP subP) args
-    -- Term "Bind" [from, name, to] -> fmap (Free . InL) $ Bind
-    --   <$> preview subP from
+      <*> preview (listP p) args
+    -- Term "Bind" [from, name, to] -> Bind
+    --   <$> preview p from
     --   <*> preview primValP name
-    --   <*> preview subP to
-    Term "Eval" [from, Binding [name] to] -> fmap (Free . InL) $ Eval
-      <$> preview subP from
+    --   <*> preview p to
+    Term "Eval" [from, Binding [name] to] -> Eval
+      <$> preview p from
       <*> pure name
-      <*> preview subP to
-    Term "Renaming" [old, new, term] -> fmap (Free . InL) $ Renaming
+      <*> preview p to
+    Term "Renaming" [old, new, term] -> Renaming
       <$> preview primValP old
       <*> preview primValP new
-      <*> preview subP term
-    Term "Value" [ meaning ] -> fmap (Free . InL) $ Value
-      <$> preview subP meaning
-    Term "MeaningPatternVar" [ PrimValue name ] -> fmap (Free . InL) $
-      MeaningPatternVar <$> preview textP name
-    other -> fmap (Free . InR) $ preview fP other
-
-patTermP
-  :: forall f a.
-     Prism' (Pattern a) (f (Fix (PatF :+: f)))
-  -> Prism' (Pattern a)    (Fix (PatF :+: f))
-patTermP p = prism' rtl ltr where
-  rtl :: Fix (PatF :+: f) -> Pattern a
-  rtl (Fix f) = case f of
-    InL (PatVarF mname)         -> PatternVar mname
-    InL (BindingPatF names pat) -> BindingPattern names (rtl pat)
-    InR f'                      -> review p f'
-
-  ltr :: Pattern a -> Maybe (Fix (PatF :+: f))
-  ltr = \case
-    PatternVar mname -> Just $ Fix $ InL $ PatVarF mname
-    BindingPattern names pat -> Fix . InL . BindingPatF names <$> ltr pat
-    other -> Fix . InR <$> preview p other
+      <*> preview p term
+    Term "Value" [ meaning ] -> Value <$> preview p meaning
+    Term "MeaningPatternVar" [ PrimValue name ] ->
+      MeaningPatternVar <$> preview _Left name
+    _ -> Nothing
 
 mkDenotationChart
-  :: (f' ~ (PatF :+: f), g' ~ (MeaningF :+: g))
-  => Prism' b Text
-  -> Prism' (Pattern a) (f (Fix f'))
-  -> Prism' (Term b)    (g (Free g' Text))
-  -> DenotationChart' f' g'
-  -> DenotationChart a b
-mkDenotationChart textP patP termP (DenotationChart' rules) = DenotationChart $
-  rules & traverse . _1 %~ review (patTermP patP)
-        & traverse . _2 %~ review (meaningTermP textP termP)
+  :: Prism' (Pattern a) (Fix (PatF  :+: f))
+  -> Prism' (Term    b) (Fix (TermF :+: g))
+  -> DenotationChart' f g
+  -> DenotationChart  a b
+mkDenotationChart patP termP (DenotationChart' rules) = DenotationChart $
+  rules & traverse . _1 %~ review patP
+        & traverse . _2 %~ review termP
 
+-- TODO: find a better place to put this
 listP :: Prism' (Term a) b -> Prism' (Term a) [b]
 listP p = prism' rtl ltr where
   rtl = \case

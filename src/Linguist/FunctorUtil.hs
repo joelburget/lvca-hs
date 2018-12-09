@@ -20,8 +20,6 @@ module Linguist.FunctorUtil
   , pattern FreeR
   , pattern FixL
   , pattern FixR
-  , PatF(..)
-  , Pat(..)
   , closed
   , identity
   , compose
@@ -66,9 +64,27 @@ type f ~>. g = forall i. f i -> g   -- Constant on the right
 
 type f :.: g = Compose f g
 
+-- compdata uses precedence 6
+-- multirec precendence 5
+infixr 6 :+:
+
 data (f :+: g) a
   = InL (f a)
   | InR (g a)
+
+instance (Functor f, Functor g) => Functor (f :+: g) where
+  fmap f (InL a) = InL (fmap f a)
+  fmap f (InR a) = InR (fmap f a)
+
+instance (Show1 f, Show1 g) => Show1 (f :+: g) where
+  liftShowsPrec shw shwlist p expf = showParen (p > 10) $ case expf of
+    InL a -> showString "InL " . liftShowsPrec shw shwlist 11 a
+    InR b -> showString "InR " . liftShowsPrec shw shwlist 11 b
+
+instance (Eq1 f, Eq1 g) => Eq1 (f :+: g) where
+  liftEq eq (InL x) (InL y) = liftEq eq x y
+  liftEq eq (InR x) (InR y) = liftEq eq x y
+  liftEq _  _       _       = False
 
 _InL :: Prism' ((f :+: g) a) (f a)
 _InL = prism' InL $ \case
@@ -92,18 +108,15 @@ pattern FixL  x = Fix  (InL x)
 pattern FixR :: g (Fix (f :+: g)) -> Fix (f :+: g)
 pattern FixR  x = Fix  (InR x)
 
+pattern In :: sub :<: sup => sub a -> sup a
+pattern In a <- (preview subtype -> Just a) where
+  In a = review subtype a
+
 pattern FreeIn :: f :<: g => f (Free g a) -> Free g a
 pattern FreeIn x = Free (In x)
 
 pattern FixIn :: f :<: g => f (Fix g) -> Fix g
 pattern FixIn x = Fix (In x)
-
-data PatF f
-  = PatVarF !(Maybe Text)
-  | BindingPatF ![Text] !f
-
-data Pat = Pat !Text
-type instance Base Pat = PatF
 
 -- We can always view a value (Fix f) as a term (Free f Text), but a term is
 -- only convertible to a value if it doesn't hold any variables (Pure).
@@ -183,18 +196,12 @@ iFoldMapDefault f = getConst . itraverse (Const . f)
 class sub :<: sup where
   subtype :: Prism' (sup a) (sub a)
 
--- inject  :: sub :<: sup => sub a -> sup a
--- inject = review subtype
+instance f :<: f where
+  subtype = id
 
--- project :: sub :<: sup => sup a -> Maybe (sub a)
--- project = preview subtype
-
-instance f :<: (f :+: g) where
+instance f ~ f' => f :<: (f' :+: g) where
   subtype = _InL
 
-instance g :<: (f :+: g) where
-  subtype = _InR
-
-pattern In :: sub :<: sup => sub a -> sup a
-pattern In a <- (preview subtype -> Just a) where
-  In a = review subtype a
+instance {-# OVERLAPPING #-} (Functor f, Functor g, Functor h, f :<: g)
+  => f :<: (h :+: g) where
+  subtype = _InR . subtype

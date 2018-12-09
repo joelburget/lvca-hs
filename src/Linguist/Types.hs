@@ -48,6 +48,10 @@ module Linguist.Types
   , Subst(..)
 
   -- * Terms / Values
+  , TermF(..)
+  , termP
+  , PatF(..)
+  , patP
   , Term(..)
   , _Term
   , _Binding
@@ -236,6 +240,61 @@ instance IsString Valence where
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
+data TermF f
+  = BindingF ![Text] !f
+  | VarF     !Text
+  deriving (Eq, Show, Functor)
+
+instance Show1 TermF where
+  liftShowsPrec showsf _ p tm = showParen (p > 10) $ case tm of
+    BindingF nms f -> ss "BindingF " . showList nms . ss " " . showsf 11 f
+    VarF mname     -> ss "VarF "  . showsPrec 11 mname
+    where ss = showString
+
+instance Eq1 TermF where
+  liftEq eq (BindingF n1 x) (BindingF n2 y) = n1 == n2 && eq x y
+  liftEq _  (VarF x)        (VarF y)        = x == y
+  liftEq _  _               _               = False
+
+termP
+  :: Prism' (Term a)        (Fix f)
+  -> Prism' (Term a) (TermF (Fix f))
+termP p = prism' rtl ltr where
+  rtl = \case
+    BindingF names f -> Binding names $ review p f
+    VarF name        -> Var name
+  ltr = \case
+    Binding names tm -> BindingF names <$> preview p tm
+    Var name         -> Just $ VarF name
+    _                -> Nothing
+
+data PatF f
+  = PatBindingF ![Text] !f
+  | PatVarF     !(Maybe Text)
+  deriving Functor
+
+patP
+  :: Prism' (Pattern a)       (Fix f)
+  -> Prism' (Pattern a) (PatF (Fix f))
+patP p = prism' rtl ltr where
+  rtl = \case
+    PatBindingF names f -> BindingPattern names $ review p f
+    PatVarF name        -> PatternVar name
+  ltr = \case
+    BindingPattern names tm -> PatBindingF names <$> preview p tm
+    PatternVar name         -> Just $ PatVarF name
+    _                       -> Nothing
+
+instance Show1 PatF where
+  liftShowsPrec showsf _ p pat = showParen (p > 10) $ case pat of
+    PatBindingF nms f -> ss "PatBindingF " . showList nms . ss " " . showsf 11 f
+    PatVarF mname     -> ss "PatVarF "     . showsPrec 11 mname
+    where ss = showString
+
+instance Eq1 PatF where
+  liftEq eq (PatBindingF n1 x) (PatBindingF n2 y) = n1 == n2 && eq x y
+  liftEq _  (PatVarF x)        (PatVarF y)        = x == y
+  liftEq _  _                  _                  = False
 
 -- | An evaluated or unevaluated term
 data Term a
@@ -390,7 +449,7 @@ newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
   deriving Show
 
 data DenotationChart' (f :: * -> *) (g :: * -> *)
-  = DenotationChart' [(Fix f, Free g Text)]
+  = DenotationChart' [(Fix (PatF :+: f), Fix (TermF :+: g))]
 
 pattern (:->) :: a -> b -> (a, b)
 pattern a :-> b = (a, b)

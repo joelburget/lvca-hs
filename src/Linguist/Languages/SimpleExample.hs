@@ -25,7 +25,7 @@ module Linguist.Languages.SimpleExample
   ) where
 
 import           Codec.Serialise
-import           Control.Lens                          hiding (from, to)
+import           Control.Lens                          hiding (from, to, op)
 import           Control.Monad.Reader
 import qualified Data.Map.Strict                       as Map
 import           Data.Text                             (Text)
@@ -40,13 +40,15 @@ import           NeatInterpolation
 import           Text.Megaparsec
 import           Data.Sequence                         (Seq)
 import           Data.Diverse.Lens.Which
+import           Hedgehog                              (Property, property, (===), forAll, Gen)
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 
 import qualified Linguist.ParseDenotationChart         as PD
 import           Linguist.ParseLanguage
 import           Linguist.Proceed
-import           Linguist.Types
+import           Linguist.Types hiding (patP)
+import qualified Linguist.Types as Types
 import           Linguist.Languages.MachineModel
 import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
@@ -81,6 +83,12 @@ pattern VI x = PrimValue' "NumV" (Left x)
 
 pattern VS :: Text -> Term E
 pattern VS x = PrimValue' "StrV" (Right x)
+
+pattern VI' :: Int -> Term (Either Text E)
+pattern VI' x = Term "NumV" [ PrimValue (Right (E (Left x))) ]
+
+pattern VS' :: Text -> Term (Either Text E)
+pattern VS' x = Term "StrV" [ PrimValue (Right (E (Right x))) ]
 
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
@@ -154,13 +162,42 @@ evalMachinePrimitive (E (Right str)) = case str of
   _ -> Nothing
 evalMachinePrimitive _ = Nothing
 
-data TermF t e
+data ExpF t e
   = Plus       !e !e
   | Times      !e !e
   | Cat        !e !e
   | Len        !e
   | Let        !e !e
   | Annotation !t !e
+  deriving (Eq, Show)
+
+instance Functor (ExpF a) where
+  fmap f = \case
+    Plus       a b -> Plus       (f a) (f b)
+    Times      a b -> Times      (f a) (f b)
+    Cat        a b -> Cat        (f a) (f b)
+    Len        a   -> Len        (f a)
+    Let        a b -> Let        (f a) (f b)
+    Annotation x a -> Annotation x     (f a)
+
+instance Show t => Show1 (ExpF t) where
+  liftShowsPrec showse _ p expf = showParen (p > 10) $ case expf of
+    Plus       a b -> ss "Plus "       . showse    11 a . ss " " . showse 11 b
+    Times      a b -> ss "Times "      . showse    11 a . ss " " . showse 11 b
+    Cat        a b -> ss "Cat "        . showse    11 a . ss " " . showse 11 b
+    Len        a   -> ss "Len "        . showse    11 a
+    Let        a b -> ss "Let "        . showse    11 a . ss " " . showse 11 b
+    Annotation t e -> ss "Annotation " . showsPrec 11 t . ss " " . showse 11 e
+    where ss = showString
+
+instance Eq t => Eq1 (ExpF t) where
+  liftEq eqe (Plus       a1 b1) (Plus       a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (Times      a1 b1) (Times      a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (Cat        a1 b1) (Cat        a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (Len        a1   ) (Len        a2   ) = eqe a1 a2
+  liftEq eqe (Let        a1 b1) (Let        a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (Annotation t1 e1) (Annotation t2 e2) = t1 == t2  && eqe e1 e2
+  liftEq _   _                  _                  = False
 
 data ValF val
   = NumV !Int
@@ -169,41 +206,62 @@ data ValF val
   | PrimMul !val !val
   | PrimCat !val !val
   | PrimLen !val
+  deriving (Eq, Show, Functor)
+
+instance Show1 ValF where
+  liftShowsPrec _ _ p (NumV i) = showsPrec p i
+  liftShowsPrec _ _ p (StrV s) = showsPrec p s
+
+  liftShowsPrec showse _ p valf = showParen (p > 10) $ case valf of
+    PrimAdd a b -> ss "PrimAdd " . showse 11 a . ss " " . showse 11 b
+    PrimMul a b -> ss "PrimMul " . showse 11 a . ss " " . showse 11 b
+    PrimCat a b -> ss "PrimCat " . showse 11 a . ss " " . showse 11 b
+    PrimLen a   -> ss "PrimLen " . showse 11 a
+    _           -> error "vacuous match"
+    where ss = showString
+
+instance Eq1 ValF where
+  liftEq _   (NumV i1)       (NumV i2)       = i1 == i2
+  liftEq _   (StrV s1)       (StrV s2)       = s1 == s2
+  liftEq eqe (PrimAdd a1 b1) (PrimAdd a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (PrimMul a1 b1) (PrimMul a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (PrimCat a1 b1) (PrimCat a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq eqe (PrimLen a1   ) (PrimLen a2   ) = eqe a1 a2
+  liftEq _   _               _               = False
 
 -- TODO: non-erased types?
-dynamicsF :: DenotationChart' (PatF :+: TermF ()) (MeaningF :+: ValF)
+dynamicsF :: DenotationChart' (ExpF ()) (MeaningF :+: ValF)
 dynamicsF = DenotationChart'
-  [ FixR (Plus (FixL (PatVarF (Just "n1"))) (FixL (PatVarF (Just "n2"))))
+  [ matchop Plus  :-> rhsop PrimAdd
+  , matchop Times :-> rhsop PrimMul
+  , matchop Cat   :-> rhsop PrimCat
+  , Fix (InR (Len (Fix (InL (PatVarF (Just "e"))))))
     :->
-    FreeL (Eval (Pure "n1") "n1'"
-      (FreeL (Eval (Pure "n2") "n2'"
-        (FreeR (PrimAdd (Pure "n1'") (Pure "n2'")))
-      ))
-    )
-  , FixR (Times (FixL (PatVarF (Just "n1"))) (FixL (PatVarF (Just "n2"))))
+     Fix (InR (InL (Eval
+       (Fix (InL (VarF "n1")))
+       "e'"
+       (Fix (InR (InR (PrimLen (Fix (InL (VarF "e'"))))))))))
+  , Fix (InR (Annotation () (Fix (InL (PatVarF (Just "contents"))))))
     :->
-    FreeL (Eval (Pure "n1") "n1'"
-      (FreeL (Eval (Pure "n2") "n2'"
-        (FreeR (PrimMul (Pure "n1'") (Pure "n2'")))
-      ))
-    )
-  , FixR (Cat (FixL (PatVarF (Just "s1"))) (FixL (PatVarF (Just "s2"))))
-    :->
-    FreeL (Eval (Pure "n1") "n1'"
-      (FreeL (Eval (Pure "n2") "n2'"
-        (FreeR (PrimCat (Pure "n1'") (Pure "n2'")))
-      ))
-    )
-  , FixR (Len (FixL (PatVarF (Just "e"))))
-    :->
-    FreeL (Eval (Pure "e") "e'" (FreeR (PrimLen (Pure "e'"))))
-  , FixR (Annotation () (FixL (PatVarF (Just "contents"))))
-    :->
-    Pure "contents"
-  ]
+    Fix (InR (InL (Value (Fix (InL (VarF "contents"))))))
+  ] where
 
-dynamics :: DenotationChart E E
-dynamics = mkDenotationChart (_Wrapped . _Right) p1 p2 dynamicsF
+  matchop
+    :: Functor f
+    => (Fix (PatF :+: f) -> Fix (PatF :+: f) -> ExpF () (Fix (PatF :+: ExpF ())))
+    -> Fix (PatF :+: ExpF ())
+  matchop op = FixIn (op
+    (Fix (InL (PatVarF (Just "n1"))))
+    (Fix (InL (PatVarF (Just "n2")))))
+
+  rhsop
+    :: (f ~ (TermF :+: MeaningF :+: ValF))
+    => (Fix f -> Fix f -> ValF (Fix f)) -> Fix f
+  rhsop op = Fix (InR (InL (Eval (Fix (InL (VarF "n1"))) "n1'"
+    (Fix (InR (InL (Eval (Fix (InL (VarF "n2"))) "n2'"
+      (Fix (InR (InR (op
+        (Fix (InL (VarF "n1'")))
+        (Fix (InL (VarF "n2'"))))))))))))))
 
 dynamicsT :: Text
 dynamicsT = [text|
@@ -243,71 +301,134 @@ dynamics'
 dynamics' = runParser (PD.parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" dynamicsT
 
-p1' :: Prism' (Pattern E) (Fix (PatF :+: TermF ()))
-p1' = patTermP p1
+dynamics :: DenotationChart a (Either Text E)
+dynamics = mkDenotationChart patP valP dynamicsF
 
-p1 :: Prism' (Pattern E) (TermF () (Fix (PatF :+: TermF ())))
-p1 = prism' rtl ltr where
+patP :: Prism' (Pattern a) (Fix (PatF :+: ExpF ()))
+patP = prism' rtl ltr where
   rtl = \case
-    Plus a b -> PatternTm "Plus"
-      [ review p1' a
-      , review p1' b
-      ]
-    Times a b -> PatternTm "Times"
-      [ review p1' a
-      , review p1' b
-      ]
-    Cat a b -> PatternTm "Cat"
-      [ review p1' a
-      , review p1' b
-      ]
-    Len a -> PatternTm "Len" [ review p1' a ]
-    Let a b -> PatternTm "Let"
-      [ review p1' a
-      , review p1' b
-      ]
-    Annotation () a -> PatternTm "Annotation" [ review p1' a ]
-  ltr = \case
-    PatternTm "Plus"       [a, b] -> Plus  <$> preview p1' a <*> preview p1' b
-    PatternTm "Times"      [a, b] -> Times <$> preview p1' a <*> preview p1' b
-    PatternTm "Cat"        [a, b] -> Cat   <$> preview p1' a <*> preview p1' b
-    PatternTm "Len"        [a]    -> Len   <$> preview p1' a
-    PatternTm "Let"        [a, b] -> Let   <$> preview p1' a <*> preview p1' b
-    PatternTm "Annotation" [a]    -> Annotation () <$> preview p1' a
-    _                             -> Nothing
+    Fix (InL pat) -> review (Types.patP patP) pat
+    Fix (InR pat) -> review patP'             pat
+  ltr tm = msum
+    [ Fix . InL <$> preview (Types.patP patP) tm
+    , Fix . InR <$> preview patP'             tm
+    ]
 
-p2' :: Prism' (Term E) (Free (MeaningF :+: ValF) Text)
-p2' = meaningTermP (_Wrapped . _Right) p2
+  patP' :: Prism' (Pattern a) (ExpF () (Fix (PatF :+: ExpF ())))
+  patP' = prism' rtl' ltr' where
+    rtl' = \case
+      Plus a b  -> PatternTm "Plus"  [ review patP a , review patP b ]
+      Times a b -> PatternTm "Times" [ review patP a , review patP b ]
+      Cat a b   -> PatternTm "Cat"   [ review patP a , review patP b ]
+      Len a     -> PatternTm "Len"   [ review patP a                 ]
+      Let a b   -> PatternTm "Let"   [ review patP a , review patP b ]
+      Annotation () a -> PatternTm "Annotation" [ review patP a ]
+    ltr' = \case
+      PatternTm "Plus"       [ a, b ] -> Plus  <$> preview patP a <*> preview patP b
+      PatternTm "Times"      [ a, b ] -> Times <$> preview patP a <*> preview patP b
+      PatternTm "Cat"        [ a, b ] -> Cat   <$> preview patP a <*> preview patP b
+      PatternTm "Len"        [ a    ] -> Len   <$> preview patP a
+      PatternTm "Let"        [ a, b ] -> Let   <$> preview patP a <*> preview patP b
+      PatternTm "Annotation" [ a    ] -> Annotation () <$> preview patP a
+      _                               -> Nothing
 
-p2 :: Prism' (Term E) (ValF (Free (MeaningF :+: ValF) Text))
-p2 = prism' rtl ltr where
+valP :: Prism' (Term (Either Text E)) (Fix (TermF :+: MeaningF :+: ValF))
+valP = prism' rtl ltr where
+  rtl :: Fix (TermF :+: MeaningF :+: ValF) -> Term (Either Text E)
   rtl = \case
-    NumV i      -> VI i
-    StrV s      -> VS s
-    PrimLen a   -> Term "PrimLen" [ review p2' a ]
-    PrimAdd a b -> Term "PrimAdd" [ review p2' a , review p2' b ]
-    PrimMul a b -> Term "PrimMul" [ review p2' a , review p2' b ]
-    PrimCat a b -> Term "PrimCat" [ review p2' a , review p2' b ]
-  ltr = \case
-    VI i                  -> Just (NumV i)
-    VS s                  -> Just (StrV s)
-    Term "PrimLen" [a]    -> PrimLen <$> preview p2' a
-    Term "PrimAdd" [a, b] -> PrimAdd <$> preview p2' a <*> preview p2' b
-    Term "PrimMul" [a, b] -> PrimMul <$> preview p2' a <*> preview p2' b
-    Term "PrimCat" [a, b] -> PrimCat <$> preview p2' a <*> preview p2' b
-    _                     -> Nothing
+    Fix (InL tm')       -> review (termP    valP) tm'
+    Fix (InR (InL tm')) -> review (meaningP valP) tm'
+    Fix (InR (InR tm')) -> review valP'           tm'
+
+  ltr :: Term (Either Text E) -> Maybe (Fix (TermF :+: MeaningF :+: ValF))
+  ltr tm = msum
+    [ Fix . InL       <$> preview (termP    valP) tm
+    , Fix . InR . InL <$> preview (meaningP valP) tm
+    , Fix . InR . InR <$> preview valP'           tm
+    ]
+
+  valP' :: Prism' (Term (Either Text E)) (ValF (Fix (TermF :+: MeaningF :+: ValF)))
+  valP' = prism' rtl' ltr' where
+    rtl' = \case
+      NumV i      -> VI' i
+      StrV s      -> VS' s
+      PrimLen a   -> Term "PrimLen" [ review valP a                ]
+      PrimAdd a b -> Term "PrimAdd" [ review valP a, review valP b ]
+      PrimMul a b -> Term "PrimMul" [ review valP a, review valP b ]
+      PrimCat a b -> Term "PrimCat" [ review valP a, review valP b ]
+    ltr' = \case
+      VI' i                   -> Just $ NumV i
+      VS' s                   -> Just $ StrV s
+      Term "PrimLen" [ a    ] -> PrimLen <$> preview valP a
+      Term "PrimAdd" [ a, b ] -> PrimAdd <$> preview valP a <*> preview valP b
+      Term "PrimMul" [ a, b ] -> PrimMul <$> preview valP a <*> preview valP b
+      Term "PrimCat" [ a, b ] -> PrimCat <$> preview valP a <*> preview valP b
+      _                       -> Nothing
+
+genText :: Gen Text
+genText = Gen.text (Range.exponential 0 1000) Gen.unicode
+
+pattern FixExp
+  :: ExpF () (Fix (PatF :+: ExpF ()))
+  -> Fix          (PatF :+: ExpF ())
+pattern FixExp x = Fix (InR x)
+
+genPat :: Gen (Fix (PatF :+: ExpF ()))
+genPat = Gen.recursive Gen.choice [
+    Fix . InL . PatVarF <$> Gen.choice
+      [ pure Nothing
+      , Just <$> genText
+      ]
+  ] [
+    Gen.subtermM genPat $ \x -> fmap (Fix . InL) $ PatBindingF
+      <$> Gen.list (Range.exponential 0 15) genText
+      <*> pure x
+  , Gen.subterm2 genPat genPat (fmap FixExp . Plus)
+  , Gen.subterm2 genPat genPat (fmap FixExp . Times)
+  , Gen.subterm2 genPat genPat (fmap FixExp . Cat)
+  , Gen.subterm  genPat        (     FixExp . Len)
+  , Gen.subterm2 genPat genPat (fmap FixExp . Let)
+  , Gen.subterm  genPat        (     FixExp . Annotation ())
+  ]
+
+pattern FixVal
+  :: ValF (Fix (TermF :+: MeaningF :+: ValF))
+  -> Fix       (TermF :+: MeaningF :+: ValF)
+pattern FixVal x = Fix (InR (InR x))
+
+-- TODO: generate TermF / MeaningF as well
+genVal :: Gen (Fix (TermF :+: MeaningF :+: ValF))
+genVal = Gen.recursive Gen.choice [
+    FixVal . NumV <$> Gen.int Range.exponentialBounded
+  , FixVal . StrV <$> genText
+  ] [
+    Gen.subterm2 genVal genVal (fmap FixVal . PrimAdd)
+  , Gen.subterm2 genVal genVal (fmap FixVal . PrimMul)
+  , Gen.subterm2 genVal genVal (fmap FixVal . PrimCat)
+  , Gen.subterm  genVal        (     FixVal . PrimLen)
+  ]
+
+patP_round_trip_prop :: Property
+patP_round_trip_prop = property $ do
+  x <- forAll genPat
+  preview patP (review patP x) === Just x
+
+valP_round_trip_prop :: Property
+valP_round_trip_prop = property $ do
+  x <- forAll genVal
+  preview valP (review valP x) === Just x
 
 dynamicTests :: Test ()
 dynamicTests =
   let
       n1, n2, lenStr :: Term E
-      lenStr      = Term "Len" [ TS "str" ]
-      times v1 v2 = Term "Times" [v1, v2]
-      plus v1 v2  = Term "Plus" [v1, v2]
+      lenStr      = Term "Len"   [ TS "str" ]
+      times v1 v2 = Term "Times" [ v1, v2   ]
+      plus v1 v2  = Term "Plus"  [ v1, v2   ]
       n1          = TI 1
       n2          = TI 2
       x           = PatternVar (Just "x")
-      patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
+      patCheck    = runMatches syntax "Exp" $ patternCheck (dynamics @Void)
       env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
@@ -597,8 +718,7 @@ propTests :: Test ()
 propTests =
   let aGen = \case
         "Num" -> Just $ E . Left  <$> Gen.int Range.exponentialBounded
-        "Str" -> Just $ E . Right <$>
-          Gen.text (Range.exponential 0 5000) Gen.unicode
+        "Str" -> Just $ E . Right <$> genText
         _     -> Nothing
   in tests
        [ scope "prop_parse_pretty" $ testProperty $
@@ -606,4 +726,10 @@ propTests =
 
        , scope "prop_serialise_identity" $ testProperty $
          prop_serialise_identity syntax "Exp" aGen
+
+       , scope "patP_round_trip_prop" $ testProperty $
+         patP_round_trip_prop
+
+       , scope "valP_round_trip_prop" $ testProperty $
+         valP_round_trip_prop
        ]
