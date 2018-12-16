@@ -89,11 +89,11 @@ pattern VI x = PrimValue' "NumV" (Left x)
 pattern VS :: Text -> Term E
 pattern VS x = PrimValue' "StrV" (Right x)
 
-pattern VI' :: Int -> Term (Either Text E)
-pattern VI' x = Term "NumV" [ PrimValue (Right (E (Left x))) ]
+pattern VI' :: a -> Term (Either Text a)
+pattern VI' x = Term "NumV" [ PrimValue (Right x) ]
 
-pattern VS' :: Text -> Term (Either Text E)
-pattern VS' x = Term "StrV" [ PrimValue (Right (E (Right x))) ]
+pattern VS' :: a -> Term (Either Text a)
+pattern VS' x = Term "StrV" [ PrimValue (Right x) ]
 
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
@@ -125,8 +125,8 @@ syntax = SyntaxChart $ Map.fromList
     ])
   ]
 
-tm1F, tm2F, tm3F :: Fix (TermF :+: ExpF ())
-tm1F = (Fix (InR (NumLit 2)))
+tm1F, tm2F, tm3F :: Fix (TermF :+: ExpF () E)
+tm1F = (Fix (InR (NumLit (E (Left 2)))))
 -- Fix $ InR $ Annotation () $
 --   Fix $ InR $ Let
 --     (Fix (InR (NumLit 1)))
@@ -185,18 +185,18 @@ evalMachinePrimitive (E (Right str)) = case str of
   _ -> Nothing
 evalMachinePrimitive _ = Nothing
 
-data ExpF t e
+data ExpF t p e
   = Plus       !e !e
   | Times      !e !e
   | Cat        !e !e
   | Len        !e
   | Let        !e !e
   | Annotation !t !e
-  | NumLit     !Int
-  | StrLit     !Text
+  | NumLit     !p
+  | StrLit     !p
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
-instance Zippable (ExpF ()) where
+instance Eq p => Zippable (ExpF () p) where
   fzip f (Plus       a1 b1) (Plus       a2 b2) = Plus  <$> f a1 a2 <*> f b1 b2
   fzip f (Times      a1 b1) (Times      a2 b2) = Times <$> f a1 a2 <*> f b1 b2
   fzip f (Cat        a1 b1) (Cat        a2 b2) = Cat   <$> f a1 a2 <*> f b1 b2
@@ -210,43 +210,46 @@ instance Zippable (ExpF ()) where
   fzip _ _                  _
     = Nothing
 
-instance Show t => Show1 (ExpF t) where
-  liftShowsPrec showse _ p expf = showParen (p > 10) $ case expf of
+instance Show t => Show2 (ExpF t) where
+  liftShowsPrec2 showsa _ showse _ p expf = showParen (p > 10) $ case expf of
     Plus       a b -> ss "Plus "       . showse    11 a . ss " " . showse 11 b
     Times      a b -> ss "Times "      . showse    11 a . ss " " . showse 11 b
     Cat        a b -> ss "Cat "        . showse    11 a . ss " " . showse 11 b
     Len        a   -> ss "Len "        . showse    11 a
     Let        a b -> ss "Let "        . showse    11 a . ss " " . showse 11 b
     Annotation t e -> ss "Annotation " . showsPrec 11 t . ss " " . showse 11 e
-    NumLit     i   -> ss "NumLit "     . showsPrec 11 i
-    StrLit     s   -> ss "StrLit "     . showsPrec 11 s
+    NumLit     i   -> ss "NumLit "     . showsa    11 i
+    StrLit     s   -> ss "StrLit "     . showsa    11 s
     where ss = showString
 
-instance Eq t => Eq1 (ExpF t) where
-  liftEq eqe (Plus       a1 b1) (Plus       a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (Times      a1 b1) (Times      a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (Cat        a1 b1) (Cat        a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (Len        a1   ) (Len        a2   ) = eqe a1 a2
-  liftEq eqe (Let        a1 b1) (Let        a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (Annotation t1 e1) (Annotation t2 e2) = t1 == t2  && eqe e1 e2
-  liftEq _   (NumLit     i1   ) (NumLit     i2   ) = i1 == i2
-  liftEq _   (StrLit     s1   ) (StrLit     s2   ) = s1 == s2
-  liftEq _   _                  _                  = False
+instance Eq t => Eq2 (ExpF t) where
+  liftEq2 _   eqe (Plus       a1 b1) (Plus       a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (Times      a1 b1) (Times      a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (Cat        a1 b1) (Cat        a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (Len        a1   ) (Len        a2   ) = eqe a1 a2
+  liftEq2 _   eqe (Let        a1 b1) (Let        a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (Annotation t1 e1) (Annotation t2 e2) = t1 == t2  && eqe e1 e2
+  liftEq2 eqa  _  (NumLit     i1   ) (NumLit     i2   ) = eqa i1 i2
+  liftEq2 eqa  _  (StrLit     s1   ) (StrLit     s2   ) = eqa s1 s2
+  liftEq2 _   _   _                  _                  = False
 
-data ValF val
-  = NumV !Int
-  | StrV !Text
+data ValF prim val
+  = NumV !prim
+  | StrV !prim
   | PrimAdd !val !val
   | PrimMul !val !val
   | PrimCat !val !val
   | PrimLen !val
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
-instance Show1 ValF where
-  liftShowsPrec _ _ p (NumV i) = showsPrec p i
-  liftShowsPrec _ _ p (StrV s) = showsPrec p s
+instance Bifunctor ValF where
+  bimap = undefined
 
-  liftShowsPrec showse _ p valf = showParen (p > 10) $ case valf of
+instance Show2 ValF where
+  liftShowsPrec2 showa _ _ _ p (NumV i) = showsPrec p i
+  liftShowsPrec2 showa _ _ _ p (StrV s) = showsPrec p s
+
+  liftShowsPrec2 _ _ showse _ p valf = showParen (p > 10) $ case valf of
     PrimAdd a b -> ss "PrimAdd " . showse 11 a . ss " " . showse 11 b
     PrimMul a b -> ss "PrimMul " . showse 11 a . ss " " . showse 11 b
     PrimCat a b -> ss "PrimCat " . showse 11 a . ss " " . showse 11 b
@@ -254,17 +257,17 @@ instance Show1 ValF where
     _           -> error "vacuous match"
     where ss = showString
 
-instance Eq1 ValF where
-  liftEq _   (NumV i1)       (NumV i2)       = i1 == i2
-  liftEq _   (StrV s1)       (StrV s2)       = s1 == s2
-  liftEq eqe (PrimAdd a1 b1) (PrimAdd a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (PrimMul a1 b1) (PrimMul a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (PrimCat a1 b1) (PrimCat a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq eqe (PrimLen a1   ) (PrimLen a2   ) = eqe a1 a2
-  liftEq _   _               _               = False
+instance Eq2 ValF where
+  liftEq2 eqa _   (NumV i1)       (NumV i2)       = eqa i1 i2
+  liftEq2 eqa _   (StrV s1)       (StrV s2)       = eqa s1 s2
+  liftEq2 _   eqe (PrimAdd a1 b1) (PrimAdd a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (PrimMul a1 b1) (PrimMul a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (PrimCat a1 b1) (PrimCat a2 b2) = eqe a1 a2 && eqe b1 b2
+  liftEq2 _   eqe (PrimLen a1   ) (PrimLen a2   ) = eqe a1 a2
+  liftEq2 _   _   _               _               = False
 
 -- TODO: non-erased types?
-dynamicsF :: DenotationChart' (ExpF ()) (MachineF :+: ValF)
+dynamicsF :: DenotationChart' (ExpF () Text) (MachineF :+: ValF Text)
 dynamicsF = DenotationChart'
   [ matchop Plus  :-> rhsop PrimAdd
   , matchop Times :-> rhsop PrimMul
@@ -282,22 +285,26 @@ dynamicsF = DenotationChart'
   , Fix (InR (Annotation () (Fix (InL (PatVarF (Just "contents"))))))
     :->
     Fix (InR (InL (MeaningOf "contents")))
-  , Fix (InR (InR (InR (NumLit i))))
+
+  , Fix (InR (NumLit "i"))
     :->
-    Fix (InR (InR (NumV i)))
+    Fix (InR (InR (InR (NumV "i"))))
+
   ] where
 
   matchop
     :: Functor f
-    => (Fix (PatF :+: f) -> Fix (PatF :+: f) -> ExpF () (Fix (PatF :+: ExpF ())))
-    -> Fix (PatF :+: ExpF ())
+    => ( Fix (PatF :+: f)
+      -> Fix (PatF :+: f)
+      -> ExpF () Text (Fix (PatF :+: ExpF () Text)))
+    -> Fix (PatF :+: ExpF () Text)
   matchop op = FixIn (op
     (Fix (InL (PatVarF (Just "n1"))))
     (Fix (InL (PatVarF (Just "n2")))))
 
   rhsop
-    :: (f ~ (TermF :+: MeaningOfF :+: MachineF :+: ValF))
-    => (Fix f -> Fix f -> ValF (Fix f)) -> Fix f
+    :: (f ~ (TermF :+: MeaningOfF :+: MachineF :+: ValF Text))
+    => (Fix f -> Fix f -> ValF Text (Fix f)) -> Fix f
   rhsop op = Fix (InR (InR (InR (op
     (Fix (InR (InL (MeaningOf "n1"))))
     (Fix (InR (InL (MeaningOf "n2"))))))))
@@ -328,10 +335,10 @@ dynamics'
 dynamics' = runParser (PD.parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" dynamicsT
 
-dynamics :: DenotationChart E (Either Text E)
+dynamics :: DenotationChart Text (Either Text Text)
 dynamics = mkDenotationChart patP valP dynamicsF
 
-patP :: Prism' (Pattern E) (Fix (PatF :+: ExpF ()))
+patP :: forall a. Prism' (Pattern a) (Fix (PatF :+: ExpF () a))
 patP = prism' rtl ltr where
   rtl = \case
     Fix (InL pat) -> review (Types.patP patP) pat
@@ -341,13 +348,16 @@ patP = prism' rtl ltr where
     , Fix . InR <$> preview patP'             tm
     ]
 
-  iP :: Prism' (Pattern E) Int
-  iP = _PatternPrimVal . _Just . facet
+  p :: Prism' (Pattern a) a
+  p = _PatternPrimVal . _Just
 
-  sP :: Prism' (Pattern E) Text
-  sP = _PatternPrimVal . _Just . facet
+--   iP :: Prism' (Pattern E) Int
+--   iP = _PatternPrimVal . _Just . facet
 
-  patP' :: Prism' (Pattern E) (ExpF () (Fix (PatF :+: ExpF ())))
+--   sP :: Prism' (Pattern E) Text
+--   sP = _PatternPrimVal . _Just . facet
+
+  patP' :: Prism' (Pattern a) (ExpF () a (Fix (PatF :+: ExpF () a)))
   patP' = prism' rtl' ltr' where
     rtl' = \case
       Plus a b  -> PatternTm "Plus"  [ review patP a , review patP b ]
@@ -356,8 +366,8 @@ patP = prism' rtl ltr where
       Len a     -> PatternTm "Len"   [ review patP a                 ]
       Let a b   -> PatternTm "Let"   [ review patP a , review patP b ]
       Annotation () a -> PatternTm "Annotation" [ review patP a ]
-      NumLit i  -> PatternTm "NumLit" [ review iP i ]
-      StrLit s  -> PatternTm "StrLit" [ review sP s ]
+      NumLit i  -> PatternTm "NumLit" [ review p i ]
+      StrLit s  -> PatternTm "StrLit" [ review p s ]
     ltr' = \case
       PatternTm "Plus"       [ a, b ] -> Plus  <$> preview patP a <*> preview patP b
       PatternTm "Times"      [ a, b ] -> Times <$> preview patP a <*> preview patP b
@@ -365,20 +375,22 @@ patP = prism' rtl ltr where
       PatternTm "Len"        [ a    ] -> Len   <$> preview patP a
       PatternTm "Let"        [ a, b ] -> Let   <$> preview patP a <*> preview patP b
       PatternTm "Annotation" [ a    ] -> Annotation () <$> preview patP a
-      PatternTm "NumLit"     [ i    ] -> NumLit <$> preview iP i
-      PatternTm "StrLit"     [ s    ] -> StrLit <$> preview sP s
+      PatternTm "NumLit"     [ i    ] -> NumLit <$> preview p i
+      PatternTm "StrLit"     [ s    ] -> StrLit <$> preview p s
       _                               -> Nothing
 
-valP :: Prism' (Term (Either Text E)) (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF))
+valP :: forall a. Prism'
+  (Term (Either Text a))
+  (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF a))
 valP = prism' rtl ltr where
-  rtl :: Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF) -> Term (Either Text E)
+  rtl :: Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF a) -> Term (Either Text a)
   rtl = \case
     Fix (InL tm')             -> review (termP    valP) tm'
     Fix (InR (InL tm'))       -> review meaningP        tm'
     Fix (InR (InR (InL tm'))) -> review (machineP valP) tm'
     Fix (InR (InR (InR tm'))) -> review valP'           tm'
 
-  ltr :: Term (Either Text E) -> Maybe (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF))
+  ltr :: Term (Either Text a) -> Maybe (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF a))
   ltr tm = msum
     [ Fix . InL             <$> preview (termP    valP) tm
     , Fix . InR . InL       <$> preview meaningP        tm
@@ -387,8 +399,8 @@ valP = prism' rtl ltr where
     ]
 
   valP' :: Prism'
-    (Term (Either Text E))
-    (ValF (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF)))
+    (Term (Either Text a))
+    (ValF a (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF a)))
   valP' = prism' rtl' ltr' where
     rtl' = \case
       NumV i      -> VI' i
@@ -410,11 +422,11 @@ genText :: Gen Text
 genText = Gen.text (Range.exponential 0 1000) Gen.unicode
 
 pattern FixExp
-  :: ExpF () (Fix (PatF :+: ExpF ()))
-  -> Fix          (PatF :+: ExpF ())
+  :: ExpF () E (Fix (PatF :+: ExpF () E))
+  -> Fix            (PatF :+: ExpF () E)
 pattern FixExp x = Fix (InR x)
 
-genPat :: Gen (Fix (PatF :+: ExpF ()))
+genPat :: Gen (Fix (PatF :+: ExpF () E))
 genPat = Gen.recursive Gen.choice [
     Fix . InL . PatVarF <$> Gen.choice
       [ pure Nothing
@@ -433,15 +445,15 @@ genPat = Gen.recursive Gen.choice [
   ]
 
 pattern FixVal
-  :: ValF (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF))
-  -> Fix       (TermF :+: MeaningOfF :+: MachineF :+: ValF)
+  :: ValF E (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF E))
+  -> Fix         (TermF :+: MeaningOfF :+: MachineF :+: ValF E)
 pattern FixVal x = Fix (InR (InR (InR x)))
 
 -- TODO: generate TermF / MachineF as well
-genVal :: Gen (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF))
+genVal :: Gen (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF E))
 genVal = Gen.recursive Gen.choice [
-    FixVal . NumV <$> Gen.int Range.exponentialBounded
-  , FixVal . StrV <$> genText
+    FixVal . NumV . E . Left  <$> Gen.int Range.exponentialBounded
+  , FixVal . StrV . E . Right <$> genText
   ] [
     Gen.subterm2 genVal genVal (fmap FixVal . PrimAdd)
   , Gen.subterm2 genVal genVal (fmap FixVal . PrimMul)
@@ -469,7 +481,7 @@ dynamicTests =
       n1          = TI 1
       n2          = TI 2
       x           = PatternVar (Just "x")
-      patCheck    :: Maybe (PatternCheckResult E)
+      patCheck    :: Maybe (PatternCheckResult Text)
       patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
       env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
   in tests
@@ -692,10 +704,10 @@ eval' = P1.eval $ P1.mkEvalEnv "Exp" syntax (forceRight dynamics')
   evalMachinePrimitive
   Just
 
-evalF :: Fix (TermF :+: ExpF ()) -> Either String (Fix ValF)
+evalF :: Fix (TermF :+: ExpF () E) -> Either String (Fix (ValF E))
 evalF = P2.eval (P2.EvalEnv Map.empty evalMachinePrimitiveF) dynamicsF
 
-evalMachinePrimitiveF :: Text -> Maybe (Seq (ValF (Fix ValF)) -> ValF (Fix ValF))
+evalMachinePrimitiveF :: Text -> Maybe (Seq (ValF E (Fix (ValF E))) -> ValF E (Fix (ValF E)))
 evalMachinePrimitiveF = \case
   "add" -> Just $ \case
     NumV x :< NumV y :< Empty -> NumV (x + y)
@@ -731,7 +743,7 @@ evalTests = tests
 translateTests :: Test ()
 translateTests = tests
   [ expectEq (P2.translate dynamicsF tm1F) $ Just $
-    -- (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF))
+    -- (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF E))
     Fix $ InR $ InL $ App
       (Fix $ InL $ BindingF ["x"] $
         Fix $ InR $ InR $ PrimAdd
