@@ -18,7 +18,7 @@ import           Linguist.FunctorUtil
 import           Linguist.Proceed
 import           Linguist.Types hiding (patP)
 import qualified Linguist.Types as Types
-import           Linguist.Languages.MachineModel
+import qualified Linguist.Languages.MachineModel as M
 
 
 data T
@@ -72,52 +72,46 @@ data ValF val
   | Sv !val
   deriving Functor
 
-dynamics' :: DenotationChart' ExpF (MeaningF :+: ValF)
+dynamics' :: DenotationChart' ExpF (M.MachineF :+: ValF)
 dynamics' = DenotationChart'
   [ FixIn Z
     :->
-    Fix (InR (InL (Value (FixIn Zv))))
+    Fix (InR (InR (InR Zv)))
   , FixIn (S (Fix (InL (PatVarF (Just "e")))))
     :->
-    Fix (InR (InL (Eval
-      (Fix (InL (VarF "e")))
-      "e'"
-      (Fix (InR (InL (Value
-        (Fix (InR (InR (Sv
-          (Fix (InR (InL (MeaningPatternVar "e'")))))))))))))))
+    Fix (InR (InR (InR (Sv (Fix (InR (InL (MeaningOf "e"))))))))
   -- -- TODO: rec
   , FixIn (Ap
-      (FixIn (Lam (Fix (InL (PatBindingF ["x"] (Fix (InL (PatVarF (Just "body")))))))))
+      (FixIn (Lam (Fix (InL (PatVarF (Just "body"))))))
       (Fix (InL (PatVarF (Just "arg")))))
     :->
-    Fix (InR (InL (Eval (Fix (InL (VarF "arg"))) "arg'" (Fix (InL (VarF "body"))))))
+    Fix (InR (InR (InL (M.App
+      (Fix (InR (InL (MeaningOf "body"))))
+      (Fix (InR (InL (MeaningOf "arg"))))))))
   ]
 
-dynamics2 :: DenotationChart T (Either Text Void)
-dynamics2 = DenotationChart
-  [ PatternTm "Z" []
-    :->
-    Term "Value" [Term "Zv" []]
-  , PatternTm "S" [PatternVar (Just "e")]
-    :->
-    Term "Eval"
-      [ meaningPatternVar "e"
-      , Binding ["e'"] (Term "Value" [Term "Sv" [Var "e'"]])
-      ]
-  , PatternTm "Ap"
-    [ PatternTm "Lam" [PatternAny, BindingPattern ["x"] (PatternVar (Just "body"))]
-    , PatternVar (Just "arg")
-    ]
-    :->
-    Term "Eval"
-      [ meaningPatternVar "arg"
-      , Binding ["arg'"] $
-        (Term "Eval"
-          [ ("arg'" // "x") (meaningPatternVar "body")
-          , Binding ["body'"] (Var "body'")
-          ])
-      ]
-  ]
+-- dynamics2 :: DenotationChart T (Either Text Void)
+-- dynamics2 = DenotationChart
+--   [ PatternTm "Z" []
+--     :->
+--     Term "Value" [Term "Zv" []]
+--   , PatternTm "S" [PatternVar (Just "e")]
+--     :->
+--     Term "Sv" [ Term "Eval" [ "e" ] ]
+--   , PatternTm "Ap"
+--     [ PatternTm "Lam" [PatternAny, BindingPattern ["x"] (PatternVar (Just "body"))]
+--     , PatternVar (Just "arg")
+--     ]
+--     :->
+--     Term "Eval"
+--       [ Eval "arg"
+--       , Binding ["arg'"] $
+--         (Term "Eval"
+--           [ ("arg'" // "x") (Eval "body")
+--           , Binding ["body'"] (Var "body'")
+--           ])
+--       ]
+--   ]
 
 patP :: Prism' (Pattern T) (Fix (PatF :+: ExpF))
 patP = prism' rtl ltr where
@@ -157,27 +151,29 @@ patP = prism' rtl ltr where
       PatternTm "Ap" [a, b] -> Ap <$> preview patP a <*> preview patP b
       _                     -> Nothing
 
-valP :: Prism' (Term (Either Text Void)) (Fix (TermF :+: MeaningF :+: ValF))
+valP :: Prism' (Term (Either Text Void)) (Fix (TermF :+: MeaningOfF :+: M.MachineF :+: ValF))
 valP = prism' rtl ltr where
 
-  rtl :: Fix (TermF :+: MeaningF :+: ValF) -> Term (Either Text Void)
+  rtl :: Fix (TermF :+: MeaningOfF :+: M.MachineF :+: ValF) -> Term (Either Text Void)
   rtl = \case
-    Fix (InL tm')          -> review (termP    valP) tm'
-    Fix (InR (InL tm'))    -> review (meaningP valP) tm'
-    Fix (InR (InR Zv))     -> Term "Zv" []
-    Fix (InR (InR (Sv v))) -> Term "Sv" [review valP v]
+    Fix (InL tm')                -> review (termP valP)      tm'
+    Fix (InR (InL tm'))          -> review meaningP          tm'
+    Fix (InR (InR (InL tm')))    -> review (M.machineP valP) tm'
+    Fix (InR (InR (InR Zv)))     -> Term "Zv" []
+    Fix (InR (InR (InR (Sv v)))) -> Term "Sv" [review valP v]
 
-  ltr :: Term (Either Text Void) -> Maybe (Fix (TermF :+: MeaningF :+: ValF))
+  ltr :: Term (Either Text Void) -> Maybe (Fix (TermF :+: MeaningOfF :+: M.MachineF :+: ValF))
   ltr = \case
-    Term "Zv" []  -> Just (Fix (InR (InR Zv)))
-    Term "Sv" [t] -> Fix . InR . InR . Sv <$> preview valP t
+    Term "Zv" []  -> Just (Fix (InR (InR (InR Zv))))
+    Term "Sv" [t] -> Fix . InR . InR . InR . Sv <$> preview valP t
     tm            -> asum @[]
-      [ Fix . InL       <$> preview (termP    valP) tm
-      , Fix . InR . InL <$> preview (meaningP valP) tm
+      [ Fix . InL             <$> preview (termP valP)      tm
+      , Fix . InR . InL       <$> preview meaningP          tm
+      , Fix . InR . InR . InL <$> preview (M.machineP valP) tm
       ]
 
 dynamics :: DenotationChart T (Either Text Void)
-dynamics = mkDenotationChart patP valP dynamics'
+dynamics = M.mkDenotationChart patP valP dynamics'
 
 z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
 z = Term "Z" []
@@ -195,7 +191,7 @@ sszv = Term "Sv" [szv]
 
 eval' :: Term T -> Either String (Term Void)
 eval' = eval $
-  mkEvalEnv "Exp" syntax dynamics2
+  mkEvalEnv "Exp" syntax dynamics
     (const Nothing)
     (const Nothing)
 

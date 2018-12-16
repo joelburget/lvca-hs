@@ -52,6 +52,8 @@ module Linguist.Types
   , termP
   , PatF(..)
   , patP
+  , MeaningOfF(..)
+  , meaningP
   , Term(..)
   , _Term
   , _Binding
@@ -64,6 +66,7 @@ module Linguist.Types
   -- * Patterns
   -- ** Pattern
   , Pattern(..)
+  , _PatternPrimVal
   -- ** PatternCheckResult
   , PatternCheckResult(..)
   , overlapping
@@ -241,9 +244,10 @@ exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
 data TermF f
+  -- TODO: get rid of BindingF?
   = BindingF ![Text] !f
   | VarF     !Text
-  deriving (Eq, Show, Functor)
+  deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Show1 TermF where
   liftShowsPrec showsf _ p tm = showParen (p > 10) $ case tm of
@@ -271,7 +275,7 @@ termP p = prism' rtl ltr where
 data PatF f
   = PatBindingF ![Text] !f
   | PatVarF     !(Maybe Text)
-  deriving Functor
+  deriving (Functor, Foldable, Traversable)
 
 patP
   :: Prism' (Pattern a)       (Fix f)
@@ -447,9 +451,6 @@ pattern PatternEmpty = PatternUnion []
 -- a similar way.
 newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
   deriving Show
-
-data DenotationChart' (f :: * -> *) (g :: * -> *)
-  = DenotationChart' [(Fix (PatF :+: f), Fix (TermF :+: g))]
 
 pattern (:->) :: a -> b -> (a, b)
 pattern a :-> b = (a, b)
@@ -771,7 +772,29 @@ makeLenses ''SortDef
 makeLenses ''Arity
 makeWrapped ''Arity
 makeLenses ''Pattern
+makePrisms ''Pattern
 makeLenses ''Operator
 makeLenses ''Term
 makePrisms ''Term
 makeLenses ''PatternCheckResult
+
+data MeaningOfF a
+  = MeaningOf !Text
+  deriving (Show, Eq, Functor, Foldable, Traversable)
+
+instance Show1 MeaningOfF where
+  liftShowsPrec _ _ p (MeaningOf name) = showParen (p > 10) $
+    showString "MeaningOf " . showsPrec 11 name
+
+instance Eq1 MeaningOfF where
+  liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
+
+meaningP :: Prism' (Term (Either Text a)) (MeaningOfF (Fix f))
+meaningP = prism' rtl ltr where
+  rtl (MeaningOf name) = Term "MeaningOf" [ review (_PrimValue . _Left) name ]
+  ltr = \case
+    Term "MeaningOf" [name] -> MeaningOf <$> preview (_PrimValue . _Left) name
+    _                       -> Nothing
+
+data DenotationChart' (f :: * -> *) (g :: * -> *)
+  = DenotationChart' [(Fix (PatF :+: f), Fix (TermF :+: MeaningOfF :+: g))]

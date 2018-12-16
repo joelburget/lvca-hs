@@ -39,6 +39,8 @@ module Linguist.FunctorUtil
   , IxFunctor(..)
   , IxFoldable(..)
   , IxTraversable(..)
+
+  , Zippable(fzip)
   ) where
 
 import           Control.Lens
@@ -85,6 +87,14 @@ instance (Eq1 f, Eq1 g) => Eq1 (f :+: g) where
   liftEq eq (InL x) (InL y) = liftEq eq x y
   liftEq eq (InR x) (InR y) = liftEq eq x y
   liftEq _  _       _       = False
+
+instance (Foldable f, Foldable g) => Foldable (f :+: g) where
+  foldMap f (InL x) = foldMap f x
+  foldMap f (InR x) = foldMap f x
+
+instance (Traversable f, Traversable g) => Traversable (f :+: g) where
+  traverse f (InL x)= InL <$> traverse f x
+  traverse f (InR x)= InR <$> traverse f x
 
 _InL :: Prism' ((f :+: g) a) (f a)
 _InL = prism' InL $ \case
@@ -205,3 +215,6 @@ instance f ~ f' => f :<: (f' :+: g) where
 instance {-# OVERLAPPING #-} (Functor f, Functor g, Functor h, f :<: g)
   => f :<: (h :+: g) where
   subtype = _InR . subtype
+
+class Functor f => Zippable f where
+  fzip :: (a -> b -> Maybe c) -> f a -> f b -> Maybe (f c)

@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell   #-}
 module Linguist.Brick where
 
-import           Brick
+import           Brick                      as B
 import qualified Brick.Widgets.Border       as B
 import qualified Brick.Widgets.Border.Style as BS
 import           Brick.Widgets.Center       (center)
@@ -148,7 +148,7 @@ drawTm = \case
   PrimValue primVal -> txt "{" <+> drawPrim primVal <+> txt "}"
 
 app :: TmShow s => App (State s) a ()
-app = App
+app = B.App
  { appDraw         = pure . drawUI
  , appChooseCursor = neverShowCursor
  , appHandleEvent  = handleEvent
