@@ -44,7 +44,7 @@ module Linguist.FunctorUtil
   ) where
 
 import           Control.Lens
-  (Prism', review, prism', iso, Iso', Identity(..), view, _Wrapped, preview)
+  (Prism', review, prism', iso, Iso', Identity(..), view, _Wrapped, preview, Bifunctor)
 import Control.Monad.Free
 import Data.Functor.Classes
 import Data.Functor.Compose
@@ -216,5 +216,6 @@ instance {-# OVERLAPPING #-} (Functor f, Functor g, Functor h, f :<: g)
   => f :<: (h :+: g) where
   subtype = _InR . subtype
 
-class Functor f => Zippable f where
-  fzip :: (a -> b -> Maybe c) -> f a -> f b -> Maybe (f c)
+class Bifunctor f => Zippable f where
+  fzip :: (a -> b -> Maybe c) -> (x -> y -> Maybe z)
+       -> f a x -> f b y -> Maybe (f c z)

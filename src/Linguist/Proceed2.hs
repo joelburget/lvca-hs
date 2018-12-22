@@ -3,21 +3,30 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Linguist.Proceed2 where
 
+import Data.Maybe (isJust)
+
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
 import           Control.Monad.Reader
+import           Data.Bifunctor
+import           Data.Bifoldable
+import           Data.Bitraversable
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
 import           Data.Sequence             (Seq)
 import qualified Data.Sequence             as Seq
 import           Data.Text                 (Text)
+import qualified Data.Text                 as Text
 import           Data.Foldable             (toList)
 
 import           Linguist.Languages.MachineModel
 import           Linguist.Types hiding     (matches)
 import           Linguist.Util             ((??), (???))
 import           Linguist.FunctorUtil
+
+import Control.Monad.Writer.CPS
+import Control.Monad.Trans.Maybe
 
 import Debug.Trace
 
@@ -29,94 +38,177 @@ data EvalEnv f = EvalEnv
 
 makeLenses ''EvalEnv
 
-newtype EvalM f a = EvalM { runEvalM :: ExceptT String (Reader (EvalEnv f)) a }
-  deriving (Functor, Applicative, Monad, MonadReader (EvalEnv f),
-    MonadError String)
+newtype EvalM f a = EvalM {
+  runEvalM :: ExceptT String (WriterT (Seq Text) (Reader (EvalEnv f))) a
+  } deriving (Functor, Applicative, Monad, MonadReader (EvalEnv f),
+    MonadError String, MonadWriter (Seq Text))
 
 eval
-  :: (Show1 f, Eq1 f, Zippable f, Foldable f, Traversable g, Show1 g)
-  => EvalEnv g
-  -> DenotationChart' f (MachineF :+: g)
-  -> Fix (TermF :+: f)
-  -> Either String (Fix g)
-eval env chart tm = case translate chart tm of
-  Nothing -> Left "failed to translate term"
-  Just tm' -> runReader (runExceptT (runEvalM (eval' tm'))) env
+  :: ( f' ~ f Text
+     , Bifoldable f, Eq2 f, Show2 f, Show1 (f a), Eq1 f', Zippable f, Foldable f', Foldable (f (Text, a))
+     , g' ~ g Text
+     , Show2 g, Bitraversable g, Traversable g', Show1 g', Traversable (g a)
+     , Traversable (g (Either Text a))
+     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+     , Show a
+     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
+     )
+  => EvalEnv (g a)
+  -> DenotationChart' f' (MachineF :+: g')
+  -> Fix (TermF :+: f a)
+  -> (Either String (Fix (g a)), Seq Text)
+eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
+  (Nothing, logs) -> (Left "failed to translate term", logs)
+  (Just tm', logs) ->
+    let (val, logs') = runReader (runWriterT (runExceptT (runEvalM (eval' tm')))) env
+    in (val, logs <> logs')
 
 findMatch'
-  :: forall f g. (Show1 g, Show1 f, Eq1 f, Zippable f, Foldable f)
-  => DenotationChart' f (MachineF :+: g)
-  -> Fix (TermF :+: f)
-  -> Maybe ( Map Text (Fix (TermF :+: f))
-           , Fix (TermF :+: MeaningOfF :+: MachineF :+: g)
+  :: forall f g f' a.
+     ( f' ~ f Text
+     , Bifoldable f, Show2 f, Zippable f, Eq1 f', Foldable f', Foldable (f (Text, a))
+     , Show2 g
+     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+     , Show a
+     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
+     )
+  => DenotationChart' f' (MachineF :+: g Text)
+  -> Fix (TermF :+: f a)
+  -> Maybe ( (Map Text a, Map Text (Fix (TermF :+: f a)))
+           , Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
            )
 findMatch' (DenotationChart' cases) tm = getFirst $ foldMap
   (\(pat, rhs) -> First $ (,rhs) <$> matches pat tm)
   cases
 
 matches
-  :: (Zippable f, Foldable f)
-  => Fix (PatF :+: f)
-  -> Fix (TermF :+: f)
-  -> Maybe (Map Text (Fix (TermF :+: f)))
-matches (Fix pat) (Fix tm) = case pat of
-  InL PatBindingF{}  -> Nothing -- TODO
-  InL (PatVarF Nothing)     -> Just $ Map.empty
-  InL (PatVarF (Just name)) -> Just $ Map.singleton name $ Fix tm
-  InR pat'           -> case tm of
-    InL tmtm -> case tmtm of
-      BindingF{} -> Nothing -- TODO
-      VarF{}     -> Nothing -- TODO
-    InR tm' -> matches' pat' tm'
+  :: ( Bifoldable f, Zippable f, Foldable (f Text), Foldable (f (Text, a))
+     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+     , Show a
+     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
+     )
+  => Fix (PatF  :+: f Text)
+  -> Fix (TermF :+: f a   )
+  -> Maybe (Map Text a, Map Text (Fix (TermF :+: f a)))
+matches (Fix pat) (Fix tm) = do
+  traceM $ "matches considering " ++ show pat ++ " / " ++ show tm
+  case pat of
+    InL PatBindingF{}         -> Nothing -- TODO
+    InL (PatVarF Nothing)     -> Just (Map.empty, Map.empty)
+    InL (PatVarF (Just name)) -> Just (Map.empty, Map.singleton name $ Fix tm)
+    InR pat'           -> case tm of
+      InL tmtm -> case tmtm of
+        BindingF{} -> Nothing -- TODO
+        VarF{}     -> Nothing -- TODO
+      InR tm' -> matches' pat' tm'
 
 matches'
-  :: (Zippable f, Foldable f)
-  => f (Fix (PatF :+: f))
-  -> f (Fix (TermF :+: f))
-  -> Maybe (Map Text (Fix (TermF :+: f)))
-matches' f1 f2 = Map.unions . toList <$> fzip matches f1 f2
+  :: ( Zippable f, Bifoldable f, Foldable (f Text), Foldable (f (Text, a))
+     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+     , Show a
+     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
+     )
+  => f Text (Fix (PatF  :+: f Text))
+  -> f a    (Fix (TermF :+: f a   ))
+  -> Maybe (Map Text a, Map Text (Fix (TermF :+: f a)))
+matches' f1 f2 = do
+  zipped <- fzip (fmap traceShowId . fmap Just . (,))
+    (\a b -> trace (show $ isJust (matches a b)) $ matches a b)
+    f1 f2
+  traceM $ "zipped: " ++ show zipped
+  let allMatches = bifoldr
+        (\(i, a) (m1, m2) -> (Map.insert i a m1, m2))
+        (\(m1', m2') (m1, m2) -> (m1' <> m1, m2' <> m2))
+        (Map.empty, Map.empty)
+        zipped
+      -- (primVarMatches, varMatches) = partitionEithers allMatches
+  traceM $ "allMatches: " ++ show allMatches
+  pure $ allMatches
+    -- Map.unions . toList <$> -- . first fst <$>
+  -- Maybe (f (Text, a) (Map Text (Fix (TermF :+: f a))))
 
 translate
-  :: (Show1 g, Show1 f, Eq1 f, Zippable f, Foldable f, Traversable g)
-  => DenotationChart' f (MachineF :+: g)
-  -> Fix (TermF :+: f)
-  -> Maybe (Fix (TermF :+: MachineF :+: g))
+  :: forall f g a f' g' m.
+     ( f' ~ f Text
+     , Bifoldable f, Show2 f, Eq2 f, Zippable f, Show1 (f a), Eq1 f', Foldable f', Foldable (f (Text, a))
+     , g' ~ g Text
+     , Show2 g, Bitraversable g, Show1 g', Traversable g'
+     , Traversable (g (Either Text a))
+     , MonadWriter (Seq Text) m
+     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+     , Show a
+     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
+     )
+  => DenotationChart' f' (MachineF :+: g')
+  -> Fix (TermF :+: f a)
+  -> MaybeT m (Fix (TermF :+: MachineF :+: g (Either Text a)))
 translate chart tm = case unfix tm of
   InL (BindingF names subtm)
     -> Fix . InL . BindingF names <$> translate chart subtm
-  InL (VarF name) -> Just $ Fix $ InL $ VarF name
+  InL (VarF name) -> pure $ Fix $ InL $ VarF name
   InR _ -> do
-    traceM $ "finding match for " ++ show tm
-    (varBindings, rhs) <- findMatch' chart tm
-    traceM $ "varBindings: " ++ show varBindings
-    traceM $ "rhs: " ++ show rhs
-    runReaderT (translate' rhs) $ TranslateEnv chart varBindings
+    tell1 $ "finding match for " <> tShow tm
+    ((primVarBindings, varBindings), rhs) <- MaybeT $ pure $ findMatch' chart tm
+    tell1 $ "varBindings: " <> tShow varBindings
+    tell1 $ "primVarBindings: " <> tShow primVarBindings
+    tell1 $ "rhs: " <> tShow rhs
+    mapMaybeT (`runReaderT` TranslateEnv chart primVarBindings varBindings)
+      (translate' rhs)
 
-data TranslateEnv f g = TranslateEnv
-  { _dChart :: DenotationChart' f (MachineF :+: g)
-  , _varBindings :: Map Text (Fix (TermF :+: f))
+tShow :: Show a => a -> Text
+tShow = Text.pack . show
+
+tell1 :: MonadWriter (Seq Text) m => Text -> m ()
+tell1 = tell . Seq.singleton
+
+data TranslateEnv f g a = TranslateEnv
+  { _dChart :: DenotationChart' (f Text) (MachineF :+: g Text)
+  , _primVarBindings :: Map Text a
+  , _varBindings :: Map Text (Fix (TermF :+: f a))
   }
 
 translate'
-  :: (Show1 g, Show1 f, Eq1 f, Zippable f, Foldable f, Traversable g)
-  => Fix (TermF :+: MeaningOfF :+: MachineF :+: g)
-  -> ReaderT (TranslateEnv f g) Maybe (Fix (TermF :+: MachineF :+: g))
+  :: ( Show2 g, Bitraversable g, Traversable (g Text), Show1 (g Text)
+     , Traversable (g (Either Text a))
+     , Bifoldable f, Show2 f, Eq2 f, Zippable f, Show1 (f a), Eq1 (f Text), Foldable (f Text), Foldable (f (Text, a))
+     , MonadWriter (Seq Text) m, MonadReader (TranslateEnv f g a) m
+     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+     , Show a
+     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
+     )
+  => Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
+  -> MaybeT m (Fix (TermF :+: MachineF :+: g (Either Text a)))
 translate' (Fix tm) = case tm of
   InR (InL (MeaningOf name)) -> do
-    traceM $ "translate' MeaningOf " ++ show name
-    TranslateEnv chart varBindings <- ask
-    traceM $ "val " ++ show (Map.lookup name varBindings)
-    lift $ translate chart =<< Map.lookup name varBindings
+    tell1 $ "translate' MeaningOf " <> tShow name
+    TranslateEnv chart primVarBindings varBindings <- ask
+    tell1 $ "prim val " <> tShow (Map.lookup name primVarBindings)
+    tell1 $ "val " <> tShow (Map.lookup name varBindings)
+    binding <- MaybeT $ pure $ Map.lookup name varBindings
+    translate chart binding
   InL tm'             -> Fix . InL       <$> traverse translate' tm'
   InR (InR (InL tm')) -> Fix . InR . InL <$> traverse translate' tm'
-  InR (InR (InR tm')) -> Fix . InR . InR <$> traverse translate' tm'
+  InR (InR (InR tm')) -> Fix . InR . InR <$> bitraverse (pure . Left) translate' tm'
 
-purify :: Traversable f
-  => Fix (TermF :+: MachineF :+: f) -> EvalM f (Fix f)
+purify
+  :: Bitraversable f
+  => Fix (TermF :+: MachineF :+: f (Either Text a)) -> EvalM (f a) (Fix (f a))
 purify (Fix tm) = case tm of
   InL _         -> throwError "found TermF in purification"
   InR (InL _)   -> throwError "found MachineF in purification"
-  InR (InR tm') -> Fix <$> traverse purify tm'
+  InR (InR tm') -> Fix <$> bitraverse expectRight purify tm'
+
+expectRight :: Show a => Either a b -> EvalM f b
+expectRight = \case
+  Left name -> throwError $
+    "found (prim) pattern variable in purification " ++ show name
+  Right a -> pure a
 
 -- | substitute @arg@ for @name@ in @body@
 subst
@@ -124,7 +216,7 @@ subst
   => Text
   -> Fix (TermF :+: MachineF :+: f)
   -> Fix (TermF :+: MachineF :+: f)
-  -> EvalM f (Fix (TermF :+: MachineF :+: f))
+  -> EvalM f' (Fix (TermF :+: MachineF :+: f))
 subst name arg (Fix body) = case body of
   InL (VarF name')
     -> pure $ if name == name' then arg else Fix $ InL $ VarF name'
@@ -133,7 +225,10 @@ subst name arg (Fix body) = case body of
   InR f
     -> Fix . InR <$> traverse (subst name arg) f
 
-eval' :: Traversable f => Fix (TermF :+: MachineF :+: f) -> EvalM f (Fix f)
+eval'
+  :: (Bitraversable f, Traversable (f (Either Text a)))
+  => Fix (TermF :+: MachineF :+: f (Either Text a))
+  -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
   InL BindingF{}  -> throwError "bare binding"
   InL (VarF name) -> view (evalVarVals . at name)
@@ -148,4 +243,4 @@ eval' (Fix f) = case f of
     fun      <- primApps name ?? "couldn't look up prim function " ++ show name
     args'    <- traverse purify args
     pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
-  InR (InR tm) -> Fix <$> traverse eval' tm
+  InR (InR tm) -> Fix <$> bitraverse expectRight eval' tm
