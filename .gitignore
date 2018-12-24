@@ -5,3 +5,4 @@ stack.yaml
 tags
 ctags
 TAGS
+.ghc.environment.*
