@@ -52,14 +52,14 @@ import qualified Hedgehog.Range                        as Range
 
 import qualified Linguist.ParseDenotationChart         as PD
 import           Linguist.ParseLanguage
-import qualified Linguist.Proceed                      as P1
+-- import qualified Linguist.Proceed                      as P1
 import qualified Linguist.Proceed2                     as P2
 import           Linguist.Types hiding (patP)
 import qualified Linguist.Types as Types
 import           Linguist.Languages.MachineModel
 import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
-import           Linguist.Util                         (forceRight)
+-- import           Linguist.Util                         (forceRight)
 
 import Debug.Trace
 
@@ -135,14 +135,14 @@ syntax = SyntaxChart $ Map.fromList
   ]
 
 tm1F, tm2F, tm3F :: Fix (TermF :+: ExpF () E)
-tm1F = (Fix (InR (NumLit (E (Left 2)))))
--- Fix $ InR $ Annotation () $
---   Fix $ InR $ Let
---     (Fix (InR (NumLit 1)))
---     (Fix (InL (BindingF ["x"] $ Fix $ InR $ Plus
---       (Fix (InL (VarF "x")))
---       (Fix (InR (NumLit 2)))
---       )))
+
+tm1F = Fix $ InR $ Annotation () $
+  Fix $ InR $ Let
+    (Fix (InR (NumLit (E (Left 1)))))
+    (Fix (InL (BindingF ["x"] $ Fix $ InR $ Plus
+      (Fix (InL (VarF "x")))
+      (Fix (InR (NumLit $ E $ Left 2)))
+      )))
 
 tm2F = Fix $ InR $ Cat
  (Fix (InR (StrLit "foo")))
@@ -315,12 +315,12 @@ dynamicsF = DenotationChart'
   [ matchop Plus  :-> rhsop PrimAdd
   , matchop Times :-> rhsop PrimMul
   , matchop Cat   :-> rhsop PrimCat
-  , Fix (InR (Len (Fix (InL (PatVarF (Just "e"))))))
+  , Fix (InR $ Len $ Fix $ InL $ PatVarF $ Just "e")
     :->
-    Fix (InR (InR (InR (PrimLen (Fix (InR (InL (MeaningOf "e"))))))))
+    Fix (InR $ InR $ InR $ PrimLen $ Fix $ InR $ InL $ MeaningOf "e")
   , Fix (InR (Let
-      (Fix (InL (PatVarF (Just "e"))))
-      (Fix (InL (PatVarF (Just "body"))))))
+      (Fix $ InL $ PatVarF $ Just "e")
+      (Fix $ InL $ PatVarF $ Just "body")))
     :->
     Fix (InR (InR (InL (App
       (Fix $ InR $ InL $ MeaningOf "body")
@@ -341,16 +341,16 @@ dynamicsF = DenotationChart'
       -> Fix (PatF :+: f)
       -> ExpF () Text (Fix (PatF :+: ExpF () Text)))
     -> Fix (PatF :+: ExpF () Text)
-  matchop op = FixIn (op
-    (Fix (InL (PatVarF (Just "n1"))))
-    (Fix (InL (PatVarF (Just "n2")))))
+  matchop op = FixIn $ op
+    (Fix $ InL $ PatVarF $ Just "n1")
+    (Fix $ InL $ PatVarF $ Just "n2")
 
   rhsop
-    :: (f ~ (TermF :+: MeaningOfF :+: MachineF :+: ValF Text))
-    => (Fix f -> Fix f -> ValF Text (Fix f)) -> Fix f
-  rhsop op = Fix (InR (InR (InR (op
-    (Fix (InR (InL (MeaningOf "n1"))))
-    (Fix (InR (InL (MeaningOf "n2"))))))))
+    :: (f ~ Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF Text))
+    => (f -> f -> ValF Text f) -> f
+  rhsop op = FixIn $ op
+    (Fix $ InR $ InL $ MeaningOf "n1")
+    (Fix $ InR $ InL $ MeaningOf "n2")
 
 dynamicsT :: Text
 dynamicsT = [text|
@@ -791,19 +791,37 @@ evalTests = tests
   ]
 
 translateTests :: Test ()
-translateTests = tests
-  [ case runWriter (runMaybeT (P2.translate dynamicsF tm1F)) of
-      (Nothing, logs) -> error "TODO"
-      (Just result, logs) -> do
-        traceShowM logs
-        expectEq result $
-          Fix $ InR $ InL $ App
-            (Fix $ InL $ BindingF ["x"] $
-              Fix $ InR $ InR $ PrimAdd
-                (Fix $ InL $ VarF "x")
-                (Fix $ InR $ InR $ NumV $ Right $ E $ Left 2))
-            (Fix $ InR $ InR $ NumV $ Right $ E $ Left 1)
-  ]
+translateTests =
+  let run tm expected = case runWriter (runMaybeT (P2.translate dynamicsF tm)) of
+        (Nothing, logs) -> do
+          traverse traceShowM logs
+          fail "couldn't find match"
+        (Just result, logs) -> expectEq result expected
+  in tests
+       -- [ run (Fix $ InR $ NumLit $ E $ Left 2) $
+       --     Fix $ InR $ InR $ NumV $ Right $ E $ Left 2
+
+       -- , run (Fix $ InR $ NumLit $ E $ Right "str") $
+       --     Fix $ InR $ InR $ NumV $ Right $ E $ Right "str"
+
+       -- , run tm1F $
+       --     Fix $ InR $ InL $ App
+       --       (Fix $ InL $ BindingF ["x"] $
+       --         Fix $ InR $ InR $ PrimAdd
+       --           (Fix $ InL $ VarF "x")
+       --           (Fix $ InR $ InR $ NumV $ Right $ E $ Left 2))
+       --       (Fix $ InR $ InR $ NumV $ Right $ E $ Left 1)
+
+       [ run tm2F $
+           Fix $ InR $ InR $ PrimCat
+             (Fix $ InR $ InR $ StrV $ Right $ E $ Right "foo")
+             (Fix $ InR $ InR $ StrV $ Right $ E $ Right "bar")
+
+       -- , run tm3F $
+       --     Fix $ InR $ InR $ PrimMul
+       --       (Fix $ InR $ InR $ PrimLen $ Fix $ InR $ InR $ StrV $ Right $ E $ Right "hippo")
+       --       (Fix $ InR $ InR $ StrV $ Right $ E $ Left 3)
+       ]
 
 primParsers :: ExternalParsers E
 primParsers = makeExternalParsers

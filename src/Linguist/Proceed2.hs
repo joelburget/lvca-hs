@@ -1,14 +1,12 @@
+{-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE ViewPatterns        #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Linguist.Proceed2 where
 
-import Data.Maybe (isJust)
-
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
 import           Control.Monad.Reader
-import           Data.Bifunctor
 import           Data.Bifoldable
 import           Data.Bitraversable
 import           Data.Map.Strict           (Map)
@@ -18,7 +16,6 @@ import           Data.Sequence             (Seq)
 import qualified Data.Sequence             as Seq
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
-import           Data.Foldable             (toList)
 
 import           Linguist.Languages.MachineModel
 import           Linguist.Types hiding     (matches)
@@ -43,19 +40,33 @@ newtype EvalM f a = EvalM {
   } deriving (Functor, Applicative, Monad, MonadReader (EvalEnv f),
     MonadError String, MonadWriter (Seq Text))
 
+type DomainFunctor f a =
+  ( Bifoldable f
+  , Eq2 f
+  , Show2 f
+  , Zippable f
+  , Show1 (f a)
+  , Eq1 (f Text)
+  , Foldable (f Text)
+  , Foldable (f (Text, a))
+  , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
+  , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
+  , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a))))
+  )
+
+type CodomainFunctor g a =
+  ( Show2 g
+  , Bitraversable g
+  , Traversable (g Text)
+  , Show1 (g Text)
+  , Traversable (g a)
+  , Traversable (g (Either Text a))
+  )
+
 eval
-  :: ( f' ~ f Text
-     , Bifoldable f, Eq2 f, Show2 f, Show1 (f a), Eq1 f', Zippable f, Foldable f', Foldable (f (Text, a))
-     , g' ~ g Text
-     , Show2 g, Bitraversable g, Traversable g', Show1 g', Traversable (g a)
-     , Traversable (g (Either Text a))
-     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
-     , Show a
-     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
-     )
+  :: (DomainFunctor f a, CodomainFunctor g a, Show a)
   => EvalEnv (g a)
-  -> DenotationChart' f' (MachineF :+: g')
+  -> DenotationChart' (f Text) (MachineF :+: g Text)
   -> Fix (TermF :+: f a)
   -> (Either String (Fix (g a)), Seq Text)
 eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
@@ -65,16 +76,9 @@ eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
     in (val, logs <> logs')
 
 findMatch'
-  :: forall f g f' a.
-     ( f' ~ f Text
-     , Bifoldable f, Show2 f, Zippable f, Eq1 f', Foldable f', Foldable (f (Text, a))
-     , Show2 g
-     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
-     , Show a
-     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
-     )
-  => DenotationChart' f' (MachineF :+: g Text)
+  :: forall f g a.
+     (DomainFunctor f a, CodomainFunctor g a , Show a)
+  => DenotationChart' (f Text) (MachineF :+: g Text)
   -> Fix (TermF :+: f a)
   -> Maybe ( (Map Text a, Map Text (Fix (TermF :+: f a)))
            , Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
@@ -84,17 +88,12 @@ findMatch' (DenotationChart' cases) tm = getFirst $ foldMap
   cases
 
 matches
-  :: ( Bifoldable f, Zippable f, Foldable (f Text), Foldable (f (Text, a))
-     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
-     , Show a
-     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
-     )
+  :: (DomainFunctor f a, Show a)
   => Fix (PatF  :+: f Text)
   -> Fix (TermF :+: f a   )
   -> Maybe (Map Text a, Map Text (Fix (TermF :+: f a)))
 matches (Fix pat) (Fix tm) = do
-  traceM $ "matches considering " ++ show pat ++ " / " ++ show tm
+  -- traceM $ "matches considering " ++ show pat ++ " / " ++ show tm
   case pat of
     InL PatBindingF{}         -> Nothing -- TODO
     InL (PatVarF Nothing)     -> Just (Map.empty, Map.empty)
@@ -106,45 +105,29 @@ matches (Fix pat) (Fix tm) = do
       InR tm' -> matches' pat' tm'
 
 matches'
-  :: ( Zippable f, Bifoldable f, Foldable (f Text), Foldable (f (Text, a))
-     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
-     , Show a
-     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
-     )
+  :: (DomainFunctor f a, Show a)
   => f Text (Fix (PatF  :+: f Text))
   -> f a    (Fix (TermF :+: f a   ))
   -> Maybe (Map Text a, Map Text (Fix (TermF :+: f a)))
 matches' f1 f2 = do
-  zipped <- fzip (fmap traceShowId . fmap Just . (,))
-    (\a b -> trace (show $ isJust (matches a b)) $ matches a b)
-    f1 f2
+  zipped <- fzip (fmap Just . (,)) matches f1 f2
   traceM $ "zipped: " ++ show zipped
-  let allMatches = bifoldr
+  let allMatches@(primVarMatches, varMatches) = bifoldr
         (\(i, a) (m1, m2) -> (Map.insert i a m1, m2))
-        (\(m1', m2') (m1, m2) -> (m1' <> m1, m2' <> m2))
+        (<>)
         (Map.empty, Map.empty)
         zipped
-      -- (primVarMatches, varMatches) = partitionEithers allMatches
-  traceM $ "allMatches: " ++ show allMatches
+  traceM $ "primVarMatches: " ++ show primVarMatches
+  traceM $ "varMatches: " ++ show varMatches
   pure $ allMatches
-    -- Map.unions . toList <$> -- . first fst <$>
-  -- Maybe (f (Text, a) (Map Text (Fix (TermF :+: f a))))
 
 translate
-  :: forall f g a f' g' m.
-     ( f' ~ f Text
-     , Bifoldable f, Show2 f, Eq2 f, Zippable f, Show1 (f a), Eq1 f', Foldable f', Foldable (f (Text, a))
-     , g' ~ g Text
-     , Show2 g, Bitraversable g, Show1 g', Traversable g'
-     , Traversable (g (Either Text a))
+  :: forall f g a m.
+     ( DomainFunctor f a, CodomainFunctor g a
      , MonadWriter (Seq Text) m
-     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
      , Show a
-     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
      )
-  => DenotationChart' f' (MachineF :+: g')
+  => DenotationChart' (f Text) (MachineF :+: g Text)
   -> Fix (TermF :+: f a)
   -> MaybeT m (Fix (TermF :+: MachineF :+: g (Either Text a)))
 translate chart tm = case unfix tm of
@@ -173,14 +156,9 @@ data TranslateEnv f g a = TranslateEnv
   }
 
 translate'
-  :: ( Show2 g, Bitraversable g, Traversable (g Text), Show1 (g Text)
-     , Traversable (g (Either Text a))
-     , Bifoldable f, Show2 f, Eq2 f, Zippable f, Show1 (f a), Eq1 (f Text), Foldable (f Text), Foldable (f (Text, a))
+  :: ( DomainFunctor f a, CodomainFunctor g a
      , MonadWriter (Seq Text) m, MonadReader (TranslateEnv f g a) m
-     , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-     , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
      , Show a
-     , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a)))), Show1 (f a)
      )
   => Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
   -> MaybeT m (Fix (TermF :+: MachineF :+: g (Either Text a)))
@@ -194,7 +172,15 @@ translate' (Fix tm) = case tm of
     translate chart binding
   InL tm'             -> Fix . InL       <$> traverse translate' tm'
   InR (InR (InL tm')) -> Fix . InR . InL <$> traverse translate' tm'
-  InR (InR (InR tm')) -> Fix . InR . InR <$> bitraverse (pure . Left) translate' tm'
+  InR (InR (InR tm')) -> Fix . InR . InR <$> bitraverse
+    (\name -> do
+      TranslateEnv _ primVarBindings _ <- ask
+      case Map.lookup name primVarBindings of
+        Nothing -> MaybeT $ pure Nothing
+        Just val -> pure $ Right val)
+    -- (pure . Left)
+    translate'
+    tm'
 
 purify
   :: Bitraversable f
