@@ -8,7 +8,7 @@ import           Data.Void (Void)
 import           EasyTest
 
 import           Linguist.Brick
-import           Linguist.Proceed2 ()
+import           Linguist.Proceed ()
 import           Linguist.Types
 import           Linguist.Util (forceRight)
 

@@ -24,7 +24,7 @@ import           Linguist.ParseDenotationChart      (parseDenotationChart)
 import qualified Linguist.ParseDenotationChart      as PD
 import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
-import           Linguist.Proceed2
+import           Linguist.Proceed
 import           Linguist.Types
 import           Linguist.Util                      (forceRight)
 import           Linguist.TH

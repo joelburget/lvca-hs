@@ -49,7 +49,7 @@ import qualified Hedgehog.Range                        as Range
 
 import qualified Linguist.ParseDenotationChart         as PD
 import           Linguist.ParseLanguage
-import qualified Linguist.Proceed2                     as P2
+import           Linguist.Proceed                      hiding (matches)
 import           Linguist.Types
 import           Linguist.Languages.MachineModel
 import           Linguist.FunctorUtil
@@ -705,7 +705,7 @@ instance Show ((:+:) VarBindingF (MachineF :+: ValF (Either Text E))
   showsPrec = liftShowsPrec showsPrec showList
 
 evalF :: Fix (VarBindingF :+: ExpF () E) -> (Either String (Fix (ValF E)), Seq Text)
-evalF = P2.eval (P2.EvalEnv Map.empty evalMachinePrimitiveF) dynamicsF
+evalF = eval (EvalEnv Map.empty evalMachinePrimitiveF) dynamicsF
 
 evalMachinePrimitiveF :: Text -> Maybe (Seq (ValF E (Fix (ValF E))) -> ValF E (Fix (ValF E)))
 evalMachinePrimitiveF = \case
@@ -737,7 +737,7 @@ evalTests =
 
 translateTests :: Test ()
 translateTests =
-  let run tm expected = case runWriter (runMaybeT (P2.translate dynamicsF tm)) of
+  let run tm expected = case runWriter (runMaybeT (translate dynamicsF tm)) of
         (Nothing,     _logs) -> fail "couldn't find match"
         (Just result, _logs) -> expectEq result expected
   in tests

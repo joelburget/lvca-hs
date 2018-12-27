@@ -16,7 +16,7 @@ import           EasyTest
 import           Prelude                   hiding (succ)
 
 import           Linguist.FunctorUtil
-import           Linguist.Proceed2         (eval, EvalEnv(EvalEnv))
+import           Linguist.Proceed          (eval, EvalEnv(EvalEnv))
 import           Linguist.Types
 import qualified Linguist.Languages.MachineModel as M
 

@@ -20,7 +20,7 @@ executable linguist
     Linguist.ParseLanguage,
     Linguist.ParseSyntaxDescription,
     Linguist.ParseUtil,
-    Linguist.Proceed2,
+    Linguist.Proceed,
     Linguist.TH,
     Linguist.Types,
     Linguist.Util,

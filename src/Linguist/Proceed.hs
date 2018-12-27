@@ -1,6 +1,6 @@
 {-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE TemplateHaskell     #-}
-module Linguist.Proceed2 where
+module Linguist.Proceed where
 
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
