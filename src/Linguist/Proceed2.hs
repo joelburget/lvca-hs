@@ -25,7 +25,7 @@ import           Linguist.FunctorUtil
 data TranslateEnv f g a = TranslateEnv
   { _dChart          :: DenotationChart' (f Text) (MachineF :+: g Text)
   , _primVarBindings :: Map Text a
-  , _varBindings     :: Map Text (Fix (TermF :+: f a))
+  , _varBindings     :: Map Text (Fix (VarBindingF :+: f a))
   }
 
 data EvalEnv f = EvalEnv
@@ -38,7 +38,7 @@ makeLenses ''EvalEnv
 
 data MatchResult f a = MatchResult
   { primVarMatches :: Map Text a
-  , varMatches     :: Map Text (Fix (TermF :+: f a))
+  , varMatches     :: Map Text (Fix (VarBindingF :+: f a))
   } deriving Show
 
 instance Semigroup (MatchResult f a) where
@@ -66,14 +66,14 @@ type CodomainFunctor g a =
 
 eval
   :: ( DomainFunctor f a, CodomainFunctor g a, Show a
-     , Show ((TermF :+: MachineF :+: g (Either Text a))
-                (Fix (TermF :+: (MachineF :+: g (Either Text a)))))
+     , Show ((VarBindingF :+: MachineF :+: g (Either Text a))
+                (Fix (VarBindingF :+: (MachineF :+: g (Either Text a)))))
      , Show1 (g (Either Text a))
      , Show1 (g a)
      )
   => EvalEnv (g a)
   -> DenotationChart' (f Text) (MachineF :+: g Text)
-  -> Fix (TermF :+: f a)
+  -> Fix (VarBindingF :+: f a)
   -> (Either String (Fix (g a)), Seq Text)
 eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
   (Nothing, logs) -> (Left "failed to translate term", logs)
@@ -85,9 +85,9 @@ findMatch
   :: forall f g a.
      (DomainFunctor f a, CodomainFunctor g a , Show a)
   => DenotationChart' (f Text) (MachineF :+: g Text)
-  -> Fix (TermF :+: f a)
+  -> Fix (VarBindingF :+: f a)
   -> Maybe ( MatchResult f a
-           , Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
+           , Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: g Text)
            )
 findMatch (DenotationChart' cases) tm = getFirst $ foldMap
   (\(pat, rhs) -> First $ (,rhs) <$> matches pat tm)
@@ -97,25 +97,22 @@ findMatch (DenotationChart' cases) tm = getFirst $ foldMap
 -- | Whether this functor matches the pattern.
 matches
   :: (DomainFunctor f a, Show a)
-  => Fix (PatF  :+: f Text)
-  -> Fix (TermF :+: f a   )
+  => Fix (PatVarF     :+: f Text)
+  -> Fix (VarBindingF :+: f a   )
   -> Maybe (MatchResult f a)
 matches (Fix pat) (Fix tm) = case pat of
-  InL PatBindingF{}         -> Nothing -- TODO
   InL (PatVarF Nothing)     -> Just mempty
   InL (PatVarF (Just name)) -> Just $
     MatchResult Map.empty (Map.singleton name $ Fix tm)
-  InR pat'           -> case tm of
-    InL tm' -> case tm' of
-      BindingF{} -> Nothing -- TODO
-      VarF{}     -> Nothing -- TODO
+  InR pat' -> case tm of
+    InL _   -> Nothing
     InR tm' -> fMatches pat' tm'
 
 -- | Whether the "target" functor matches.
 fMatches
   :: (DomainFunctor f a, Show a)
-  => f Text (Fix (PatF  :+: f Text))
-  -> f a    (Fix (TermF :+: f a   ))
+  => f Text (Fix (PatVarF     :+: f Text))
+  -> f a    (Fix (VarBindingF :+: f a   ))
   -> Maybe (MatchResult f a)
 fMatches f1 f2 = do
   zipped <- bimatchWith (fmap Just . (,)) matches f1 f2
@@ -131,8 +128,8 @@ translate
      , Show a
      )
   => DenotationChart' (f Text) (MachineF :+: g Text)
-  -> Fix (TermF :+: f a)
-  -> MaybeT m (Fix (TermF :+: MachineF :+: g (Either Text a)))
+  -> Fix (VarBindingF :+: f a)
+  -> MaybeT m (Fix (VarBindingF :+: MachineF :+: g (Either Text a)))
 translate chart tm = case unfix tm of
   InL (BindingF names subtm)
     -> Fix . InL . BindingF names <$> translate chart subtm
@@ -158,8 +155,8 @@ translate'
      , MonadWriter (Seq Text) m, MonadReader (TranslateEnv f g a) m
      , Show a
      )
-  => Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
-  -> MaybeT m (Fix (TermF :+: MachineF :+: g (Either Text a)))
+  => Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: g Text)
+  -> MaybeT m (Fix (VarBindingF :+: MachineF :+: g (Either Text a)))
 translate' (Fix tm) = case tm of
   InR (InL (MeaningOf name)) -> do
     tell1 $ "translate' MeaningOf " <> tShow name
@@ -189,9 +186,9 @@ expectRight = \case
 subst
   :: Traversable f
   => Text
-  -> Fix (TermF :+: MachineF :+: f)
-  -> Fix (TermF :+: MachineF :+: f)
-  -> EvalM f' (Fix (TermF :+: MachineF :+: f))
+  -> Fix (VarBindingF :+: MachineF :+: f)
+  -> Fix (VarBindingF :+: MachineF :+: f)
+  -> EvalM f' (Fix (VarBindingF :+: MachineF :+: f))
 subst name arg (Fix body) = case body of
   InL (VarF name')
     -> pure $ if name == name' then arg else Fix $ InL $ VarF name'
@@ -202,12 +199,12 @@ subst name arg (Fix body) = case body of
 
 eval'
   :: ( Bitraversable f, Traversable (f (Either Text a))
-     , Show ((TermF :+: MachineF :+: f (Either Text a))
-         (Fix (TermF :+: MachineF :+: f (Either Text a))))
+     , Show ((VarBindingF :+: MachineF :+: f (Either Text a))
+         (Fix (VarBindingF :+: MachineF :+: f (Either Text a))))
      , Show1 (f (Either Text a))
      , Show1 (f a)
      )
-  => Fix (TermF :+: MachineF :+: f (Either Text a))
+  => Fix (VarBindingF :+: MachineF :+: f (Either Text a))
   -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
   InL BindingF{}  -> throwError $ "bare binding: " ++ show f

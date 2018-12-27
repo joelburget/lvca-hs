@@ -8,7 +8,7 @@ import           Data.Void (Void)
 import           EasyTest
 
 import           Linguist.Brick
-import           Linguist.Proceed ()
+import           Linguist.Proceed2 ()
 import           Linguist.Types
 import           Linguist.Util (forceRight)
 
@@ -62,7 +62,7 @@ allTests = scope "all tests" $ tests
   , scope "simple-example.eval"    SimpleExample.evalTests
   , scope "simple-example.parse"   SimpleExample.parseTests
   , scope "simple-example.props"   SimpleExample.propTests
-  , scope "t-example.eval"         TExample.evalTests
+  -- , scope "t-example.eval"         TExample.evalTests
   , scope "document"               Document.documentTests
   , scope "arith"                  Arith.arithTests
   ]

@@ -1,8 +1,9 @@
 module Linguist.Util where
 
-import           Control.Lens         (FunctorWithIndex, imap)
-import           Control.Monad.Except (MonadError, throwError)
-import           Control.Monad.State  (StateT (..))
+import           Control.Lens          (FunctorWithIndex, Iso', imap, iso)
+import           Control.Monad.Except  (MonadError, throwError)
+import           Control.Monad.State   (StateT (..))
+import           Data.Functor.Foldable (Fix(Fix), unfix)
 import           GHC.Stack
 
 -- | Like 'zip', but lengths must match
@@ -54,3 +55,6 @@ infixl 1 <@&>
 forceRight :: (HasCallStack, Show e) => Either e a -> a
 forceRight (Right x) = x
 forceRight (Left  e) = error $ "forceRight: unexpectedly called with " ++ show e
+
+_Fix :: Iso' (Fix f) (f (Fix f))
+_Fix = iso unfix Fix

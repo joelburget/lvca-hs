@@ -35,6 +35,7 @@ import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void            (Void)
 import           EasyTest             (Test, expectEq)
 
+import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
 import           Linguist.Types
 import           Linguist.Util
@@ -138,12 +139,13 @@ standardParser = do
                       let parsePrim' = ReaderT (const parsePrim)
                       in case externalStyle' of
                            UntaggedExternals ->
-                             Term name . (:[]) . PrimValue <$> parsePrim'
+                             Fix . Term name . (:[]) . Fix . PrimValue
+                               <$> parsePrim'
                            TaggedExternals   -> do
                              _    <- string name
                              prim <- braces parsePrim'
                                  <|> parens (braces parsePrim')
-                             pure $ Term name [ PrimValue prim ]
+                             pure $ Fix $ Term name [ Fix $ PrimValue prim ]
 
               Operator name (Arity valences') _ -> label (unpack name) $ do
                 _ <- try $ do
@@ -163,7 +165,7 @@ standardParser = do
                     (Seq.singleton <$> parseValence parseTerm v)
                     vs
                 -- TODO: convert Term to just use Sequence
-                pure $ Term name $ toList subTms
+                pure $ Fix $ Term name $ toList subTms
 
         in asum opParsers <?> unpack sortName ++ " operator"
 
@@ -175,7 +177,7 @@ standardParser = do
 
         case sortParsers ^? ix sortHead of
           Just sortOpParsers
-            -> sortOpParsers sortVarVals <|> fmap Var parseName
+            -> sortOpParsers sortVarVals <|> fmap (Fix . Var) parseName
           Nothing -> fail $
             "unable to find sort " <> unpack sortHead <> " among " <>
             show (Map.keys sortParsers)
@@ -191,15 +193,15 @@ parseValence parseTerm valence@(Valence sorts bodySort) = do
           let Just parsePrim = primParsers ^? ix name
               parsePrim' = ReaderT (const parsePrim)
           case externalStyle' of
-            TaggedExternals   -> PrimValue <$> braces parsePrim'
-            UntaggedExternals -> PrimValue <$> parsePrim'
+            TaggedExternals   -> Fix . PrimValue <$> braces parsePrim'
+            UntaggedExternals -> Fix . PrimValue <$> parsePrim'
         SortAp _ _ -> local (parseSort .~ bodySort) parseTerm
 
 
   label ("valence " <> show valence) $
     if null sorts
     then parseTerm'
-    else Binding
+    else (fmap Fix . Binding)
       <$> countSepBy (length sorts) parseName (symbol ".")
       <*> parseTerm'
 

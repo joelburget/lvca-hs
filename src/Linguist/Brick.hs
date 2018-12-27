@@ -14,6 +14,7 @@ import           Data.Void                 (Void, absurd)
 import qualified Graphics.Vty               as V
 import           NeatInterpolation
 
+import           Linguist.FunctorUtil
 import           Linguist.Types
 import           Linguist.Languages.MachineModel
 
@@ -125,7 +126,7 @@ drawFocus = \case
   Ascending  tm -> drawTm tm
 
 showTermSlot :: TmShow a => Term a -> Widget ()
-showTermSlot = \case
+showTermSlot (Fix tm) = case tm of
   Term name _ -> txt $ "[" <> name <> "]"
   Var name    -> txt name
   Binding _ _ -> txt "TODO: binding"
@@ -135,7 +136,7 @@ drawBinding :: (Text, Term a) -> Widget ()
 drawBinding _ = txt "binding"
 
 drawTm :: TmShow a => Term a -> Widget ()
-drawTm = \case
+drawTm (Fix tm) = case tm of
   Term name subtms ->
     txt name
     <=>

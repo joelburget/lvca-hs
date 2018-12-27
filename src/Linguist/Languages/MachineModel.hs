@@ -24,6 +24,7 @@ import Data.Text (Text)
 
 import Linguist.Types                      hiding (patP, termP)
 import Linguist.FunctorUtil
+import Linguist.Util                       (_Fix)
 
 
 data MachineF a
@@ -72,26 +73,26 @@ machineP
   -> Prism' (Term (Either Text a)) (MachineF (Fix f))
 machineP p = prism' rtl ltr where
   textP :: Prism' (Term (Either Text a)) Text
-  textP = _PrimValue . _Left
+  textP = _Fix . _PrimValue . _Left
 
   rtl :: MachineF (Fix f) -> Term (Either Text a)
   rtl = \case
-    Lam body -> Term "Lam"
-      [ review p     body
+    Lam body -> Fix $ Term "Lam"
+      [ review p body
       ]
-    App body arg -> Term "App"
+    App body arg -> Fix $ Term "App"
       [ review p body
       , review p arg
       ]
-    PrimApp name args -> Term "PrimApp"
+    PrimApp name args -> Fix $ Term "PrimApp"
       [ review textP     name
       , review (listP p) args
       ]
 
   ltr :: Term (Either Text a) -> Maybe (MachineF (Fix f))
-  ltr = \case
+  ltr (Fix tm) = case tm of
     Term "Lam" [body] -> Lam
-      <$> preview p     body
+      <$> preview p body
     Term "App" [body, arg] -> App
       <$> preview p body
       <*> preview p arg
@@ -101,8 +102,8 @@ machineP p = prism' rtl ltr where
     _ -> Nothing
 
 mkDenotationChart
-  :: Prism' (Pattern a) (Fix (PatF  :+: f))
-  -> Prism' (Term    b) (Fix (TermF :+: MeaningOfF :+: g))
+  :: Prism' (Pattern a) (Fix (PatVarF     :+: f))
+  -> Prism' (Term    b) (Fix (VarBindingF :+: MeaningOfF :+: g))
   -> DenotationChart' f g
   -> DenotationChart  a b
 mkDenotationChart patP termP (DenotationChart' rules) = DenotationChart $
@@ -113,10 +114,10 @@ mkDenotationChart patP termP (DenotationChart' rules) = DenotationChart $
 listP :: Prism' (Term a) b -> Prism' (Term a) [b]
 listP p = prism' rtl ltr where
   rtl = \case
-    []   -> Term "Nil"  []
-    x:xs -> Term "Cons" [ review p x , rtl xs ]
+    []   -> Fix $ Term "Nil"  []
+    x:xs -> Fix $ Term "Cons" [ review p x , rtl xs ]
 
-  ltr = \case
+  ltr (Fix tm) = case tm of
     Term "Nil"  []      -> Just []
     Term "Cons" [x, xs] -> (:) <$> preview p x <*> ltr xs
     _ -> Nothing

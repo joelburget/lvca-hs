@@ -8,6 +8,7 @@ import           EasyTest
 import           NeatInterpolation
 import           Text.Megaparsec                 (errorBundlePretty, runParser)
 
+import           Linguist.FunctorUtil
 import           Linguist.ParseLanguage
 import           Linguist.ParseSyntaxDescription hiding (Parser)
 import           Linguist.Types                  hiding (Term)
@@ -113,13 +114,19 @@ stlcTests = tests
              |]
              stlcTm2
          , expectParse "lam(nat(); a. a)" $
-           L.Term "lam"
-             [ L.Term "nat" []
-             , L.Binding [ "a" ] (L.Var "a")
+           Fix $ L.Term "lam"
+             [ Fix $ L.Term "nat" []
+             , Fix $ L.Binding [ "a" ] $ Fix $ L.Var "a"
              ]
          ]
   ]
 
 stlcTm1, stlcTm2 :: L.Term Void
-stlcTm1 = L.Term "lam" [Var "ty", Binding ["x"] (L.Term "ap" [Var "x", Var "x"])]
-stlcTm2 = L.Term "ap" [stlcTm1, stlcTm1]
+stlcTm1 = Fix $ L.Term "lam"
+  [ Fix $ Var "ty"
+  , Fix $ Binding ["x"] $ Fix $ L.Term "ap"
+    [ Fix $ Var "x"
+    , Fix $ Var "x"
+    ]
+  ]
+stlcTm2 = Fix $ L.Term "ap" [stlcTm1, stlcTm1]

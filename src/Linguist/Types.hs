@@ -48,13 +48,14 @@ module Linguist.Types
   , Subst(..)
 
   -- * Terms / Values
-  , TermF(..)
-  , termP
-  , PatF(..)
-  , patP
+  , VarBindingF(..)
+  , varBindingP
+  , PatVarF(..)
+  , patVarP
   , MeaningOfF(..)
   , meaningP
-  , Term(..)
+  , TermF(..)
+  , Term
   , _Term
   , _Binding
   , _Var
@@ -243,77 +244,75 @@ instance IsString Valence where
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
-data TermF f
-  -- TODO: get rid of BindingF?
+data VarBindingF f
   = BindingF ![Text] !f
   | VarF     !Text
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
-instance Show1 TermF where
+instance Show1 VarBindingF where
   liftShowsPrec showsf _ p tm = showParen (p > 10) $ case tm of
     BindingF nms f -> ss "BindingF " . showList nms . ss " " . showsf 11 f
     VarF mname     -> ss "VarF "  . showsPrec 11 mname
     where ss = showString
 
-instance Eq1 TermF where
+instance Eq1 VarBindingF where
   liftEq eq (BindingF n1 x) (BindingF n2 y) = n1 == n2 && eq x y
   liftEq _  (VarF x)        (VarF y)        = x == y
   liftEq _  _               _               = False
 
-termP
-  :: Prism' (Term a)        (Fix f)
-  -> Prism' (Term a) (TermF (Fix f))
-termP p = prism' rtl ltr where
+varBindingP
+  :: Prism' (Term a)              (Fix f)
+  -> Prism' (Term a) (VarBindingF (Fix f))
+varBindingP p = prism' rtl ltr where
   rtl = \case
-    BindingF names f -> Binding names $ review p f
-    VarF name        -> Var name
+    BindingF names f -> Fix $ Binding names $ review p f
+    VarF name        -> Fix $ Var name
   ltr = \case
-    Binding names tm -> BindingF names <$> preview p tm
-    Var name         -> Just $ VarF name
-    _                -> Nothing
+    Fix (Binding names tm) -> BindingF names <$> preview p tm
+    Fix (Var name)         -> Just $ VarF name
+    _                      -> Nothing
 
-data PatF f
-  = PatBindingF ![Text] !f
-  | PatVarF     !(Maybe Text)
+data PatVarF f = PatVarF !(Maybe Text)
   deriving (Functor, Foldable, Traversable)
 
-patP
-  :: Prism' (Pattern a)       (Fix f)
-  -> Prism' (Pattern a) (PatF (Fix f))
-patP p = prism' rtl ltr where
-  rtl = \case
-    PatBindingF names f -> BindingPattern names $ review p f
-    PatVarF name        -> PatternVar name
+patVarP :: Prism' (Pattern a) (PatVarF (Fix f))
+patVarP = prism' rtl ltr where
+  rtl (PatVarF name) = PatternVar name
   ltr = \case
-    BindingPattern names tm -> PatBindingF names <$> preview p tm
-    PatternVar name         -> Just $ PatVarF name
-    _                       -> Nothing
+    PatternVar name -> Just $ PatVarF name
+    _               -> Nothing
 
-instance Show1 PatF where
+instance Show1 PatVarF where
   liftShowsPrec showsf _ p pat = showParen (p > 10) $ case pat of
-    PatBindingF nms f -> ss "PatBindingF " . showList nms . ss " " . showsf 11 f
-    PatVarF mname     -> ss "PatVarF "     . showsPrec 11 mname
-    where ss = showString
+    PatVarF mname -> showString "PatVarF " . showsPrec 11 mname
 
-instance Eq1 PatF where
-  liftEq eq (PatBindingF n1 x) (PatBindingF n2 y) = n1 == n2 && eq x y
-  liftEq _  (PatVarF x)        (PatVarF y)        = x == y
-  liftEq _  _                  _                  = False
+instance Eq1 PatVarF where
+  liftEq _  (PatVarF x) (PatVarF y) = x == y
+  liftEq _  _           _           = False
 
 -- | An evaluated or unevaluated term
-data Term a
+data TermF a term
   = Term
     { _termName :: !Text     -- ^ name of this term
-    , _subterms :: ![Term a] -- ^ subterms
+    , _subterms :: ![term] -- ^ subterms
     }
   | Binding
     ![Text]
-    !(Term a)
+    !term
   | Var !Text
   | PrimValue !a
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
-instance Serialise a => Serialise (Term a) where
+type Term a = Fix (TermF a)
+
+instance Show1 (TermF a) where -- XXX
+instance Eq1 (TermF a) where -- XXX
+
+instance (Serialise a) => Serialise (Term a) where -- XXX
+  encode = undefined
+  decode = undefined
+
+instance (Serialise a, Serialise term) => Serialise (TermF a term) where
   encode tm =
     let (tag, content) = case tm of
           Term      name  subtms -> (0, encode name  <> encode subtms)
@@ -363,7 +362,7 @@ genTerm
   -> m (Term a)
 genTerm _chart (External name) genPrim = case genPrim name of
   Nothing  -> Gen.discard
-  Just gen -> PrimValue <$> gen
+  Just gen -> Fix . PrimValue <$> gen
 genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
     let SortDef vars operators = chart' ^?! ix sortHead
         sortVarVals = Map.fromList $ zip vars sortArgs
@@ -375,7 +374,7 @@ genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
                name <- genName
                if name `elem` opNames
                then Gen.discard
-               else pure $ Var name
+               else pure $ Fix $ Var name
           ]
 
         genArity :: [Valence] -> m [Term a]
@@ -388,25 +387,25 @@ genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
                 [] -> pure $ tm : valences'
                 _  -> do
                   names <- Gen.list (Range.singleton (length binders)) genName
-                  pure $ Binding names tm : valences'
+                  pure $ Fix (Binding names tm) : valences'
           )
           []
 
         genTerm' :: Text -> [Valence] -> m (Term a)
-        genTerm' name valences = Term name <$> genArity valences
+        genTerm' name valences = Fix . Term name <$> genArity valences
 
         rec = operators <&> \(Operator name (Arity valences) _desc) ->
           genTerm' name valences
 
     Gen.sized $ \n ->
-         if n <= 1 then
-           Gen.choice nonrec
-         else
-           Gen.choice $ nonrec ++ fmap Gen.small rec
+      if n <= 1 then
+        Gen.choice nonrec
+      else
+        Gen.choice $ nonrec ++ fmap Gen.small rec
 
 
 instance Pretty a => Pretty (Term a) where
-  pretty = \case
+  pretty (Fix tm) = case tm of
     Term name subtms ->
       pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
     Binding names tm ->
@@ -439,7 +438,6 @@ pattern PatternAny = PatternVar Nothing
 
 pattern PatternEmpty :: Pattern a
 pattern PatternEmpty = PatternUnion []
-
 
 -- | Denotation charts
 --
@@ -482,8 +480,8 @@ type instance Index   (Term a) = Int
 type instance IxValue (Term a) = Term a
 instance Ixed (Term a) where
   ix k f tm = case tm of
-    Term name tms -> Term name <$> ix k f tms
-    _             -> pure tm
+    Fix (Term name tms) -> Fix . Term name <$> ix k f tms
+    _                   -> pure tm
 
 -- TODO: do we have to normalize here?
 isComplete :: Eq a => PatternCheckResult a -> Bool
@@ -494,13 +492,13 @@ hasRedundantPat (PatternCheckResult _ overlaps)
   = any ((== IsRedudant) . snd) overlaps
 
 applySubst :: Show a => Subst a -> Term a -> Term a
-applySubst subst@(Subst assignments correspondences) tm = case tm of
-  Term name subtms    -> Term name (applySubst subst <$> subtms)
-  Binding names subtm -> Binding names (applySubst subst subtm)
-  Var name            -> fromMaybe tm $ do
+applySubst subst@(Subst assignments correspondences) (Fix tm) = case tm of
+  Term name subtms    -> Fix $ Term name (applySubst subst <$> subtms)
+  Binding names subtm -> Fix $ Binding names (applySubst subst subtm)
+  Var name            -> fromMaybe (Fix tm) $ do
     name' <- fst <$> find (\(_patName, tmName) -> name == tmName) correspondences
     assignments ^? ix name'
-  _                   -> tm
+  _                   -> Fix tm
 
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern a
@@ -547,31 +545,34 @@ matches (PatternVar (Just name)) tm
   = pure $ Subst (Map.singleton name tm) []
 matches (PatternVar Nothing)     _  = emptyMatch
 
-matches pat (Var name) = do
+matches pat (Fix (Var name)) = do
   mTermVal <- view $ envVars . at name
   case mTermVal of
     Just termVal -> matches pat termVal
     Nothing      -> noMatch
 
-matches (PatternTm name1 subpatterns) (Term name2 subterms)
+matches (PatternTm name1 subpatterns) (Fix (Term name2 subterms))
   | name1 /= name2
   = noMatch
   | otherwise = do
     mMatches <- sequence $ fmap sequence $
       pairWith matches subpatterns subterms
     mconcat <$> lift mMatches
+
 -- TODO: write context of var names?
-matches (PatternPrimVal pVal) (PrimValue val)
+matches (PatternPrimVal pVal) (Fix (PrimValue val))
   | pVal == Nothing
   = emptyMatch
   | pVal == Just val
   = emptyMatch
   | otherwise
   = noMatch
+
 -- TODO: this piece must know the binding structure from the syntax chart
-matches (BindingPattern lnames subpat) (Binding rnames subtm) = do
+matches (BindingPattern lnames subpat) (Fix (Binding rnames subtm)) = do
   subst <- Subst Map.empty <$> lift (Util.pair lnames rnames)
   fmap (subst <>) $ matches subpat subtm
+
 matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
   env <- ask
@@ -774,8 +775,8 @@ makeWrapped ''Arity
 makeLenses ''Pattern
 makePrisms ''Pattern
 makeLenses ''Operator
-makeLenses ''Term
-makePrisms ''Term
+makeLenses ''TermF
+makePrisms ''TermF
 makeLenses ''PatternCheckResult
 
 data MeaningOfF a
@@ -791,10 +792,12 @@ instance Eq1 MeaningOfF where
 
 meaningP :: Prism' (Term (Either Text a)) (MeaningOfF (Fix f))
 meaningP = prism' rtl ltr where
-  rtl (MeaningOf name) = Term "MeaningOf" [ review (_PrimValue . _Left) name ]
+  rtl (MeaningOf name)
+    = Fix $ Term "MeaningOf" [ review (_Fix . _PrimValue . _Left) name ]
   ltr = \case
-    Term "MeaningOf" [name] -> MeaningOf <$> preview (_PrimValue . _Left) name
-    _                       -> Nothing
+    Fix (Term "MeaningOf" [name])
+      -> MeaningOf <$> preview (_Fix . _PrimValue . _Left) name
+    _ -> Nothing
 
-data DenotationChart' (f :: * -> *) (g :: * -> *)
-  = DenotationChart' [(Fix (PatF :+: f), Fix (TermF :+: MeaningOfF :+: g))]
+data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'
+  [(Fix (PatVarF :+: f), Fix (VarBindingF :+: MeaningOfF :+: g))]

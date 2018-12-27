@@ -18,12 +18,13 @@ import           Data.Void                          (Void)
 import           EasyTest
 import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
 
+import           Linguist.FunctorUtil
 import           Linguist.Languages.Arith.Syntax
 import           Linguist.ParseDenotationChart      (parseDenotationChart)
 import qualified Linguist.ParseDenotationChart      as PD
 import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
-import           Linguist.Proceed
+import           Linguist.Proceed2
 import           Linguist.Types
 import           Linguist.Util                      (forceRight)
 import           Linguist.TH
@@ -77,14 +78,14 @@ peanoDynamics = runParser (parseDenotationChart noParse noParse)
 pattern S' :: Term a -> Term a
 pattern Z' ::           Term a
 
-pattern S' x = Term "S" [ x ]
-pattern Z'   = Term "Z" [   ]
+pattern S' x = Fix (Term "S" [ x ])
+pattern Z'   = Fix (Term "Z" [   ])
 
 example :: Term Void
-example = Term "Add"
-  [ Term "Mul"
+example = Fix $ Term "Add"
+  [ Fix $ Term "Mul"
     [ S' Z'
-    , Term "Sub"
+    , Fix $ Term "Sub"
       [ S' (S' Z')
       , S' Z'
       ]
@@ -103,7 +104,7 @@ tm' =
        Right tm'' -> tm''
 
 pattern PrimInt :: Int -> Term E
-pattern PrimInt i = Term "Int" [ PrimValue (E (Left i)) ]
+pattern PrimInt i = Fix (Term "Int" [ Fix (PrimValue (E (Left i))) ])
 
 evalMachinePrimitive :: E -> Maybe (Seq (Term E) -> Term E)
 evalMachinePrimitive (E (Right str)) = case str of
@@ -120,16 +121,18 @@ evalMachinePrimitive (E (Right str)) = case str of
 evalMachinePrimitive _ = Nothing
 
 machineEval :: Term Void -> Either String (Term E)
-machineEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
-  (forceRight machineDynamics)
-  evalMachinePrimitive
-  (const Nothing)
+machineEval = error "TODO"
+-- eval $ mkEvalEnv "Arith" (forceRight syntax)
+--   (forceRight machineDynamics)
+--   evalMachinePrimitive
+--   (const Nothing)
 
 peanoEval :: Term Void -> Either String (Term Void)
-peanoEval = eval $ mkEvalEnv "Arith" (forceRight syntax)
-  (forceRight peanoDynamics)
-  (const Nothing)
-  (const Nothing)
+peanoEval = error "TODO"
+-- eval $ mkEvalEnv "Arith" (forceRight syntax)
+--   (forceRight peanoDynamics)
+--   (const Nothing)
+--   (const Nothing)
 
 primParsers :: ExternalParsers E
 primParsers = makeExternalParsers
@@ -148,5 +151,5 @@ arithTests = tests
   , scope "parse" $ parseTest
       (ParseEnv (forceRight syntax) "Arith" UntaggedExternals primParsers)
       "Za"
-      (Var "Za")
+      (Fix (Var "Za"))
   ]

@@ -1,6 +1,7 @@
 module Linguist.ParseDenotationChart where
 
 import           Data.Foldable                 (asum)
+import           Data.Functor.Foldable         (Fix(Fix))
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
@@ -64,31 +65,22 @@ parseBinders = try parseName `endBy'` symbol "."
 
 parseDenotationRhs :: Parser b -> Parser (Term (Either Text b))
 parseDenotationRhs parseB = asum
-  [ PrimValue . Right <$> braces parseB
+  [ Fix . PrimValue . Right <$> braces parseB
   , do name <- parseName
-       option (Var name) $ asum
+       option (Fix $ Var name) $ asum
          [ -- sugar for e.g. `Int{0}`
            do b <- braces parseB
-              pure $ Term name [ PrimValue (Right b) ]
+              pure $ Fix $ Term name [ Fix $ PrimValue $ Right b ]
          , parens $ do
            let boundTerm = do
                  binders <- parseBinders
                  tm      <- parseDenotationRhs parseB
                  pure $ case binders of
                    [] -> tm
-                   _  -> Binding binders tm
-           Term name <$> boundTerm `sepBy` symbol ";"
+                   _  -> Fix $ Binding binders tm
+           Fix . Term name <$> boundTerm `sepBy` symbol ";"
          ]
-  , do meaningVar <- oxfordBrackets $ do
-         name <- parseName
-         pure $ Term "MeaningPatternVar" [ PrimValue $ Left name ]
-       option meaningVar $ brackets $ do
-         to   <- parseName
-         _    <- symbol "/"
-         from <- parseName
-         pure $ Term "Renaming"
-           [ PrimValue $ Left from
-           , PrimValue $ Left to
-           , meaningVar
-           ]
+  , oxfordBrackets $ do
+      name <- parseName
+      pure $ Fix $ Term "MeaningOf" [ Fix $ PrimValue $ Left name ]
   ] <?> "non-union pattern"

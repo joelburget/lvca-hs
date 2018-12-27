@@ -8,17 +8,21 @@ module Linguist.Languages.TExample where
 import           Control.Lens              (Prism, Prism', prism, prism', review, preview)
 import           Data.Foldable             (asum)
 import qualified Data.Map.Strict           as Map
+import           Data.Sequence             (Seq)
+import           Data.Text                 (Text)
+import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 import           Data.Void                 (Void)
 import           EasyTest
 import           Prelude                   hiding (succ)
-import           Data.Text                 (Text)
-import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 
 import           Linguist.FunctorUtil
-import           Linguist.Proceed
-import           Linguist.Types hiding (patP)
-import qualified Linguist.Types as Types
+import           Linguist.Proceed2         (eval, EvalEnv(EvalEnv))
+import           Linguist.Types
 import qualified Linguist.Languages.MachineModel as M
+
+import           Data.Bifunctor
+import           Data.Bifoldable
+import           Data.Bitraversable
 
 
 data T
@@ -59,7 +63,7 @@ syntax = SyntaxChart $ Map.fromList
   ]
 
 -- TODO: add type annotations
-data ExpF term
+data ExpF prim term
   = Z
   | S               !term
   | Rec !term !term !term
@@ -67,23 +71,42 @@ data ExpF term
   | Ap        !term !term
   deriving Functor
 
-data ValF val
+instance Bifoldable ExpF where
+instance Bifunctor ExpF where
+instance Bitraversable ExpF where
+instance Bimatchable ExpF where
+
+instance Bifoldable ValF where
+instance Bifunctor ValF where
+instance Bitraversable ValF where
+instance Traversable (ValF (Either Text a)) where
+instance Foldable (ValF (Either Text a)) where
+
+instance Show ((:+:) VarBindingF (M.MachineF :+: ValF (Either Text Void))
+                           (Fix (VarBindingF :+: (M.MachineF :+: ValF (Either Text Void)))))
+
+instance Show1 (ValF Text)
+instance Show1 (ValF Void)
+instance Show1 (ExpF Void)
+instance Show1 (ValF (Either Text Void))
+
+data ValF prim val
   = Zv
   | Sv !val
   deriving Functor
 
-dynamics' :: DenotationChart' ExpF (M.MachineF :+: ValF)
+dynamics' :: DenotationChart' (ExpF Text) (M.MachineF :+: ValF Text)
 dynamics' = DenotationChart'
-  [ FixIn Z
+  [ Fix (InR Z)
     :->
     Fix (InR (InR (InR Zv)))
-  , FixIn (S (Fix (InL (PatVarF (Just "e")))))
+  , Fix (InR (S (Fix (InL (PatVarF (Just "e"))))))
     :->
     Fix (InR (InR (InR (Sv (Fix (InR (InL (MeaningOf "e"))))))))
-  -- -- TODO: rec
-  , FixIn (Ap
-      (FixIn (Lam (Fix (InL (PatVarF (Just "body"))))))
-      (Fix (InL (PatVarF (Just "arg")))))
+  -- TODO: rec
+  , Fix (InR (Ap
+      (Fix (InR (Lam (Fix (InL (PatVarF (Just "body")))))))
+      (Fix (InL (PatVarF (Just "arg"))))))
     :->
     Fix (InR (InR (InL (M.App
       (Fix (InR (InL (MeaningOf "body"))))
@@ -113,20 +136,20 @@ dynamics' = DenotationChart'
 --       ]
 --   ]
 
-patP :: Prism' (Pattern T) (Fix (PatF :+: ExpF))
+patP :: Prism' (Pattern T) (Fix (PatVarF :+: ExpF a))
 patP = prism' rtl ltr where
-  rtl :: Fix (PatF :+: ExpF) -> Pattern T
+  rtl :: Fix (PatVarF :+: ExpF a) -> Pattern T
   rtl = \case
-    Fix (InL pat) -> review (Types.patP patP) pat
-    Fix (InR pat) -> review patP'             pat
+    Fix (InL pat) -> review patVarP pat
+    Fix (InR pat) -> review patP'   pat
 
-  ltr :: Pattern T -> Maybe (Fix (PatF :+: ExpF))
+  ltr :: Pattern T -> Maybe (Fix (PatVarF :+: ExpF a))
   ltr tm = asum @[]
-    [ Fix . InL <$> preview (Types.patP patP) tm
-    , Fix . InR <$> preview patP'             tm
+    [ Fix . InL <$> preview patVarP tm
+    , Fix . InR <$> preview patP'   tm
     ]
 
-  patP' :: Prism' (Pattern T) (ExpF (Fix (PatF :+: ExpF)))
+  patP' :: Prism' (Pattern T) (ExpF a (Fix (PatVarF :+: ExpF a)))
   patP' = prism' rtl' ltr' where
     rtl' = \case
       Z         -> PatternTm "Z" []
@@ -151,54 +174,59 @@ patP = prism' rtl ltr where
       PatternTm "Ap" [a, b] -> Ap <$> preview patP a <*> preview patP b
       _                     -> Nothing
 
-valP :: Prism' (Term (Either Text Void)) (Fix (TermF :+: MeaningOfF :+: M.MachineF :+: ValF))
+valP :: Prism' (Term (Either Text Void)) (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: ValF a))
 valP = prism' rtl ltr where
 
-  rtl :: Fix (TermF :+: MeaningOfF :+: M.MachineF :+: ValF) -> Term (Either Text Void)
+  rtl :: Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: ValF a) -> Term (Either Text Void)
   rtl = \case
-    Fix (InL tm')                -> review (termP valP)      tm'
-    Fix (InR (InL tm'))          -> review meaningP          tm'
-    Fix (InR (InR (InL tm')))    -> review (M.machineP valP) tm'
-    Fix (InR (InR (InR Zv)))     -> Term "Zv" []
-    Fix (InR (InR (InR (Sv v)))) -> Term "Sv" [review valP v]
+    Fix (InL tm')                -> review (varBindingP valP) tm'
+    Fix (InR (InL tm'))          -> review meaningP           tm'
+    Fix (InR (InR (InL tm')))    -> review (M.machineP valP)  tm'
+    Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
+    Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
 
-  ltr :: Term (Either Text Void) -> Maybe (Fix (TermF :+: MeaningOfF :+: M.MachineF :+: ValF))
+  ltr :: Term (Either Text Void) -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: ValF a))
   ltr = \case
-    Term "Zv" []  -> Just (Fix (InR (InR (InR Zv))))
-    Term "Sv" [t] -> Fix . InR . InR . InR . Sv <$> preview valP t
+    Fix (Term "Zv" [])  -> Just (Fix (InR (InR (InR Zv))))
+    Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
     tm            -> asum @[]
-      [ Fix . InL             <$> preview (termP valP)      tm
-      , Fix . InR . InL       <$> preview meaningP          tm
-      , Fix . InR . InR . InL <$> preview (M.machineP valP) tm
+      [ Fix . InL             <$> preview (varBindingP valP) tm
+      , Fix . InR . InL       <$> preview meaningP           tm
+      , Fix . InR . InR . InL <$> preview (M.machineP valP)  tm
       ]
 
 dynamics :: DenotationChart T (Either Text Void)
 dynamics = M.mkDenotationChart patP valP dynamics'
 
 z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
-z = Term "Z" []
-sz = Term "S" [z]
-ssz = Term "S" [sz]
-pos = Term "Rec" [sz, z, sz]
-succ = Term "Lam" [Term "Nat" [], Binding ["x"] (Term "S" [Var "x"])]
-lamapp = Term "Ap" [succ, z]
-lamapp2 = Term "Ap" [succ, lamapp]
+z = Fix $ Term "Z" []
+sz = Fix $ Term "S" [z]
+ssz = Fix $ Term "S" [sz]
+pos = Fix $ Term "Rec" [sz, z, sz]
+succ = Fix $ Term "Lam"
+  [ Fix $ Term "Nat" []
+  , Fix $ Binding ["x"] $ Fix $ Term "S" [Fix $ Var "x"]
+  ]
+lamapp = Fix $ Term "Ap" [succ, z]
+lamapp2 = Fix $ Term "Ap" [succ, lamapp]
 
 zv, szv, sszv :: Term Void
-zv = Term "Zv" []
-szv = Term "Sv" [zv]
-sszv = Term "Sv" [szv]
+zv = Fix $ Term "Zv" []
+szv = Fix $ Term "Sv" [zv]
+sszv = Fix $ Term "Sv" [szv]
 
-eval' :: Term T -> Either String (Term Void)
-eval' = eval $
-  mkEvalEnv "Exp" syntax dynamics
-    (const Nothing)
-    (const Nothing)
+-- eval' :: Term T -> Either String (Term Void)
+-- eval' = eval $ mkEvalEnv "Exp" syntax dynamics
+--     (const Nothing)
+--     (const Nothing)
 
-evalTests :: Test ()
-evalTests = tests
-  [ expect $ eval' z       == Right zv
-  , expect $ eval' sz      == Right szv
-  , expect $ eval' lamapp  == Right szv
-  , expect $ eval' lamapp2 == Right sszv
-  ]
+evalF :: Fix (VarBindingF :+: ExpF Void) -> (Either String (Fix (ValF Void)), Seq Text)
+evalF = eval (EvalEnv Map.empty (const Nothing)) dynamics'
+
+-- evalTests :: Test ()
+-- evalTests = tests
+--   [ expect $ eval' z       == Right zv
+--   , expect $ eval' sz      == Right szv
+--   , expect $ eval' lamapp  == Right szv
+--   , expect $ eval' lamapp2 == Right sszv
+--   ]
