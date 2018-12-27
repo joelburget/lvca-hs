@@ -28,8 +28,7 @@ import Linguist.FunctorUtil
 
 data MachineF a
   = Lam
-    { _lamName :: !Text
-    , _lamBody :: !a
+    { _lamBody :: !a
     }
   | App
     { _bodyTerm :: !a
@@ -46,10 +45,8 @@ deriving instance (Show a) => Show (MachineF a)
 
 instance Show1 MachineF where
   liftShowsPrec showsf showListf p tm = showParen (p > 10) $ case tm of
-    Lam name body ->
+    Lam body ->
         ss "Lam "
-      . showsPrec 11 name
-      . ss " "
       . showsf 11 body
     App body arg ->
         ss "App "
@@ -64,7 +61,7 @@ instance Show1 MachineF where
     where ss = showString
 
 instance Eq1 MachineF where
-  liftEq eq (Lam     a1 b1) (Lam     a2 b2) = a1 == a2 && eq b1 b2
+  liftEq eq (Lam     a1   ) (Lam     a2   ) = eq a1 a2
   liftEq eq (App     a1 b1) (App     a2 b2) = eq a1 a2 && eq b1 b2
   liftEq eq (PrimApp a1 b1) (PrimApp a2 b2) = a1 == a2 && and (zipWith eq b1 b2)
   liftEq _  _               _               = False
@@ -79,9 +76,8 @@ machineP p = prism' rtl ltr where
 
   rtl :: MachineF (Fix f) -> Term (Either Text a)
   rtl = \case
-    Lam name body -> Term "Lam"
-      [ review textP name
-      , review p     body
+    Lam body -> Term "Lam"
+      [ review p     body
       ]
     App body arg -> Term "App"
       [ review p body
@@ -94,9 +90,8 @@ machineP p = prism' rtl ltr where
 
   ltr :: Term (Either Text a) -> Maybe (MachineF (Fix f))
   ltr = \case
-    Term "Lam" [name, body] -> Lam
-      <$> preview textP name
-      <*> preview p     body
+    Term "Lam" [body] -> Lam
+      <$> preview p     body
     Term "App" [body, arg] -> App
       <$> preview p body
       <*> preview p arg

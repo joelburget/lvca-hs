@@ -1,6 +1,7 @@
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE PolyKinds         #-}
+{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE ViewPatterns      #-}
 
 module Linguist.FunctorUtil
   ( module Control.Monad.Free
@@ -40,18 +41,20 @@ module Linguist.FunctorUtil
   , IxFoldable(..)
   , IxTraversable(..)
 
-  , Zippable(fzip)
+  , Matchable(matchWith, match)
+  , Bimatchable(bimatchWith, bimatch)
   ) where
 
 import           Control.Lens
-  (Prism', review, prism', iso, Iso', Identity(..), view, _Wrapped, preview, Bifunctor)
+  (Prism', review, prism', iso, Iso', Identity(..), view, _Wrapped, preview,
+   Bifunctor)
 import Control.Monad.Free
+import Data.Bitraversable (Bitraversable(bitraverse))
 import Data.Functor.Classes
 import Data.Functor.Compose
 import Data.Functor.Const (Const(..))
 import Data.Functor.Foldable (Fix(Fix), unfix)
 import Data.Text
-import Data.Functor.Foldable (Base)
 
 import Generics.MultiRec.Base (I(I, unI), K(K, unK), unD)
 import qualified Generics.MultiRec.Base as MR
@@ -216,6 +219,42 @@ instance {-# OVERLAPPING #-} (Functor f, Functor g, Functor h, f :<: g)
   => f :<: (h :+: g) where
   subtype = _InR . subtype
 
-class Bifunctor f => Zippable f where
-  fzip :: (a -> b -> Maybe c) -> (x -> y -> Maybe z)
-       -> f a x -> f b y -> Maybe (f c z)
+-- TODO: this looks like
+-- http://hackage.haskell.org/package/matchable-0.1.1.1/docs/Data-Matchable.html
+class Functor f => Matchable f where
+  match :: f a -> f b -> Maybe (f (a, b))
+  match = matchWith (fmap Just . (,))
+
+  matchWith :: (a -> b -> Maybe c) -> f a -> f b -> Maybe (f c)
+
+  default matchWith
+    :: Traversable f
+    => (a -> b -> Maybe c) -> f a -> f b -> Maybe (f c)
+  matchWith f fa fb = do
+    fafb <- match fa fb
+    traverse (uncurry f) fafb
+
+  {-# MINIMAL matchWith #-}
+
+instance (Matchable f, Matchable g) => Matchable (f :+: g) where
+  matchWith f (InL x) (InL y) = InL <$> matchWith f x y
+  matchWith f (InR x) (InR y) = InR <$> matchWith f x y
+  matchWith _ _       _       = Nothing
+
+class Bifunctor f => Bimatchable f where
+  bimatch :: f a x -> f b y -> Maybe (f (a, b) (x, y))
+  bimatch = bimatchWith (fmap Just . (,)) (fmap Just . (,))
+
+  bimatchWith
+    :: (a -> b -> Maybe c) -> (x -> y -> Maybe z)
+    -> f a x -> f b y -> Maybe (f c z)
+
+  default bimatchWith
+    :: Bitraversable f
+    => (a -> b -> Maybe c) -> (x -> y -> Maybe z)
+    -> f a x -> f b y -> Maybe (f c z)
+  bimatchWith f g x y = do
+    xy <- bimatch x y
+    bitraverse (uncurry f) (uncurry g) xy
+
+  {-# MINIMAL bimatchWith #-}

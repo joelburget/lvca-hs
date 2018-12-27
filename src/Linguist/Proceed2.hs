@@ -1,12 +1,12 @@
 {-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE ViewPatterns        #-}
 {-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 module Linguist.Proceed2 where
 
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Maybe
+import           Control.Monad.Writer.CPS
 import           Data.Bifoldable
 import           Data.Bitraversable
 import           Data.Map.Strict           (Map)
@@ -18,14 +18,15 @@ import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 
 import           Linguist.Languages.MachineModel
-import           Linguist.Types hiding     (matches)
+import           Linguist.Types            hiding (findMatch, matches)
 import           Linguist.Util             ((??), (???))
 import           Linguist.FunctorUtil
 
-import Control.Monad.Writer.CPS
-import Control.Monad.Trans.Maybe
-
-import Debug.Trace
+data TranslateEnv f g a = TranslateEnv
+  { _dChart          :: DenotationChart' (f Text) (MachineF :+: g Text)
+  , _primVarBindings :: Map Text a
+  , _varBindings     :: Map Text (Fix (TermF :+: f a))
+  }
 
 data EvalEnv f = EvalEnv
   { _evalVarVals         :: !(Map Text (Fix f))
@@ -35,6 +36,17 @@ data EvalEnv f = EvalEnv
 
 makeLenses ''EvalEnv
 
+data MatchResult f a = MatchResult
+  { primVarMatches :: Map Text a
+  , varMatches     :: Map Text (Fix (TermF :+: f a))
+  } deriving Show
+
+instance Semigroup (MatchResult f a) where
+  MatchResult a1 b1 <> MatchResult a2 b2 = MatchResult (a1 <> a2) (b1 <> b2)
+
+instance Monoid (MatchResult f a) where
+  mempty = MatchResult Map.empty Map.empty
+
 newtype EvalM f a = EvalM {
   runEvalM :: ExceptT String (WriterT (Seq Text) (Reader (EvalEnv f))) a
   } deriving (Functor, Applicative, Monad, MonadReader (EvalEnv f),
@@ -42,29 +54,23 @@ newtype EvalM f a = EvalM {
 
 type DomainFunctor f a =
   ( Bifoldable f
-  , Eq2 f
-  , Show2 f
-  , Zippable f
+  , Bimatchable f
   , Show1 (f a)
-  , Eq1 (f Text)
-  , Foldable (f Text)
-  , Foldable (f (Text, a))
-  , Show ((:+:) PatF (f Text) (Fix (PatF :+: f Text)))
-  , Show ((:+:) TermF (f a) (Fix (TermF :+: f a)))
-  , Show (f (Text, a) (Map Text a, Map Text (Fix (TermF :+: f a))))
   )
 
 type CodomainFunctor g a =
-  ( Show2 g
-  , Bitraversable g
-  , Traversable (g Text)
+  ( Bitraversable g
   , Show1 (g Text)
-  , Traversable (g a)
   , Traversable (g (Either Text a))
   )
 
 eval
-  :: (DomainFunctor f a, CodomainFunctor g a, Show a)
+  :: ( DomainFunctor f a, CodomainFunctor g a, Show a
+     , Show ((TermF :+: MachineF :+: g (Either Text a))
+                (Fix (TermF :+: (MachineF :+: g (Either Text a)))))
+     , Show1 (g (Either Text a))
+     , Show1 (g a)
+     )
   => EvalEnv (g a)
   -> DenotationChart' (f Text) (MachineF :+: g Text)
   -> Fix (TermF :+: f a)
@@ -75,51 +81,48 @@ eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
     let (val, logs') = runReader (runWriterT (runExceptT (runEvalM (eval' tm')))) env
     in (val, logs <> logs')
 
-findMatch'
+findMatch
   :: forall f g a.
      (DomainFunctor f a, CodomainFunctor g a , Show a)
   => DenotationChart' (f Text) (MachineF :+: g Text)
   -> Fix (TermF :+: f a)
-  -> Maybe ( (Map Text a, Map Text (Fix (TermF :+: f a)))
+  -> Maybe ( MatchResult f a
            , Fix (TermF :+: MeaningOfF :+: MachineF :+: g Text)
            )
-findMatch' (DenotationChart' cases) tm = getFirst $ foldMap
+findMatch (DenotationChart' cases) tm = getFirst $ foldMap
   (\(pat, rhs) -> First $ (,rhs) <$> matches pat tm)
   cases
 
+-- TODO: I think we could automate all this via Bimatchable instances
+-- | Whether this functor matches the pattern.
 matches
   :: (DomainFunctor f a, Show a)
   => Fix (PatF  :+: f Text)
   -> Fix (TermF :+: f a   )
-  -> Maybe (Map Text a, Map Text (Fix (TermF :+: f a)))
-matches (Fix pat) (Fix tm) = do
-  -- traceM $ "matches considering " ++ show pat ++ " / " ++ show tm
-  case pat of
-    InL PatBindingF{}         -> Nothing -- TODO
-    InL (PatVarF Nothing)     -> Just (Map.empty, Map.empty)
-    InL (PatVarF (Just name)) -> Just (Map.empty, Map.singleton name $ Fix tm)
-    InR pat'           -> case tm of
-      InL tmtm -> case tmtm of
-        BindingF{} -> Nothing -- TODO
-        VarF{}     -> Nothing -- TODO
-      InR tm' -> matches' pat' tm'
+  -> Maybe (MatchResult f a)
+matches (Fix pat) (Fix tm) = case pat of
+  InL PatBindingF{}         -> Nothing -- TODO
+  InL (PatVarF Nothing)     -> Just mempty
+  InL (PatVarF (Just name)) -> Just $
+    MatchResult Map.empty (Map.singleton name $ Fix tm)
+  InR pat'           -> case tm of
+    InL tm' -> case tm' of
+      BindingF{} -> Nothing -- TODO
+      VarF{}     -> Nothing -- TODO
+    InR tm' -> fMatches pat' tm'
 
-matches'
+-- | Whether the "target" functor matches.
+fMatches
   :: (DomainFunctor f a, Show a)
   => f Text (Fix (PatF  :+: f Text))
   -> f a    (Fix (TermF :+: f a   ))
-  -> Maybe (Map Text a, Map Text (Fix (TermF :+: f a)))
-matches' f1 f2 = do
-  zipped <- fzip (fmap Just . (,)) matches f1 f2
-  traceM $ "zipped: " ++ show zipped
-  let allMatches@(primVarMatches, varMatches) = bifoldr
-        (\(i, a) (m1, m2) -> (Map.insert i a m1, m2))
-        (<>)
-        (Map.empty, Map.empty)
-        zipped
-  traceM $ "primVarMatches: " ++ show primVarMatches
-  traceM $ "varMatches: " ++ show varMatches
-  pure $ allMatches
+  -> Maybe (MatchResult f a)
+fMatches f1 f2 = do
+  zipped <- bimatchWith (fmap Just . (,)) matches f1 f2
+  pure $ bifoldMap
+    (\(i, a) -> MatchResult (Map.singleton i a) mempty)
+    id
+    zipped
 
 translate
   :: forall f g a m.
@@ -136,7 +139,8 @@ translate chart tm = case unfix tm of
   InL (VarF name) -> pure $ Fix $ InL $ VarF name
   InR _ -> do
     tell1 $ "finding match for " <> tShow tm
-    ((primVarBindings, varBindings), rhs) <- MaybeT $ pure $ findMatch' chart tm
+    (MatchResult primVarBindings varBindings, rhs)
+      <- MaybeT $ pure $ findMatch chart tm
     tell1 $ "varBindings: " <> tShow varBindings
     tell1 $ "primVarBindings: " <> tShow primVarBindings
     tell1 $ "rhs: " <> tShow rhs
@@ -148,12 +152,6 @@ tShow = Text.pack . show
 
 tell1 :: MonadWriter (Seq Text) m => Text -> m ()
 tell1 = tell . Seq.singleton
-
-data TranslateEnv f g a = TranslateEnv
-  { _dChart :: DenotationChart' (f Text) (MachineF :+: g Text)
-  , _primVarBindings :: Map Text a
-  , _varBindings :: Map Text (Fix (TermF :+: f a))
-  }
 
 translate'
   :: ( DomainFunctor f a, CodomainFunctor g a
@@ -178,17 +176,8 @@ translate' (Fix tm) = case tm of
       case Map.lookup name primVarBindings of
         Nothing -> MaybeT $ pure Nothing
         Just val -> pure $ Right val)
-    -- (pure . Left)
     translate'
     tm'
-
-purify
-  :: Bitraversable f
-  => Fix (TermF :+: MachineF :+: f (Either Text a)) -> EvalM (f a) (Fix (f a))
-purify (Fix tm) = case tm of
-  InL _         -> throwError "found TermF in purification"
-  InR (InL _)   -> throwError "found MachineF in purification"
-  InR (InR tm') -> Fix <$> bitraverse expectRight purify tm'
 
 expectRight :: Show a => Either a b -> EvalM f b
 expectRight = \case
@@ -212,21 +201,29 @@ subst name arg (Fix body) = case body of
     -> Fix . InR <$> traverse (subst name arg) f
 
 eval'
-  :: (Bitraversable f, Traversable (f (Either Text a)))
+  :: ( Bitraversable f, Traversable (f (Either Text a))
+     , Show ((TermF :+: MachineF :+: f (Either Text a))
+         (Fix (TermF :+: MachineF :+: f (Either Text a))))
+     , Show1 (f (Either Text a))
+     , Show1 (f a)
+     )
   => Fix (TermF :+: MachineF :+: f (Either Text a))
   -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
-  InL BindingF{}  -> throwError "bare binding"
+  InL BindingF{}  -> throwError $ "bare binding: " ++ show f
   InL (VarF name) -> view (evalVarVals . at name)
     ??? "couldn't look up variable " ++ show name
-  InR (InL (App (Fix (InR (InL (Lam name body)))) arg)) -> do
+
+  InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
     ret <- subst name arg body
-    purify ret
-  InR (InL App{}) -> throwError "invalid app"
-  InR (InL Lam{}) -> throwError "bare lambda"
+    eval' ret
+  InR (InL App{}) -> throwError $ "invalid app: " ++ show f
+  InR (InL Lam{}) -> throwError $ "bare lambda: " ++ show f
+
   InR (InL (PrimApp name args)) -> do
     primApps <- view evalPrimApp
     fun      <- primApps name ?? "couldn't look up prim function " ++ show name
-    args'    <- traverse purify args
+    args'    <- traverse eval' args
     pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
+
   InR (InR tm) -> Fix <$> bitraverse expectRight eval' tm

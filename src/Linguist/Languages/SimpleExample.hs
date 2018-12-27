@@ -21,8 +21,6 @@ module Linguist.Languages.SimpleExample
   , translateTests
   , parseTests
   , propTests
-
-  -- , eval'
   ) where
 
 import           Codec.Serialise
@@ -40,19 +38,17 @@ import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
                                                         layoutPretty, Pretty(pretty))
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
-import           EasyTest
+import           EasyTest                              hiding (run)
 import           GHC.Generics                          (Generic)
 import           NeatInterpolation
 import           Text.Megaparsec
 import           Data.Sequence                         (Seq)
-import           Data.Diverse.Lens.Which
 import           Hedgehog                              (Property, property, (===), forAll, Gen)
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 
 import qualified Linguist.ParseDenotationChart         as PD
 import           Linguist.ParseLanguage
--- import qualified Linguist.Proceed                      as P1
 import qualified Linguist.Proceed2                     as P2
 import           Linguist.Types hiding (patP)
 import qualified Linguist.Types as Types
@@ -61,7 +57,6 @@ import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
 -- import           Linguist.Util                         (forceRight)
 
-import Debug.Trace
 
 newtype E = E (Either Int Text)
   deriving (Eq, Show, Generic)
@@ -69,12 +64,6 @@ newtype E = E (Either Int Text)
 instance Serialise E
 
 makeWrapped ''E
-
-instance AsFacet Text E where
-  facet = _Wrapped . _Right
-
-instance AsFacet Int E where
-  facet = _Wrapped . _Left
 
 instance Pretty E where
   pretty (E (Left  x)) = pretty x
@@ -94,15 +83,6 @@ pattern TS x = PrimValue' "Str" (Right x)
 
 pattern VI :: Int -> Term E
 pattern VI x = PrimValue' "NumV" (Left x)
-
-pattern VS :: Text -> Term E
-pattern VS x = PrimValue' "StrV" (Right x)
-
-pattern VI' :: a -> Term (Either Text a)
-pattern VI' x = Term "NumV" [ PrimValue (Right x) ]
-
-pattern VS' :: a -> Term (Either Text a)
-pattern VS' x = Term "StrV" [ PrimValue (Right x) ]
 
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
@@ -177,22 +157,10 @@ tm3 = Term "Times"
   , TI 3
   ]
 
-evalMachinePrimitive :: E -> Maybe (Seq (Term E) -> Term E)
-evalMachinePrimitive (E (Right str)) = case str of
-  "add" -> Just $ \case
-    VI x :< VI y :< Empty -> VI (x + y)
-    args                  -> error $ "bad call to add: " ++ show args
-  "mul" -> Just $ \case
-    VI x :< VI y :< Empty -> VI (x * y)
-    _                     -> error "bad call to mul"
-  "cat" -> Just $ \case
-    VS x :< VS y :< Empty -> VS (x <> y)
-    _                     -> error "bad call to cat"
-  "len" -> Just $ \case
-    VS x :< Empty -> VI (Text.length x)
-    _             -> error "bad call to len"
-  _ -> Nothing
-evalMachinePrimitive _ = Nothing
+-- matchingTermTests :: Test ()
+-- matchingTermTests = tests
+--   [ expectEq tm1F tm1
+--   ]
 
 data ExpF t p e
   = Plus       !e !e
@@ -221,16 +189,16 @@ instance Bifoldable (ExpF ()) where
 instance Bifunctor (ExpF ()) where
   bimap = bimapDefault
 
-instance Zippable (ExpF ()) where
-  fzip _ g (Plus       a1 b1) (Plus       a2 b2) = Plus  <$> g a1 a2 <*> g b1 b2
-  fzip _ g (Times      a1 b1) (Times      a2 b2) = Times <$> g a1 a2 <*> g b1 b2
-  fzip _ g (Cat        a1 b1) (Cat        a2 b2) = Cat   <$> g a1 a2 <*> g b1 b2
-  fzip _ g (Len        a1   ) (Len        a2   ) = Len   <$> g a1 a2
-  fzip _ g (Let        a1 b1) (Let        a2 b2) = Let   <$> g a1 a2 <*> g b1 b2
-  fzip _ g (Annotation () b1) (Annotation () b2) = Annotation ()     <$> g b1 b2
-  fzip f _ (NumLit a1   )     (NumLit a2   )     = trace "fzipping NumLit" $ NumLit <$> f a1 a2
-  fzip f _ (StrLit a1   )     (StrLit a2   )     = StrLit <$> f a1 a2
-  fzip _ _ _                  _                  = Nothing
+instance Bimatchable (ExpF ()) where
+  bimatchWith _ g (Plus       a1 b1) (Plus       a2 b2) = Plus  <$> g a1 a2 <*> g b1 b2
+  bimatchWith _ g (Times      a1 b1) (Times      a2 b2) = Times <$> g a1 a2 <*> g b1 b2
+  bimatchWith _ g (Cat        a1 b1) (Cat        a2 b2) = Cat   <$> g a1 a2 <*> g b1 b2
+  bimatchWith _ g (Len        a1   ) (Len        a2   ) = Len   <$> g a1 a2
+  bimatchWith _ g (Let        a1 b1) (Let        a2 b2) = Let   <$> g a1 a2 <*> g b1 b2
+  bimatchWith _ g (Annotation () b1) (Annotation () b2) = Annotation ()     <$> g b1 b2
+  bimatchWith f _ (NumLit a1   )     (NumLit a2   )     = NumLit <$> f a1 a2
+  bimatchWith f _ (StrLit a1   )     (StrLit a2   )     = StrLit <$> f a1 a2
+  bimatchWith _ _ _                  _                  = Nothing
 
 instance Show t => Show2 (ExpF t) where
   liftShowsPrec2 showsa _ showse _ p expf = showParen (p > 10) $ case expf of
@@ -263,20 +231,12 @@ instance Eq t => Eq2 (ExpF t) where
 data ValF prim val
   = NumV !prim
   | StrV !prim
-  | PrimAdd !val !val
-  | PrimMul !val !val
-  | PrimCat !val !val
-  | PrimLen !val
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Bitraversable ValF where
-  bitraverse f g = \case
+  bitraverse f _ = \case
     NumV a      -> NumV <$> f a
     StrV a      -> StrV <$> f a
-    PrimAdd a b -> PrimAdd <$> g a <*> g b
-    PrimMul a b -> PrimMul <$> g a <*> g b
-    PrimCat a b -> PrimCat <$> g a <*> g b
-    PrimLen a   -> PrimLen <$> g a
 
 instance Bifunctor ValF where
   bimap = bimapDefault
@@ -290,41 +250,35 @@ instance Eq a => Eq1 (ValF a) where
  liftEq = liftEq2 (==)
 
 instance Show2 ValF where
-  liftShowsPrec2 showa _ showse _ p valf = showParen (p > 10) $ case valf of
-    NumV i      -> ss "NumV "    . showa p i
-    StrV s      -> ss "NumV "    . showa p s
-    PrimAdd a b -> ss "PrimAdd " . showse 11 a . ss " " . showse 11 b
-    PrimMul a b -> ss "PrimMul " . showse 11 a . ss " " . showse 11 b
-    PrimCat a b -> ss "PrimCat " . showse 11 a . ss " " . showse 11 b
-    PrimLen a   -> ss "PrimLen " . showse 11 a
-    _           -> error "vacuous match"
+  liftShowsPrec2 showa _ _ _ p valf = showParen (p > 10) $ case valf of
+    NumV i -> ss "NumV " . showa p i
+    StrV s -> ss "NumV " . showa p s
     where ss = showString
 
 instance Eq2 ValF where
-  liftEq2 eqa _   (NumV i1)       (NumV i2)       = eqa i1 i2
-  liftEq2 eqa _   (StrV s1)       (StrV s2)       = eqa s1 s2
-  liftEq2 _   eqe (PrimAdd a1 b1) (PrimAdd a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (PrimMul a1 b1) (PrimMul a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (PrimCat a1 b1) (PrimCat a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (PrimLen a1   ) (PrimLen a2   ) = eqe a1 a2
-  liftEq2 _   _   _               _               = False
+  liftEq2 eqa _ (NumV i1) (NumV i2) = eqa i1 i2
+  liftEq2 eqa _ (StrV s1) (StrV s2) = eqa s1 s2
+  liftEq2 _   _ _         _         = False
 
 -- TODO: non-erased types?
 dynamicsF :: DenotationChart' (ExpF () Text) (MachineF :+: ValF Text)
 dynamicsF = DenotationChart'
-  [ matchop Plus  :-> rhsop PrimAdd
-  , matchop Times :-> rhsop PrimMul
-  , matchop Cat   :-> rhsop PrimCat
+  [ matchop Plus  :-> rhsop "add"
+  , matchop Times :-> rhsop "mul"
+  , matchop Cat   :-> rhsop "cat"
+
   , Fix (InR $ Len $ Fix $ InL $ PatVarF $ Just "e")
     :->
-    Fix (InR $ InR $ InR $ PrimLen $ Fix $ InR $ InL $ MeaningOf "e")
+    Fix (InR $ InR $ InL $ PrimApp "len" [ Fix $ InR $ InL $ MeaningOf "e" ])
+
   , Fix (InR (Let
       (Fix $ InL $ PatVarF $ Just "e")
       (Fix $ InL $ PatVarF $ Just "body")))
     :->
     Fix (InR (InR (InL (App
-      (Fix $ InR $ InL $ MeaningOf "body")
+      (Fix $ InR $ InR $ InL $ Lam $ Fix $ InR $ InL $ MeaningOf "body")
       (Fix $ InR $ InL $ MeaningOf "e")))))
+
   , Fix (InR (Annotation () (Fix (InL (PatVarF (Just "contents"))))))
     :->
     Fix (InR (InL (MeaningOf "contents")))
@@ -332,6 +286,10 @@ dynamicsF = DenotationChart'
   , Fix (InR (NumLit "i"))
     :->
     Fix (InR (InR (InR (NumV "i"))))
+
+  , Fix (InR (StrLit "i"))
+    :->
+    Fix (InR (InR (InR (StrV "i"))))
 
   ] where
 
@@ -347,10 +305,11 @@ dynamicsF = DenotationChart'
 
   rhsop
     :: (f ~ Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF Text))
-    => (f -> f -> ValF Text f) -> f
-  rhsop op = FixIn $ op
-    (Fix $ InR $ InL $ MeaningOf "n1")
-    (Fix $ InR $ InL $ MeaningOf "n2")
+    => Text -> f
+  rhsop name = Fix $ InR $ InR $ InL $ PrimApp name
+    [ Fix $ InR $ InL $ MeaningOf "n1"
+    , Fix $ InR $ InL $ MeaningOf "n2"
+    ]
 
 dynamicsT :: Text
 dynamicsT = [text|
@@ -393,12 +352,6 @@ patP = prism' rtl ltr where
 
   p :: Prism' (Pattern a) a
   p = _PatternPrimVal . _Just
-
---   iP :: Prism' (Pattern E) Int
---   iP = _PatternPrimVal . _Just . facet
-
---   sP :: Prism' (Pattern E) Text
---   sP = _PatternPrimVal . _Just . facet
 
   patP' :: Prism' (Pattern a) (ExpF () a (Fix (PatF :+: ExpF () a)))
   patP' = prism' rtl' ltr' where
@@ -446,19 +399,11 @@ valP = prism' rtl ltr where
     (ValF a (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF a)))
   valP' = prism' rtl' ltr' where
     rtl' = \case
-      NumV i      -> VI' i
-      StrV s      -> VS' s
-      PrimLen a   -> Term "PrimLen" [ review valP a                ]
-      PrimAdd a b -> Term "PrimAdd" [ review valP a, review valP b ]
-      PrimMul a b -> Term "PrimMul" [ review valP a, review valP b ]
-      PrimCat a b -> Term "PrimCat" [ review valP a, review valP b ]
+      NumV i      -> Term "NumV" [ PrimValue (Right i) ]
+      StrV s      -> Term "StrV" [ PrimValue (Right s) ]
     ltr' = \case
-      VI' i                   -> Just $ NumV i
-      VS' s                   -> Just $ StrV s
-      Term "PrimLen" [ a    ] -> PrimLen <$> preview valP a
-      Term "PrimAdd" [ a, b ] -> PrimAdd <$> preview valP a <*> preview valP b
-      Term "PrimMul" [ a, b ] -> PrimMul <$> preview valP a <*> preview valP b
-      Term "PrimCat" [ a, b ] -> PrimCat <$> preview valP a <*> preview valP b
+      Term "NumV" [ PrimValue (Right i) ] -> Just $ NumV i
+      Term "StrV" [ PrimValue (Right s) ] -> Just $ StrV s
       _                       -> Nothing
 
 genText :: Gen Text
@@ -492,16 +437,22 @@ pattern FixVal
   -> Fix         (TermF :+: MeaningOfF :+: MachineF :+: ValF E)
 pattern FixVal x = Fix (InR (InR (InR x)))
 
+pattern FixApp
+  :: Text
+  -> [ Fix         (TermF :+: MeaningOfF :+: MachineF :+: ValF E) ]
+  -> Fix           (TermF :+: MeaningOfF :+: MachineF :+: ValF E)
+pattern FixApp name tms = Fix (InR (InR (InL (PrimApp name tms))))
+
 -- TODO: generate TermF / MachineF as well
 genVal :: Gen (Fix (TermF :+: MeaningOfF :+: MachineF :+: ValF E))
 genVal = Gen.recursive Gen.choice [
     FixVal . NumV . E . Left  <$> Gen.int Range.exponentialBounded
   , FixVal . StrV . E . Right <$> genText
   ] [
-    Gen.subterm2 genVal genVal (fmap FixVal . PrimAdd)
-  , Gen.subterm2 genVal genVal (fmap FixVal . PrimMul)
-  , Gen.subterm2 genVal genVal (fmap FixVal . PrimCat)
-  , Gen.subterm  genVal        (     FixVal . PrimLen)
+    Gen.subterm2 genVal genVal (\x y -> FixApp "add" [x, y])
+  , Gen.subterm2 genVal genVal (\x y -> FixApp "mul" [x, y])
+  , Gen.subterm2 genVal genVal (\x y -> FixApp "cat" [x, y])
+  , Gen.subterm  genVal        (\x   -> FixApp "len" [x   ])
   ]
 
 patP_round_trip_prop :: Property
@@ -743,15 +694,18 @@ matchesTests = scope "matches" $
            :: Maybe (Subst ()))
        ]
 
--- eval' :: Term E -> Either String (Term E)
--- eval' = P1.eval $ P1.mkEvalEnv "Exp" syntax (forceRight dynamics')
---   evalMachinePrimitive
---   Just
-
 instance Show ((:+:) PatF (ExpF () Text) (Fix (PatF :+: ExpF () Text))) where
   showsPrec = liftShowsPrec showsPrec showList
 
 instance Show ((:+:) TermF (ExpF () E) (Fix (TermF :+: ExpF () E))) where
+  showsPrec = liftShowsPrec showsPrec showList
+
+instance Show ((:+:) TermF (MachineF :+: ExpF () (Either Text E))
+                            (Fix (TermF :+: (MachineF :+: ExpF () (Either Text E))))) where
+  showsPrec = liftShowsPrec showsPrec showList
+
+instance Show ((:+:) TermF (MachineF :+: ValF (Either Text E))
+                           (Fix (TermF :+: (MachineF :+: ValF (Either Text E))))) where
   showsPrec = liftShowsPrec showsPrec showList
 
 evalF :: Fix (TermF :+: ExpF () E) -> (Either String (Fix (ValF E)), Seq Text)
@@ -760,67 +714,65 @@ evalF = P2.eval (P2.EvalEnv Map.empty evalMachinePrimitiveF) dynamicsF
 evalMachinePrimitiveF :: Text -> Maybe (Seq (ValF E (Fix (ValF E))) -> ValF E (Fix (ValF E)))
 evalMachinePrimitiveF = \case
   "add" -> Just $ \case
-    NumV (E (Left x)) :< NumV (E (Left y)) :< Empty -> NumV (E (Left (x + y)))
+    NumV (E (Left x))  :< NumV (E (Left y))  :< Empty -> NumV (E (Left (x + y)))
     args                      -> error $ "bad call to add: " ++ show args
-  -- "mul" -> Just $ \case
-  --   NumV x :< NumV y :< Empty -> NumV (x * y)
-  --   args                      -> error $ "bad call to mul: " ++ show args
-  -- "cat" -> Just $ \case
-  --   StrV x :< StrV y :< Empty -> StrV (x <> y)
-  --   args                      -> error $ "bad call to cat: " ++ show args
-  -- "len" -> Just $ \case
-  --   StrV x           :< Empty -> NumV _ -- (Text.length x)
-  --   args                      -> error $ "bad call to len: " ++ show args
+  "mul" -> Just $ \case
+    NumV (E (Left x))  :< NumV (E (Left y))  :< Empty -> NumV (E (Left (x * y)))
+    args                      -> error $ "bad call to mul: " ++ show args
+  "cat" -> Just $ \case
+    StrV (E (Right x)) :< StrV (E (Right y)) :< Empty -> StrV (E (Right (x <> y)))
+    args                      -> error $ "bad call to cat: " ++ show args
+  "len" -> Just $ \case
+    StrV (E (Right x))                       :< Empty -> NumV (E (Left (Text.length x)))
+    args                      -> error $ "bad call to len: " ++ show args
 
-  -- TODO
-  -- PrimAdd (NumV x) (NumV y) -> NumV (x + y)
-  -- PrimMul (NumV x) (NumV y) -> NumV (x * y)
-  -- PrimCat (StrV x) (StrV y) -> StrV (x <> y)
-  -- PrimLen (StrV x)          -> NumV (Text.length x)
   _ -> Nothing
 
 evalTests :: Test ()
-evalTests = tests
-  -- [ expectEq (eval' tm1) (Right (VI 3))
-  -- , expectEq (eval' tm2) (Right (VS "foobar"))
-  -- , expectEq (eval' tm3) (Right (VI 15))
-
-  [ expectEq (fst $ evalF tm1F) (Right (Fix (NumV $ E $ Left 3)))
-  , expectEq (fst $ evalF tm2F) (Right (Fix (StrV "foobar")))
-  , expectEq (fst $ evalF tm3F) (Right (Fix (NumV $ E $ Left 15)))
-  ]
+evalTests =
+  let run tm expected = case evalF tm of
+        (Left err,     _logs) -> fail err
+        (Right result, _logs) -> expectEq result expected
+  in tests
+       [ run tm1F $ Fix $ NumV $ E $ Left 3
+       , run tm2F $ Fix $ StrV "foobar"
+       , run tm3F $ Fix $ NumV $ E $ Left 15
+       ]
 
 translateTests :: Test ()
 translateTests =
   let run tm expected = case runWriter (runMaybeT (P2.translate dynamicsF tm)) of
-        (Nothing, logs) -> do
-          traverse traceShowM logs
-          fail "couldn't find match"
-        (Just result, logs) -> expectEq result expected
+        (Nothing,     _logs) -> fail "couldn't find match"
+        (Just result, _logs) -> expectEq result expected
   in tests
-       -- [ run (Fix $ InR $ NumLit $ E $ Left 2) $
-       --     Fix $ InR $ InR $ NumV $ Right $ E $ Left 2
+       [ run (Fix $ InR $ NumLit $ E $ Left 2) $
+           Fix $ InR $ InR $ NumV $ Right $ E $ Left 2
 
-       -- , run (Fix $ InR $ NumLit $ E $ Right "str") $
-       --     Fix $ InR $ InR $ NumV $ Right $ E $ Right "str"
+       , run (Fix $ InR $ StrLit $ E $ Right "str") $
+           Fix $ InR $ InR $ StrV $ Right $ E $ Right "str"
 
-       -- , run tm1F $
-       --     Fix $ InR $ InL $ App
-       --       (Fix $ InL $ BindingF ["x"] $
-       --         Fix $ InR $ InR $ PrimAdd
-       --           (Fix $ InL $ VarF "x")
-       --           (Fix $ InR $ InR $ NumV $ Right $ E $ Left 2))
-       --       (Fix $ InR $ InR $ NumV $ Right $ E $ Left 1)
+       , run tm1F $
+           Fix $ InR $ InL $ App
+             (Fix $ InR $ InL $ Lam $
+               Fix $ InL $ BindingF ["x"] $
+                 Fix $ InR $ InL $ PrimApp "add"
+                   [ Fix $ InL $ VarF "x"
+                   , Fix $ InR $ InR $ NumV $ Right $ E $ Left 2
+                   ])
+             (Fix $ InR $ InR $ NumV $ Right $ E $ Left 1)
 
-       [ run tm2F $
-           Fix $ InR $ InR $ PrimCat
-             (Fix $ InR $ InR $ StrV $ Right $ E $ Right "foo")
-             (Fix $ InR $ InR $ StrV $ Right $ E $ Right "bar")
+       , run tm2F $
+           Fix $ InR $ InL $ PrimApp "cat"
+             [ Fix $ InR $ InR $ StrV $ Right $ E $ Right "foo"
+             , Fix $ InR $ InR $ StrV $ Right $ E $ Right "bar"
+             ]
 
-       -- , run tm3F $
-       --     Fix $ InR $ InR $ PrimMul
-       --       (Fix $ InR $ InR $ PrimLen $ Fix $ InR $ InR $ StrV $ Right $ E $ Right "hippo")
-       --       (Fix $ InR $ InR $ StrV $ Right $ E $ Left 3)
+       , run tm3F $
+           Fix $ InR $ InL $ PrimApp "mul"
+             [ Fix $ InR $ InL $ PrimApp "len"
+               [ Fix $ InR $ InR $ StrV $ Right $ E $ Right "hippo" ]
+             , Fix $ InR $ InR $ NumV $ Right $ E $ Left 3
+             ]
        ]
 
 primParsers :: ExternalParsers E
