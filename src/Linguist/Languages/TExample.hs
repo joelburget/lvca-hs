@@ -15,7 +15,6 @@ import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 import           Data.Traversable          (foldMapDefault, fmapDefault)
 import           Data.Void                 (Void)
-import           EasyTest
 import           Prelude                   hiding (succ)
 
 import           Linguist.FunctorUtil
@@ -232,11 +231,3 @@ sszv = Fix $ Term "Sv" [szv]
 
 evalF :: Fix (VarBindingF :+: Exp Void) -> (Either String (Fix (Val Void)), Seq Text)
 evalF = eval (EvalEnv Map.empty (const Nothing)) dynamics'
-
--- evalTests :: Test ()
--- evalTests = tests
---   [ expect $ eval' z       == Right zv
---   , expect $ eval' sz      == Right szv
---   , expect $ eval' lamapp  == Right szv
---   , expect $ eval' lamapp2 == Right sszv
---   ]

@@ -5,7 +5,6 @@ import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Zipper
 import           Data.Void (Void)
-import           EasyTest
 
 import           Linguist.Brick
 import           Linguist.Proceed ()
@@ -13,11 +12,7 @@ import           Linguist.Types
 import           Linguist.Util (forceRight)
 
 import qualified Linguist.Languages.Arith         as Arith
-import qualified Linguist.Languages.Document      as Document
 import           Linguist.Languages.MachineModel
-import qualified Linguist.Languages.SimpleExample as SimpleExample
-import qualified Linguist.Languages.Stlc          as Stlc
-import qualified Linguist.Languages.TExample      as TExample
 
 
 natJudgement :: JudgementForm
@@ -48,24 +43,6 @@ main = do
           StateStep [] (Descending Arith.example)
     in State (zipper steps & fromWithin traverse) False
   pure ()
-
-allTests :: Test ()
-allTests = scope "all tests" $ tests
-  [ scope "toPattern"              toPatternTests
-  , scope "stlc"                   Stlc.stlcTests
-  , scope "matches"                SimpleExample.matchesTests
-  , scope "minus"                  SimpleExample.minusTests
-  , scope "completePatternTests"   SimpleExample.completePatternTests
-  , scope "simple-example"         SimpleExample.dynamicTests
-  , scope "pretty-syntax"          SimpleExample.prettySyntaxChartTests
-  , scope "syntax-statics"         SimpleExample.prettyStaticTests
-  , scope "simple-example.eval"    SimpleExample.evalTests
-  , scope "simple-example.parse"   SimpleExample.parseTests
-  , scope "simple-example.props"   SimpleExample.propTests
-  -- , scope "t-example.eval"         TExample.evalTests
-  , scope "document"               Document.documentTests
-  , scope "arith"                  Arith.arithTests
-  ]
 
 -- main :: IO ()
 -- main = do

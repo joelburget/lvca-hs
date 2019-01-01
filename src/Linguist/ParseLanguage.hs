@@ -13,8 +13,6 @@ module Linguist.ParseLanguage
   , standardParser
   , makeExternalParsers
   , noExternalParsers
-  , prop_parse_pretty
-  , parseTest
   ) where
 
 import           Control.Lens
@@ -26,14 +24,9 @@ import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
 import           Data.String          (IsString)
 import           Data.Text            (Text, unpack)
-import           Text.Megaparsec      hiding (parseTest)
+import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import           Hedgehog             hiding (Test, Var)
-import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
-                                                        layoutPretty, Pretty(pretty))
-import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void            (Void)
-import           EasyTest             (Test, expectEq)
 
 import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
@@ -205,34 +198,8 @@ parseValence parseTerm valence@(Valence sorts bodySort) = do
       <$> countSepBy (length sorts) parseName (symbol ".")
       <*> parseTerm'
 
-prop_parse_pretty
-  :: (Show a, Pretty a, Eq a)
-  => SyntaxChart
-  -> Sort
-  -> (SortName -> Maybe (Gen a))
-  -> ExternalParsers a
-  -> Property
-prop_parse_pretty chart sort aGen aParsers = property $ do
-  tm <- forAll $ genTerm chart sort aGen
-    -- (Just (Gen.int Range.exponentialBounded))
-
-  let pretty' = renderStrict . layoutPretty defaultLayoutOptions . pretty
-      parse'  = parseMaybe $ runReaderT standardParser $
-        ParseEnv chart sort TaggedExternals aParsers
-
-  annotate $ unpack $ pretty' tm
-  parse' (pretty' tm) === Just tm
-
 noExternalParsers :: ExternalParsers Void
 noExternalParsers = Map.empty
 
 makeExternalParsers :: [(SortName, ExternalParser a)] -> ExternalParsers a
 makeExternalParsers = Map.fromList
-
-parseTest
-  :: (Eq a, Show a)
-  => ParseEnv a -> Text -> Term a -> Test ()
-parseTest env str tm =
-  case runParser (runReaderT standardParser env) "(test)" str of
-    Left err       -> fail $ errorBundlePretty err
-    Right parsedTm -> expectEq parsedTm tm

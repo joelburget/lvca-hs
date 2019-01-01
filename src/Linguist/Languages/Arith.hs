@@ -16,7 +16,6 @@ import           Data.Sequence                      (Seq)
 import           Data.Text                          (Text)
 import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
 import           Data.Void                          (Void)
-import           EasyTest
 import           Text.Megaparsec
   (ParseErrorBundle, runParser, choice, errorBundlePretty)
 
@@ -24,11 +23,9 @@ import           Linguist.FunctorUtil
 import           Linguist.Languages.Arith.Syntax
 import           Linguist.ParseDenotationChart      (parseDenotationChart)
 import qualified Linguist.ParseDenotationChart      as PD
-import           Linguist.ParseSyntaxDescription    (parseSyntaxDescription)
 import           Linguist.ParseUtil
-import           Linguist.Proceed
 import           Linguist.Types
-import           Linguist.Util                      (forceRight)
+-- import           Linguist.Util                      (forceRight)
 import           Linguist.TH
 import           Linguist.ParseLanguage
 
@@ -138,18 +135,4 @@ primParsers :: ExternalParsers E
 primParsers = makeExternalParsers
   [ ("Int" , E . Left  <$> (intLiteral :: ExternalParser Int))
   , ("Prim", E . Right <$> stringLiteral)
-  ]
-
-arithTests :: Test ()
-arithTests = tests
-  [ scope "eval" $ expectEq (machineEval example) (Right (PrimInt 4))
-  , scope "prop_parse_pretty" $
-    testProperty $ prop_parse_pretty syntax "Arith"
-      (const Nothing) primParsers
-  , scope "prop_serialise_identity" $ testProperty $
-    prop_serialise_identity @() syntax "Arith" (const Nothing)
-  , scope "parse" $ parseTest
-      (ParseEnv syntax "Arith" UntaggedExternals primParsers)
-      "Za"
-      (Fix (Var "Za"))
   ]
