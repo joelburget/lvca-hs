@@ -42,7 +42,7 @@ main = do
     --     steps :: [StateStep SimpleExample.E]
     --     steps = iterate (\tm -> runReader (proceed tm) env) $
     --       StateStep [] (Descending SimpleExample.tm1)
-    let env = (forceRight Arith.syntax, forceRight Arith.machineDynamics, const Nothing)
+    let env = (Arith.syntax, forceRight Arith.machineDynamics, const Nothing)
         steps :: [StateStep Void]
         steps = iterate (\tm -> runReader (error "TODO" tm) env) $
           StateStep [] (Descending Arith.example)

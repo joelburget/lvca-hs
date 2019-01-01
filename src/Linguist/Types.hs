@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable  #-}
+{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeFamilies        #-}
@@ -63,6 +65,7 @@ module Linguist.Types
   , subterms
   , termName
   , identify
+  , TermRepresentable(..)
 
   -- * Patterns
   -- ** Pattern
@@ -117,12 +120,15 @@ import           Control.Monad.Morph
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
 import           Data.ByteString           (ByteString)
+import           Data.Data (Data)
+import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM, foldrM)
 import           Data.List                 (intersperse, find)
 import           Data.Maybe                (fromMaybe)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
+import           Data.Proxy                (Proxy)
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
@@ -131,10 +137,12 @@ import qualified Data.Text.Prettyprint.Doc as PP
 import           Data.Void                 (Void)
 import           EasyTest
 import           GHC.Exts                  (IsList (..))
+import           GHC.Generics (Generic)
 import           Hedgehog                  (MonadGen, GenT, Property,
                                             property, forAll, (===))
 import qualified Hedgehog.Gen              as Gen
 import qualified Hedgehog.Range            as Range
+import           Text.Show.Deriving
 
 import           Linguist.FunctorUtil
 import           Linguist.Util             as Util
@@ -145,7 +153,7 @@ type SortName = Text
 data Sort
   = SortAp !SortName ![Sort]
   | External { _externalName :: !Text }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Data)
 
 instance IsString Sort where
   fromString s
@@ -181,7 +189,7 @@ sortSubst varVals = \case
 --         let(Exp; Exp.Exp)  definition
 -- @
 newtype SyntaxChart = SyntaxChart (Map SortName SortDef)
-  deriving (Eq, Show)
+  deriving (Eq, Show, Data)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
@@ -189,7 +197,7 @@ newtype SyntaxChart = SyntaxChart (Map SortName SortDef)
 data SortDef = SortDef
   { _sortVariables :: ![Text]     -- ^ set of variables
   , _sortOperators :: ![Operator] -- ^ set of operators
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Data)
 
 -- | One of the fundamental constructions of a language. Operators are grouped
 -- into sorts. Each operator has an /arity/, specifying its arguments.
@@ -197,7 +205,7 @@ data Operator = Operator
   { _operatorName  :: !Text  -- ^ operator name
   , _operatorArity :: !Arity -- ^ arity
   , _operatorDesc  :: !Text  -- ^ description
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Data)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
 -- of its arguments.
@@ -207,7 +215,7 @@ data Operator = Operator
 -- To specify an arity, the resulting sort (the last @Exp@ above) is
 -- unnecessary, since it's always clear from context.
 newtype Arity = Arity { _valences :: [Valence] }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Data)
 
 instance IsList Arity where
   type Item Arity  = Valence
@@ -229,8 +237,7 @@ valenceSubst m (Valence as b) = Valence (sortSubst m <$> as) (sortSubst m b)
 data Valence = Valence
   { _valenceSorts  :: ![Sort] -- ^ the sorts of all bound variables
   , _valenceResult :: !Sort   -- ^ the resulting sort
-  }
-  deriving (Eq, Show)
+  } deriving (Eq, Show, Data)
 
 -- | Traverse the sorts of both binders and body.
 valenceSorts :: Traversal' Valence Sort
@@ -283,17 +290,16 @@ patVarP = prism' rtl ltr where
     _               -> Nothing
 
 instance Show1 PatVarF where
-  liftShowsPrec showsf _ p pat = showParen (p > 10) $ case pat of
+  liftShowsPrec _ _ p pat = showParen (p > 10) $ case pat of
     PatVarF mname -> showString "PatVarF " . showsPrec 11 mname
 
 instance Eq1 PatVarF where
   liftEq _  (PatVarF x) (PatVarF y) = x == y
-  liftEq _  _           _           = False
 
 -- | An evaluated or unevaluated term
 data TermF a term
   = Term
-    { _termName :: !Text     -- ^ name of this term
+    { _termName :: !Text   -- ^ name of this term
     , _subterms :: ![term] -- ^ subterms
     }
   | Binding
@@ -301,16 +307,18 @@ data TermF a term
     !term
   | Var !Text
   | PrimValue !a
-  deriving (Eq, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
 
 type Term a = Fix (TermF a)
 
-instance Show1 (TermF a) where -- XXX
-instance Eq1 (TermF a) where -- XXX
-
-instance (Serialise a) => Serialise (Term a) where -- XXX
-  encode = undefined
-  decode = undefined
+class TermRepresentable f where
+  syntaxOf :: Proxy f -> SyntaxChart
+  termP
+    :: Prism' (Term a)      (Fix f')
+    -> Prism' (Term a) (f a (Fix f'))
+  patP
+    :: Prism' (Pattern a)      (Fix f')
+    -> Prism' (Pattern a) (f a (Fix f'))
 
 instance (Serialise a, Serialise term) => Serialise (TermF a term) where
   encode tm =
@@ -330,6 +338,10 @@ instance (Serialise a, Serialise term) => Serialise (TermF a term) where
       2 -> Var       <$> decode
       3 -> PrimValue <$> decode
       _ -> fail "invalid Term encoding"
+
+instance (Serialise a) => Serialise (Term a) where
+  encode (Fix term) = encode term
+  decode            = Fix <$> decode
 
 prop_serialise_identity
   :: (Show a, Eq a, Serialise a)
@@ -408,8 +420,8 @@ instance Pretty a => Pretty (Term a) where
   pretty (Fix tm) = case tm of
     Term name subtms ->
       pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
-    Binding names tm ->
-      hsep (punctuate dot (fmap pretty names)) <> dot PP.<+> pretty tm
+    Binding names tm' ->
+      hsep (punctuate dot (fmap pretty names)) <> dot PP.<+> pretty tm'
     Var name    -> pretty name
     PrimValue a -> braces (pretty a)
 
@@ -438,6 +450,9 @@ pattern PatternAny = PatternVar Nothing
 
 pattern PatternEmpty :: Pattern a
 pattern PatternEmpty = PatternUnion []
+
+deriveShow1 ''TermF
+deriveEq1   ''TermF
 
 -- | Denotation charts
 --

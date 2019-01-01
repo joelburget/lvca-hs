@@ -7,7 +7,8 @@ module Linguist.Languages.Arith where
 import           Control.Applicative                ((<$))
 import           Control.Arrow                      ((>>>))
 import           Control.Monad.Reader               (runReaderT)
-import           Control.Lens                       (pattern Empty, pattern (:<), _Right, _Wrapped)
+import           Control.Lens
+  (pattern Empty, pattern (:<), _Right, _Wrapped)
 import           Control.Lens.TH
 import           Data.Diverse.Lens.Which
 import qualified Data.Map                           as Map
@@ -16,7 +17,8 @@ import           Data.Text                          (Text)
 import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
 import           Data.Void                          (Void)
 import           EasyTest
-import           Text.Megaparsec                    (ParseErrorBundle, runParser, choice, errorBundlePretty)
+import           Text.Megaparsec
+  (ParseErrorBundle, runParser, choice, errorBundlePretty)
 
 import           Linguist.FunctorUtil
 import           Linguist.Languages.Arith.Syntax
@@ -44,18 +46,16 @@ instance Pretty E where
     Left  i -> pretty i
     Right t -> "\"" <> pretty t <> "\""
 
-$(mkTypes domainT Map.empty)
-  -- Just t <- lookupTypeName "Text"
-  -- Just i <- lookupTypeName "Int"
-  -- mkTypes domainT $ Map.fromList
-  --   [ ("Prim", PromotedT t)
-  --   , ("Int",  PromotedT i)
-  --   ])
-
-makeLenses ''Arith
-
-syntax :: Either (ParseErrorBundle Text Void) SyntaxChart
-syntax = runParser parseSyntaxDescription "(arith syntax)" domainT
+$(mkTypes (Options "Arith" "syntax" Map.empty)
+  "Arith ::=                                                               \n\
+  \  Add(Arith; Arith)                                                     \n\
+  \  Sub(Arith; Arith)                                                     \n\
+  \  Mul(Arith; Arith)                                                     \n\
+  \  // note: skipping division because it's hard to implement using peano \n\
+  \  // numbers                                                            \n\
+  \  Z                                                                     \n\
+  \  S(Arith)")
+mkSyntaxInstances ''Arith
 
 parsePrim :: PD.Parser E
 parsePrim = E <$> choice
@@ -95,7 +95,7 @@ example = Fix $ Term "Add"
 
 tm' :: Term E
 tm' =
-  let env = ParseEnv (forceRight syntax) "Arith" UntaggedExternals primParsers
+  let env = ParseEnv syntax "Arith" UntaggedExternals primParsers
       parse = runReaderT standardParser env
       exampleTerm :: Text
       exampleTerm = "Add(Mul(1; Sub(500; 498)); 3)"
@@ -122,14 +122,14 @@ evalMachinePrimitive _ = Nothing
 
 machineEval :: Term Void -> Either String (Term E)
 machineEval = error "TODO"
--- eval $ mkEvalEnv "Arith" (forceRight syntax)
+-- eval $ mkEvalEnv "Arith" syntax
 --   (forceRight machineDynamics)
 --   evalMachinePrimitive
 --   (const Nothing)
 
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval = error "TODO"
--- eval $ mkEvalEnv "Arith" (forceRight syntax)
+-- eval $ mkEvalEnv "Arith" syntax
 --   (forceRight peanoDynamics)
 --   (const Nothing)
 --   (const Nothing)
@@ -144,12 +144,12 @@ arithTests :: Test ()
 arithTests = tests
   [ scope "eval" $ expectEq (machineEval example) (Right (PrimInt 4))
   , scope "prop_parse_pretty" $
-    testProperty $ prop_parse_pretty (forceRight syntax) "Arith"
+    testProperty $ prop_parse_pretty syntax "Arith"
       (const Nothing) primParsers
   , scope "prop_serialise_identity" $ testProperty $
-    prop_serialise_identity @() (forceRight syntax) "Arith" (const Nothing)
+    prop_serialise_identity @() syntax "Arith" (const Nothing)
   , scope "parse" $ parseTest
-      (ParseEnv (forceRight syntax) "Arith" UntaggedExternals primParsers)
+      (ParseEnv syntax "Arith" UntaggedExternals primParsers)
       "Za"
       (Fix (Var "Za"))
   ]

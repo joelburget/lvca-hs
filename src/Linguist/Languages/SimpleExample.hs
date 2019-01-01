@@ -49,12 +49,12 @@ import qualified Hedgehog.Range                        as Range
 
 import qualified Linguist.ParseDenotationChart         as PD
 import           Linguist.ParseLanguage
-import           Linguist.Proceed                      hiding (matches)
-import           Linguist.Types
+import           Linguist.Proceed                      hiding (matches, findMatch)
+import           Linguist.Types                        hiding (patP)
 import           Linguist.Languages.MachineModel
 import           Linguist.FunctorUtil
 import           Linguist.ParseUtil
--- import           Linguist.Util                         (forceRight)
+import           Linguist.Util                         (forceRight)
 
 
 newtype E = E (Either Int Text)
@@ -201,9 +201,9 @@ instance Bifoldable ValF where
   bifoldMap = bifoldMapDefault
 
 instance Show a => Show1 (ValF a) where
- liftShowsPrec = liftShowsPrec2 showsPrec showList
+  liftShowsPrec = liftShowsPrec2 showsPrec showList
 instance Eq a => Eq1 (ValF a) where
- liftEq = liftEq2 (==)
+  liftEq = liftEq2 (==)
 
 instance Show2 ValF where
   liftShowsPrec2 showa _ _ _ p valf = showParen (p > 10) $ case valf of
@@ -269,14 +269,14 @@ dynamicsF = DenotationChart'
 
 dynamicsT :: Text
 dynamicsT = [text|
-  [[ Plus(n1; n2)  ]]       = PrimApp({add}; [[ n1 ]]; [[ n2 ]])
-  [[ Times(n1; n2) ]]       = PrimApp({mul}; [[ n1 ]]; [[ n2 ]])
-  [[ Cat(n1; n2)   ]]       = PrimApp({cat}; [[ n1 ]]; [[ n2 ]])
-  [[ Len(e) ]]              = PrimApp({len}; [[ e ]]))
-  [[ Let(e; body) ]]        = App([[ body ]]; [[ e ]])
+  [[ Plus(n1; n2)        ]] = PrimApp({add}; [[ n1 ]]; [[ n2 ]])
+  [[ Times(n1; n2)       ]] = PrimApp({mul}; [[ n1 ]]; [[ n2 ]])
+  [[ Cat(n1; n2)         ]] = PrimApp({cat}; [[ n1 ]]; [[ n2 ]])
+  [[ Len(e)              ]] = PrimApp({len}; [[ e ]]))
+  [[ Let(e; body)        ]] = App([[ body ]]; [[ e ]])
   [[ Annotation(_; body) ]] = [[ body ]]
-  [[ Num(i) ]]              = NumV([[ i ]])
-  [[ Str(s) ]]              = StrV([[ s ]])
+  [[ Num(i)              ]] = NumV([[ i ]])
+  [[ Str(s)              ]] = StrV([[ s ]])
   |]
 
 parsePrim :: PD.Parser E
@@ -289,7 +289,7 @@ parsePrim = E <$> choice
   ]
 
 dynamics'
-  :: Either (ParseErrorBundle Text Void) (DenotationChart Text (Either Text E))
+  :: Either (ParseErrorBundle Text Void) (DenotationChart E (Either Text E))
 dynamics' = runParser (PD.parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" dynamicsT
 
@@ -312,11 +312,11 @@ patP = prism' rtl ltr where
   patP' :: Prism' (Pattern a) (ExpF () a (Fix (PatVarF :+: ExpF () a)))
   patP' = prism' rtl' ltr' where
     rtl' = \case
-      Plus a b  -> PatternTm "Plus"  [ review patP a , review patP b ]
+      Plus  a b -> PatternTm "Plus"  [ review patP a , review patP b ]
       Times a b -> PatternTm "Times" [ review patP a , review patP b ]
-      Cat a b   -> PatternTm "Cat"   [ review patP a , review patP b ]
-      Len a     -> PatternTm "Len"   [ review patP a                 ]
-      Let a b   -> PatternTm "Let"   [ review patP a , review patP b ]
+      Cat   a b -> PatternTm "Cat"   [ review patP a , review patP b ]
+      Len   a   -> PatternTm "Len"   [ review patP a                 ]
+      Let   a b -> PatternTm "Let"   [ review patP a , review patP b ]
       Annotation () a -> PatternTm "Annotation" [ review patP a ]
       NumLit i  -> PatternTm "NumLit" [ review p i ]
       StrLit s  -> PatternTm "StrLit" [ review p s ]
@@ -479,15 +479,14 @@ dynamicTests =
          lenStr
        , expectJust $ runMatches syntax "Exp" $ matches (PatternTm "Len" [x])
          lenStr
-       -- TODO
        -- , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
        --   lenStr
        -- , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
        --   (times n1 n2)
        -- , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
        --   (plus n1 n2)
-       -- , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics')
-       --   tm1
+       , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics')
+         tm1
 
 --        , let Just (subst, _) = findMatch syntax "Exp" dynamics tm1
 --              result = applySubst subst tm1
@@ -690,24 +689,17 @@ matchesTests = scope "matches" $
            :: Maybe (Subst ()))
        ]
 
-instance Show ((:+:) PatVarF (ExpF () Text) (Fix (PatVarF :+: ExpF () Text))) where
+instance Show ((VarBindingF :+: MachineF :+: ValF (Either Text E))
+          (Fix (VarBindingF :+: MachineF :+: ValF (Either Text E)))) where
   showsPrec = liftShowsPrec showsPrec showList
 
-instance Show ((:+:) VarBindingF (ExpF () E) (Fix (VarBindingF :+: ExpF () E))) where
-  showsPrec = liftShowsPrec showsPrec showList
-
-instance Show ((:+:) VarBindingF (MachineF :+: ExpF () (Either Text E))
-                            (Fix (VarBindingF :+: (MachineF :+: ExpF () (Either Text E))))) where
-  showsPrec = liftShowsPrec showsPrec showList
-
-instance Show ((:+:) VarBindingF (MachineF :+: ValF (Either Text E))
-                           (Fix (VarBindingF :+: (MachineF :+: ValF (Either Text E))))) where
-  showsPrec = liftShowsPrec showsPrec showList
-
-evalF :: Fix (VarBindingF :+: ExpF () E) -> (Either String (Fix (ValF E)), Seq Text)
+evalF
+  :: Fix (VarBindingF :+: ExpF () E)
+  -> (Either String (Fix (ValF E)), Seq Text)
 evalF = eval (EvalEnv Map.empty evalMachinePrimitiveF) dynamicsF
 
-evalMachinePrimitiveF :: Text -> Maybe (Seq (ValF E (Fix (ValF E))) -> ValF E (Fix (ValF E)))
+evalMachinePrimitiveF
+  :: Text -> Maybe (Seq (ValF E (Fix (ValF E))) -> ValF E (Fix (ValF E)))
 evalMachinePrimitiveF = \case
   "add" -> Just $ \case
     NumV (E (Left x))  :< NumV (E (Left y))  :< Empty -> NumV (E (Left (x + y)))

@@ -1,28 +1,28 @@
 {-# LANGUAGE EmptyCase        #-}
 {-# LANGUAGE KindSignatures   #-}
 {-# LANGUAGE OverloadedLists  #-}
+{-# LANGUAGE TemplateHaskell  #-}
 {-# LANGUAGE TypeApplications #-}
 module Linguist.Languages.TExample where
 -- Godel's system t
 
 import           Control.Lens              (Prism, Prism', prism, prism', review, preview)
+import           Data.Bitraversable
 import           Data.Foldable             (asum)
 import qualified Data.Map.Strict           as Map
 import           Data.Sequence             (Seq)
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty))
+import           Data.Traversable          (foldMapDefault, fmapDefault)
 import           Data.Void                 (Void)
 import           EasyTest
 import           Prelude                   hiding (succ)
 
 import           Linguist.FunctorUtil
 import           Linguist.Proceed          (eval, EvalEnv(EvalEnv))
+import           Linguist.TH
 import           Linguist.Types
 import qualified Linguist.Languages.MachineModel as M
-
-import           Data.Bifunctor
-import           Data.Bifoldable
-import           Data.Bitraversable
 
 
 data T
@@ -40,8 +40,8 @@ _T :: Prism s s a T
 _T = prism absurd Left
 {-# INLINE _T #-}
 
-syntax :: SyntaxChart
-syntax = SyntaxChart $ Map.fromList
+syntax' :: SyntaxChart
+syntax' = SyntaxChart $ Map.fromList
   [ ("Typ", SortDef []
     [ Operator "nat" [] "naturals"
     , Operator "arr" [Valence [] "Typ", Valence [] "Typ"] "functions"
@@ -62,40 +62,47 @@ syntax = SyntaxChart $ Map.fromList
     ])
   ]
 
--- TODO: add type annotations
-data ExpF prim term
-  = Z
-  | S               !term
-  | Rec !term !term !term
-  | Lam             !term
-  | Ap        !term !term
-  deriving Functor
+$(mkTypes (Options "Exp" "expSyntax" Map.empty)
+  "Exp ::=                        \n\
+  \  Z                            \n\
+  \  S(Exp)                       \n\
+  \  Rec(Exp; Exp. Exp. Exp; Exp) \n\
+  \  Lam(Exp. Exp)                \n\
+  \  Ap(Exp; Exp)")
+mkSyntaxInstances ''Exp
 
-instance Bifoldable ExpF where
-instance Bifunctor ExpF where
-instance Bitraversable ExpF where
-instance Bimatchable ExpF where
+$(mkTypes (Options "Val" "valSyntax" Map.empty)
+  "Val ::= \n\
+  \  Zv    \n\
+  \  Sv(Val)")
+mkSyntaxInstances ''Val
 
-instance Bifoldable ValF where
-instance Bifunctor ValF where
-instance Bitraversable ValF where
-instance Traversable (ValF (Either Text a)) where
-instance Foldable (ValF (Either Text a)) where
+instance Functor (Val (Either Text a)) where
+  fmap = fmapDefault
+instance Foldable (Val (Either Text a)) where
+  foldMap = foldMapDefault
+instance Traversable (Val (Either Text a)) where
+  traverse f val = bitraverse pure f val
 
-instance Show ((:+:) VarBindingF (M.MachineF :+: ValF (Either Text Void))
-                           (Fix (VarBindingF :+: (M.MachineF :+: ValF (Either Text Void)))))
+instance Show1 (Val Text) where
+  liftShowsPrec showsa showalist
+    = liftShowsPrec2 showsPrec showList showsa showalist
+instance Show1 (Val Void) where
+  liftShowsPrec showsa showalist
+    = liftShowsPrec2 showsPrec showList showsa showalist
+instance Show1 (Val (Either Text Void)) where
+  liftShowsPrec showsa showalist
+    = liftShowsPrec2 showsPrec showList showsa showalist
 
-instance Show1 (ValF Text)
-instance Show1 (ValF Void)
-instance Show1 (ExpF Void)
-instance Show1 (ValF (Either Text Void))
+instance Show1 (Exp Void) where
+  liftShowsPrec showsa showalist
+    = liftShowsPrec2 showsPrec showList showsa showalist
 
-data ValF prim val
-  = Zv
-  | Sv !val
-  deriving Functor
+instance Show ((VarBindingF :+: M.MachineF :+: Val (Either Text Void))
+  (Fix (VarBindingF :+: (M.MachineF :+: Val (Either Text Void))))) where
+   showsPrec = liftShowsPrec showsPrec showList
 
-dynamics' :: DenotationChart' (ExpF Text) (M.MachineF :+: ValF Text)
+dynamics' :: DenotationChart' (Exp Text) (M.MachineF :+: Val Text)
 dynamics' = DenotationChart'
   [ Fix (InR Z)
     :->
@@ -136,48 +143,50 @@ dynamics' = DenotationChart'
 --       ]
 --   ]
 
-patP :: Prism' (Pattern T) (Fix (PatVarF :+: ExpF a))
-patP = prism' rtl ltr where
-  rtl :: Fix (PatVarF :+: ExpF a) -> Pattern T
+customPatP :: Prism' (Pattern T) (Fix (PatVarF :+: Exp a))
+customPatP = prism' rtl ltr where
+  rtl :: Fix (PatVarF :+: Exp a) -> Pattern T
   rtl = \case
     Fix (InL pat) -> review patVarP pat
     Fix (InR pat) -> review patP'   pat
 
-  ltr :: Pattern T -> Maybe (Fix (PatVarF :+: ExpF a))
+  ltr :: Pattern T -> Maybe (Fix (PatVarF :+: Exp a))
   ltr tm = asum @[]
     [ Fix . InL <$> preview patVarP tm
     , Fix . InR <$> preview patP'   tm
     ]
 
-  patP' :: Prism' (Pattern T) (ExpF a (Fix (PatVarF :+: ExpF a)))
+  patP' :: Prism' (Pattern T) (Exp a (Fix (PatVarF :+: Exp a)))
   patP' = prism' rtl' ltr' where
     rtl' = \case
       Z         -> PatternTm "Z" []
-      S a       -> PatternTm "S" [ review patP a ]
+      S a       -> PatternTm "S" [ review customPatP a ]
       Rec a b c -> PatternTm "Rec"
-        [ review patP a
-        , review patP b
-        , review patP c
+        [ review customPatP a
+        , review customPatP b
+        , review customPatP c
         ]
-      Lam a  -> PatternTm "Lam" [ review patP a ]
-      Ap a b -> PatternTm "Ap"  [ review patP a, review patP b ]
+      Lam a  -> PatternTm "Lam" [ review customPatP a ]
+      Ap a b -> PatternTm "Ap"  [ review customPatP a, review customPatP b ]
 
     ltr' = \case
       PatternTm "Z" []          -> Just Z
-      PatternTm "S" [a]         -> S <$> preview patP a
+      PatternTm "S" [a]         -> S <$> preview customPatP a
       PatternTm "Rec" [a, b, c] -> Rec
-        <$> preview patP a
-        <*> preview patP b
-        <*> preview patP c
+        <$> preview customPatP a
+        <*> preview customPatP b
+        <*> preview customPatP c
       -- XXX Lam should have binding structure
-      PatternTm "Lam" [a]   -> Lam <$> preview patP a
-      PatternTm "Ap" [a, b] -> Ap <$> preview patP a <*> preview patP b
+      PatternTm "Lam" [a]   -> Lam <$> preview customPatP a
+      PatternTm "Ap" [a, b] -> Ap <$> preview customPatP a <*> preview customPatP b
       _                     -> Nothing
 
-valP :: Prism' (Term (Either Text Void)) (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: ValF a))
+valP :: Prism' (Term (Either Text Void))
+               (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: Val a))
 valP = prism' rtl ltr where
 
-  rtl :: Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: ValF a) -> Term (Either Text Void)
+  rtl :: Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: Val a)
+       -> Term (Either Text Void)
   rtl = \case
     Fix (InL tm')                -> review (varBindingP valP) tm'
     Fix (InR (InL tm'))          -> review meaningP           tm'
@@ -185,7 +194,8 @@ valP = prism' rtl ltr where
     Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
     Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
 
-  ltr :: Term (Either Text Void) -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: ValF a))
+  ltr :: Term (Either Text Void)
+      -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: Val a))
   ltr = \case
     Fix (Term "Zv" [])  -> Just (Fix (InR (InR (InR Zv))))
     Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
@@ -196,7 +206,7 @@ valP = prism' rtl ltr where
       ]
 
 dynamics :: DenotationChart T (Either Text Void)
-dynamics = M.mkDenotationChart patP valP dynamics'
+dynamics = M.mkDenotationChart customPatP valP dynamics'
 
 z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
 z = Fix $ Term "Z" []
@@ -216,11 +226,11 @@ szv = Fix $ Term "Sv" [zv]
 sszv = Fix $ Term "Sv" [szv]
 
 -- eval' :: Term T -> Either String (Term Void)
--- eval' = eval $ mkEvalEnv "Exp" syntax dynamics
+-- eval' = eval $ mkEvalEnv "Exp" expSyntax dynamics
 --     (const Nothing)
 --     (const Nothing)
 
-evalF :: Fix (VarBindingF :+: ExpF Void) -> (Either String (Fix (ValF Void)), Seq Text)
+evalF :: Fix (VarBindingF :+: Exp Void) -> (Either String (Fix (Val Void)), Seq Text)
 evalF = eval (EvalEnv Map.empty (const Nothing)) dynamics'
 
 -- evalTests :: Test ()
