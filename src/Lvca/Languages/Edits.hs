@@ -1,12 +1,12 @@
 {-# LANGUAGE QuasiQuotes #-}
-module Linguist.Languages.Edits where
+module Lvca.Languages.Edits where
 
 import           Data.Void                       (Void)
 import           NeatInterpolation
 import           Text.Megaparsec                 (ParseError, runParser)
 
-import           Linguist.ParseSyntaxDescription
-import           Linguist.Types                  (SyntaxChart)
+import           Lvca.ParseSyntaxDescription
+import           Lvca.Types                  (SyntaxChart)
 
 syntax :: Either (ParseError Char Void) SyntaxChart
 syntax = runParser parseSyntaxDescription "(edits syntax)"

@@ -14,7 +14,7 @@
 --
 -- Tools for defining the syntax and semantics of languages.
 
-module Linguist.Types
+module Lvca.Types
   ( -- * Syntax charts
     -- | Syntax definition.
     SortName
@@ -133,8 +133,8 @@ import           GHC.Exts                  (IsList (..))
 import           GHC.Generics (Generic)
 import           Text.Show.Deriving
 
-import           Linguist.FunctorUtil
-import           Linguist.Util             as Util
+import           Lvca.FunctorUtil
+import           Lvca.Util             as Util
 
 -- syntax charts
 

@@ -4,7 +4,7 @@
 {-# LANGUAGE DeriveGeneric     #-}
 -- patP' and termP' are unused in the generated code
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
-module Linguist.Languages.SimpleExample
+module Lvca.Languages.SimpleExample
   ( statics
   , dynamics
   , typingJudgement
@@ -25,11 +25,11 @@ import           GHC.Generics                          (Generic)
 import           NeatInterpolation
 import           Text.Megaparsec
 
-import qualified Linguist.ParseDenotationChart         as PD
-import           Linguist.Types
-import           Linguist.FunctorUtil
-import           Linguist.ParseUtil
-import           Linguist.TH
+import qualified Lvca.ParseDenotationChart         as PD
+import           Lvca.Types
+import           Lvca.FunctorUtil
+import           Lvca.ParseUtil
+import           Lvca.TH
 
 import Language.Haskell.TH.Syntax (Type(..))
 
@@ -57,7 +57,7 @@ pattern TI x = PrimValue' "Num" (Left x)
 pattern TS :: Text -> Term E
 pattern TS x = PrimValue' "Str" (Right x)
 
-$(mkTypes (Options "Exp" Nothing $ Map.fromList
+mkTypes (Options "Exp" Nothing $ Map.fromList
   [ "Annot" :-> TupleT 0
   , "Int"   :-> ConT ''Int
   , "Text"  :-> ConT ''Text
@@ -70,16 +70,16 @@ $(mkTypes (Options "Exp" Nothing $ Map.fromList
   \  Let(Exp; Exp)                                                          \n\
   \  Annotation({Annot}; Exp)                                               \n\
   \  NumLit{Int}                                                            \n\
-  \  StrLit{Text}")
+  \  StrLit{Text}"
 mkSyntaxInstances ''Exp
 
-$(mkTypes (Options "Val" Nothing $ Map.fromList
+mkTypes (Options "Val" Nothing $ Map.fromList
   [ "Int"  :-> ConT ''Int
   , "Text" :-> ConT ''Text
   ])
-  "Val ::=     \n\
-  \  NumV{Int} \n\
-  \  StrV{Text}")
+  "Val ::=                                                                  \n\
+  \  NumV{Int}                                                              \n\
+  \  StrV{Text}"
 mkSyntaxInstances ''Val
 
 instance Show a => Show1 (Val a) where

@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies    #-}
 
-module Linguist.Languages.Arith where
+module Lvca.Languages.Arith where
 
 import           Control.Applicative                ((<$))
 import           Control.Arrow                      ((>>>))
@@ -18,16 +18,16 @@ import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
 import           Data.Void                          (Void)
 import           Text.Megaparsec
   (ParseErrorBundle, runParser, choice, errorBundlePretty)
+import           NeatInterpolation
 
-import           Linguist.FunctorUtil
-import           Linguist.Languages.Arith.Syntax
-import           Linguist.ParseDenotationChart      (parseDenotationChart)
-import qualified Linguist.ParseDenotationChart      as PD
-import           Linguist.ParseUtil
-import           Linguist.Types
--- import           Linguist.Util                      (forceRight)
-import           Linguist.TH
-import           Linguist.ParseLanguage
+import           Lvca.FunctorUtil
+import           Lvca.Languages.Arith.Syntax    ()
+import           Lvca.ParseDenotationChart      (parseDenotationChart)
+import qualified Lvca.ParseDenotationChart      as PD
+import           Lvca.ParseUtil
+import           Lvca.Types
+import           Lvca.TH
+import           Lvca.ParseLanguage
 
 
 newtype E = E { unE :: Either Int Text }
@@ -43,16 +43,27 @@ instance Pretty E where
     Left  i -> pretty i
     Right t -> "\"" <> pretty t <> "\""
 
-$(mkTypes (Options "Arith" (Just "syntax") Map.empty)
-  "Arith ::=                                                               \n\
-  \  Add(Arith; Arith)                                                     \n\
-  \  Sub(Arith; Arith)                                                     \n\
-  \  Mul(Arith; Arith)                                                     \n\
-  \  // note: skipping division because it's hard to implement using peano \n\
-  \  // numbers                                                            \n\
-  \  Z                                                                     \n\
-  \  S(Arith)")
+mkTypes (Options "Arith" (Just "syntax") Map.empty)
+  "Arith ::=                                                                \n\
+  \  Add(Arith; Arith)                                                      \n\
+  \  Sub(Arith; Arith)                                                      \n\
+  \  Mul(Arith; Arith)                                                      \n\
+  \  // note: skipping division because it's hard to implement using peano  \n\
+  \  // numbers                                                             \n\
+  \  Z                                                                      \n\
+  \  S(Arith)"
 mkSyntaxInstances ''Arith
+
+codomainT1 :: Text
+codomainT1 = "Int ::= {Int}"
+
+codomainT2 :: Text
+codomainT2 = [text|
+  Int ::=
+    Z()
+    S(Int)
+    Rec(Int; Int; Int. Int. Int)
+  |]
 
 parsePrim :: PD.Parser E
 parsePrim = E <$> choice
@@ -62,15 +73,66 @@ parsePrim = E <$> choice
   , Right "mul" <$ symbol "mul"
   ]
 
+-- Meaning of terms with int externals in terms of add, sub, and mul
+-- primitives.
+--
+-- Due to using machine primitives this has an operational feel because we need
+-- to evaluate terms before handing them to primitives.
 machineDynamics
   :: Either (ParseErrorBundle Text Void) (DenotationChart Void (Either Text E))
 machineDynamics = runParser (parseDenotationChart noParse parsePrim)
-  "(arith machine dynamics)" machineDynamicsT
+  "(arith machine dynamics)"
+  [text|
+  [[ Add(a; b) ]] = Eval([[ a ]]; a'.
+                      Eval([[ b ]]; b'.
+                        PrimApp({add}; a'; b')))
+  [[ Sub(a; b) ]] = Eval([[ a ]]; a'.
+                      Eval([[ b ]]; b'.
+                        PrimApp({sub}; a'; b')))
+  [[ Mul(a; b) ]] = Eval([[ a ]]; a'.
+                      Eval([[ b ]]; b'.
+                        PrimApp({mul}; a'; b')))
+  [[ Z()       ]] = Value(Int{0})
+  [[ S(a)      ]] = Eval([[ a ]]; a'. PrimApp({add}; a'; Int{1}))
+  |]
+
 
 peanoDynamics
   :: Either (ParseErrorBundle Text Void) (DenotationChart Void (Either Text Void))
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
-  "(arith peano dynamics)" peanoDynamicsT
+  "(arith peano dynamics)"
+  [text|
+  // Rec as defined in pfpl section 9.1
+  // starting from `a`, fold `b` times, adding one each time
+  [[ Add(a; b) ]] = Rec(
+    [[ b ]];
+    [[ a ]];
+    _. acc. S(acc)
+  )
+
+  // starting from `a`, fold `b` times, subtracting one each time
+  [[ Sub(a; b) ]] = Rec(
+    [[ b ]];
+    [[ a ]];
+    _. acc. Rec([[ acc ]]; Z; accPred. _. accPred)
+    )
+
+  // starting from Z, fold `b` times, adding `a` each time
+  [[ Mul(a; b) ]] = Rec(
+    [[ b ]];
+    Z;
+    _. acc. Rec(
+      [[ a ]];
+      acc;
+      _. acc'. S(acc')
+      )
+    )
+
+  // TODO: i'd like to write `Z` but then we need a way to disambiguate from a
+  // var
+  [[ Z    ]] = Z()
+  [[ S(a) ]] = S([[ a ]])
+  |]
 
 pattern S' :: Term a -> Term a
 pattern Z' ::           Term a

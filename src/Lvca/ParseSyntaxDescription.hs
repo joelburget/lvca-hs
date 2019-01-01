@@ -1,4 +1,4 @@
-module Linguist.ParseSyntaxDescription where
+module Lvca.ParseSyntaxDescription where
 
 import           Control.Lens                  (unsnoc)
 import           Data.Foldable                 (asum)
@@ -8,8 +8,8 @@ import           Data.Void                     (Void)
 import           Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer    as L
 
-import           Linguist.ParseUtil
-import           Linguist.Types
+import           Lvca.ParseUtil
+import           Lvca.Types
 import           Text.Megaparsec.Char.LexerAlt (indentBlock)
 
 

@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedLists  #-}
 {-# LANGUAGE TemplateHaskell  #-}
 {-# LANGUAGE TypeApplications #-}
-module Linguist.Languages.TExample where
+module Lvca.Languages.TExample where
 -- Godel's system t
 
 import           Control.Lens              (Prism, Prism', prism, prism', review, preview)
@@ -17,11 +17,11 @@ import           Data.Traversable          (foldMapDefault, fmapDefault)
 import           Data.Void                 (Void)
 import           Prelude                   hiding (succ)
 
-import           Linguist.FunctorUtil
-import           Linguist.Proceed          (eval, EvalEnv(EvalEnv))
-import           Linguist.TH
-import           Linguist.Types
-import qualified Linguist.Languages.MachineModel as M
+import           Lvca.FunctorUtil
+import           Lvca.Proceed          (eval, EvalEnv(EvalEnv))
+import           Lvca.TH
+import           Lvca.Types
+import qualified Lvca.Languages.MachineModel as M
 
 
 data T
@@ -61,19 +61,19 @@ syntax' = SyntaxChart $ Map.fromList
     ])
   ]
 
-$(mkTypes (Options "Exp" Nothing Map.empty)
-  "Exp ::=                        \n\
-  \  Z                            \n\
-  \  S(Exp)                       \n\
-  \  Rec(Exp; Exp. Exp. Exp; Exp) \n\
-  \  Lam(Exp. Exp)                \n\
-  \  Ap(Exp; Exp)")
+mkTypes (Options "Exp" Nothing Map.empty)
+  "Exp ::=                                                                  \n\
+  \  Z                                                                      \n\
+  \  S(Exp)                                                                 \n\
+  \  Rec(Exp; Exp. Exp. Exp; Exp)                                           \n\
+  \  Lam(Exp. Exp)                                                          \n\
+  \  Ap(Exp; Exp)"
 mkSyntaxInstances ''Exp
 
-$(mkTypes (Options "Val" Nothing Map.empty)
-  "Val ::= \n\
-  \  Zv    \n\
-  \  Sv(Val)")
+mkTypes (Options "Val" Nothing Map.empty)
+  "Val ::=                                                                  \n\
+  \  Zv                                                                     \n\
+  \  Sv(Val)"
 mkSyntaxInstances ''Val
 
 instance Functor (Val (Either Text a)) where

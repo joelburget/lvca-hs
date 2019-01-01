@@ -1,5 +1,5 @@
 
-module Test.TExample where
+module Languages.TExample where
 
 import           EasyTest
 

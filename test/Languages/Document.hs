@@ -1,9 +1,9 @@
 {-# LANGUAGE QuasiQuotes         #-}
-module Test.Document where
+module Languages.Document where
 
 import           NeatInterpolation
 
-import           Linguist.Util                      (forceRight)
+import           Lvca.Util                      (forceRight)
 
 textDocument :: Text
 textDocument = [text|

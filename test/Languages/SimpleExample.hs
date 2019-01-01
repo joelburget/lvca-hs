@@ -1,5 +1,5 @@
 
-module Test.SimpleExample
+module Languages.SimpleExample
   ( dynamicTests
   , minusTests
   , completePatternTests
@@ -24,10 +24,10 @@ import           Hedgehog                              (Property, property, (===
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 
-import           Linguist.ParseLanguage
-import           Linguist.Proceed                      hiding (matches, findMatch)
-import           Linguist.Languages.MachineModel
-import           Linguist.Util                         (forceRight)
+import           Lvca.ParseLanguage
+import           Lvca.Proceed                      hiding (matches, findMatch)
+import           Lvca.Languages.MachineModel
+import           Lvca.Util                         (forceRight)
 
 pattern VI :: Int -> Term E
 pattern VI x = PrimValue' "NumV" (Left x)

@@ -2,7 +2,7 @@
 {-# LANGUAGE PolyKinds          #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell    #-}
-module Linguist.Languages.MachineModel
+module Lvca.Languages.MachineModel
   ( MachineF(..)
   , machineP
 
@@ -22,10 +22,17 @@ import           Control.Lens
   (Prism', _1, _2, (%~), preview, review, prism', (&), _Left)
 import Data.Text (Text)
 
-import Linguist.Types                      hiding (patP, termP)
-import Linguist.FunctorUtil
-import Linguist.Util                       (_Fix)
+import Lvca.Types                      hiding (patP, termP)
+import Lvca.FunctorUtil
+import Lvca.Util                       (_Fix)
 
+
+mkTypes (Options "Machine" Nothing $ Map.singleton "Text" (ConT ''Text))
+  "Machine ::=                                                              \n\
+  \  Lam'(Machine)                                                          \n\
+  \  App'(Machine; Machine)                                                 \n\
+  \  PrimApp'({Text}; List(Machine))"
+mkSyntaxInstances ''Machine
 
 data MachineF a
   = Lam

@@ -1,11 +1,11 @@
 import           EasyTest
 
-import qualified Linguist.Languages.Arith         as Arith
-import qualified Linguist.Languages.Document      as Document
-import           Linguist.Languages.MachineModel
-import qualified Linguist.Languages.SimpleExample as SimpleExample
-import qualified Linguist.Languages.Stlc          as Stlc
-import qualified Linguist.Languages.TExample      as TExample
+import qualified Languages.Arith         as Arith
+import qualified Languages.Document      as Document
+import           Languages.MachineModel
+import qualified Languages.SimpleExample as SimpleExample
+import qualified Languages.Stlc          as Stlc
+import qualified Languages.TExample      as TExample
 
 main :: IO ()
 main = run allTests

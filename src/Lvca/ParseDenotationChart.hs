@@ -1,4 +1,4 @@
-module Linguist.ParseDenotationChart where
+module Lvca.ParseDenotationChart where
 
 import           Data.Foldable                 (asum)
 import           Data.Functor.Foldable         (Fix(Fix))
@@ -6,8 +6,8 @@ import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
 
-import           Linguist.ParseUtil
-import           Linguist.Types
+import           Lvca.ParseUtil
+import           Lvca.Types
 
 
 type Parser a = Parsec

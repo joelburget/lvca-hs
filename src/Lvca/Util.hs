@@ -1,4 +1,4 @@
-module Linguist.Util where
+module Lvca.Util where
 
 import           Control.Lens          (FunctorWithIndex, Iso', imap, iso)
 import           Control.Monad.Except  (MonadError, throwError)

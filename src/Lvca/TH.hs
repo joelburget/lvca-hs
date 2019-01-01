@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NamedFieldPuns  #-}
 
-module Linguist.TH (mkTypes, mkSyntaxInstances, Options(..), defOptions) where
+module Lvca.TH (mkTypes, mkSyntaxInstances, Options(..), defOptions) where
 
 import           Control.Lens                    (Prism', ifor, (<&>), prism', (^..), preview, review, _Just)
 import           Control.Lens.TH                 (makeLenses)
@@ -20,10 +20,10 @@ import           Language.Haskell.TH.Datatype
   (DatatypeInfo(..), ConstructorInfo(..), reifyDatatype)
 import           Language.Haskell.TH.Syntax      (lift, dataToExpQ)
 
-import           Linguist.FunctorUtil            (Fix(Fix))
-import           Linguist.Util                   (_Fix)
-import           Linguist.ParseSyntaxDescription
-import           Linguist.Types                  hiding (valences)
+import           Lvca.FunctorUtil            (Fix(Fix))
+import           Lvca.Util                   (_Fix)
+import           Lvca.ParseSyntaxDescription
+import           Lvca.Types                  hiding (valences)
 
 mkName' :: Text -> Name
 mkName' = mkName . unpack

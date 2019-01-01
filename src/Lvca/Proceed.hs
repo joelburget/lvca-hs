@@ -1,6 +1,6 @@
 {-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE TemplateHaskell     #-}
-module Linguist.Proceed where
+module Lvca.Proceed where
 
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
@@ -17,10 +17,10 @@ import qualified Data.Sequence             as Seq
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 
-import           Linguist.Languages.MachineModel
-import           Linguist.Types            hiding (findMatch, matches)
-import           Linguist.Util             ((??), (???))
-import           Linguist.FunctorUtil
+import           Lvca.Languages.MachineModel
+import           Lvca.Types            hiding (findMatch, matches)
+import           Lvca.Util             ((??), (???))
+import           Lvca.FunctorUtil
 
 data TranslateEnv f g a = TranslateEnv
   { _dChart          :: DenotationChart' (f Text) (MachineF :+: g Text)

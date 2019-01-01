@@ -12,7 +12,7 @@ import           Hedgehog                  (MonadGen, GenT, Property,
 import qualified Hedgehog.Gen              as Gen
 import qualified Hedgehog.Range            as Range
 
-import Linguist.Types
+import Lvca.Types
 
 toPatternTests :: Test ()
 toPatternTests = scope "toPattern" $

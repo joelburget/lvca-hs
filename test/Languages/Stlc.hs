@@ -1,10 +1,10 @@
-module Test.Stlc where
+module Languages.Stlc where
 
 import           NeatInterpolation
 import           Text.Megaparsec                 (errorBundlePretty, runParser)
 
-import           Linguist.ParseLanguage
-import           Linguist.ParseSyntaxDescription hiding (Parser)
+import           Lvca.ParseLanguage
+import           Lvca.ParseSyntaxDescription hiding (Parser)
 
 stlcTests :: Test ()
 stlcTests = tests

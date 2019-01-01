@@ -1,6 +1,6 @@
 {-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TemplateHaskell   #-}
-module Linguist.Brick where
+module Lvca.Brick where
 
 import           Brick                      as B
 import qualified Brick.Widgets.Border       as B
@@ -14,9 +14,9 @@ import           Data.Void                 (Void, absurd)
 import qualified Graphics.Vty               as V
 import           NeatInterpolation
 
-import           Linguist.FunctorUtil
-import           Linguist.Types
-import           Linguist.Languages.MachineModel
+import           Lvca.FunctorUtil
+import           Lvca.Types
+import           Lvca.Languages.MachineModel
 
 
 class TmShow a where

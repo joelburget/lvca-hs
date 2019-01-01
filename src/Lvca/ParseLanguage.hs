@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TemplateHaskell            #-}
-module Linguist.ParseLanguage
+module Lvca.ParseLanguage
   ( Parser
   , ParseEnv(..)
   , ExternalStyle(..)
@@ -28,10 +28,10 @@ import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Data.Void            (Void)
 
-import           Linguist.FunctorUtil
-import           Linguist.ParseUtil
-import           Linguist.Types
-import           Linguist.Util
+import           Lvca.FunctorUtil
+import           Lvca.ParseUtil
+import           Lvca.Types
+import           Lvca.Util
 
 
 -- TODO: we're not actually using Err.

@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies      #-}
 {-# LANGUAGE ViewPatterns      #-}
 
-module Linguist.FunctorUtil
+module Lvca.FunctorUtil
   ( module Control.Monad.Free
   , module Data.Functor.Foldable
   , module Data.Functor.Const

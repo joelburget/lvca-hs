@@ -1,13 +1,13 @@
 {-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TypeFamilies      #-}
-module Linguist.Languages.Stlc  where
+module Lvca.Languages.Stlc  where
 
 import qualified Data.Map.Strict                 as Map
 import           Data.Void                       (Void)
 
-import           Linguist.FunctorUtil
-import           Linguist.Types                  hiding (Term)
-import qualified Linguist.Types                  as L
+import           Lvca.FunctorUtil
+import           Lvca.Types                  hiding (Term)
+import qualified Lvca.Types                  as L
 
 
 stlcChart :: SyntaxChart

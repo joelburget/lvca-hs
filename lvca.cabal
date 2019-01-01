@@ -1,0 +1,107 @@
+cabal-version:       2.2
+name:                lvca
+version:             0.1.0.0
+-- synopsis:
+-- description:
+license:             BSD-3-Clause
+license-file:        LICENSE
+author:              Joel Burget
+maintainer:          joelburget@gmail.com
+-- copyright:
+category:            Language
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+
+common deps
+  build-depends:
+    base >=4.11 && <4.12,
+    mtl,
+    containers,
+    text,
+    lens,
+    data-diverse,
+    data-diverse-lens,
+    prettyprinter,
+    prettyprinter-ansi-terminal,
+    megaparsec
+
+common extensions
+  default-extensions:
+    LambdaCase,
+    TypeOperators,
+    PatternSynonyms,
+    MultiParamTypeClasses,
+    GADTs,
+    TupleSections,
+    ScopedTypeVariables,
+    OverloadedStrings,
+    TypeApplications,
+    DeriveFunctor,
+    DeriveFoldable,
+    DeriveTraversable,
+    FlexibleInstances,
+    FlexibleContexts,
+    TypeSynonymInstances,
+    Rank2Types,
+    MultiWayIf,
+    GeneralizedNewtypeDeriving
+
+library
+  import: extensions, deps
+  exposed-modules:
+    Lvca.Brick,
+    Lvca.FunctorUtil,
+    Lvca.ParseLanguage,
+    Lvca.ParseSyntaxDescription,
+    Lvca.ParseUtil,
+    Lvca.Proceed,
+    Lvca.TH,
+    Lvca.Types,
+    Lvca.Util,
+    Lvca.Languages.Arith,
+    Lvca.Languages.Document,
+    Lvca.Languages.Document.Syntax,
+    Lvca.Languages.SimpleExample,
+    Lvca.Languages.Stlc,
+    Lvca.Languages.TExample,
+    Lvca.Languages.MachineModel,
+    Lvca.ParseDenotationChart,
+    Text.Megaparsec.Char.LexerAlt
+  build-depends:
+    brick >= 0.41,
+    vty >= 5.25,
+    zippers,
+    mmorph,
+    neat-interpolation,
+    cmark,
+    cmark-patterns,
+    template-haskell >= 2.4 && < 2.15,
+    recursion-schemes,
+    free,
+    multirec >= 0.7.8,
+    hedgehog,
+    cborg,
+    serialise,
+    cryptohash-sha256,
+    bytestring,
+    sbv,
+    writer-cps-mtl,
+    transformers >= 0.5.5,
+    bifunctors,
+    deriving-compat,
+    th-abstraction
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
+executable lvca
+  import:        extensions, deps
+  main-is:       Main.hs
+  build-depends: base >=4.11 && <4.12, lvca
+
+test-suite tests
+  import:           extensions, deps
+  main-is:          tests.hs
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  default-language: Haskell2010
+  build-depends:    base >=4.11 && <4.12, lvca, easytest

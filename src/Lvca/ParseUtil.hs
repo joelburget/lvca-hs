@@ -1,4 +1,4 @@
-module Linguist.ParseUtil where
+module Lvca.ParseUtil where
 
 import           Control.Monad              (MonadPlus, liftM, void)
 import           Data.Text                  (Text, pack)

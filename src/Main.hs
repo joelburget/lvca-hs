@@ -6,13 +6,13 @@ import           Control.Monad.Reader
 import           Control.Zipper
 import           Data.Void (Void)
 
-import           Linguist.Brick
-import           Linguist.Proceed ()
-import           Linguist.Types
-import           Linguist.Util (forceRight)
+import           Lvca.Brick
+import           Lvca.Proceed ()
+import           Lvca.Types
+import           Lvca.Util (forceRight)
 
-import qualified Linguist.Languages.Arith         as Arith
-import           Linguist.Languages.MachineModel
+import qualified Lvca.Languages.Arith         as Arith
+import           Lvca.Languages.MachineModel
 
 
 natJudgement :: JudgementForm
