@@ -15,6 +15,8 @@ module Test.SimpleExample
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
 import qualified Data.Map.Strict                       as Map
+import           Data.Sequence                         (Seq)
+import qualified Data.Text                             as Text
 import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
                                                         layoutPretty, Pretty(pretty))
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
@@ -22,7 +24,9 @@ import           Hedgehog                              (Property, property, (===
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 
+import           Linguist.ParseLanguage
 import           Linguist.Proceed                      hiding (matches, findMatch)
+import           Linguist.Languages.MachineModel
 import           Linguist.Util                         (forceRight)
 
 pattern VI :: Int -> Term E
@@ -564,3 +568,49 @@ valP = prism' rtl ltr where
       Term "NumV" [ Fix (PrimValue (Right i)) ] -> Just $ NumV i
       Term "StrV" [ Fix (PrimValue (Right s)) ] -> Just $ StrV s
       _                       -> Nothing
+
+tm1F, tm2F, tm3F :: Fix (VarBindingF :+: Exp E)
+
+tm1F = Fix $ InR $ Annotation (E $ Right "annotation") $
+  Fix $ InR $ Let
+    (Fix $ InR $ NumLit $ E $ Left 1)
+    (Fix $ InL $ BindingF ["x"] $ Fix $ InR $ Plus
+      (Fix $ InL $ VarF "x")
+      (Fix $ InR $ NumLit $ E $ Left 2)
+      )
+
+tm2F = Fix $ InR $ Cat
+ (Fix (InR (StrLit "foo")))
+ (Fix (InR (StrLit "bar")))
+
+tm3F = Fix $ InR $ Times
+  (Fix $ InR $ Len $ Fix $ InR $ StrLit "hippo")
+  (Fix $ InR $ NumLit $ E $ Left 3)
+
+evalMachinePrimitiveF
+  :: Text -> Maybe (Seq (Val E (Fix (Val E))) -> Val E (Fix (Val E)))
+evalMachinePrimitiveF = \case
+  "add" -> Just $ \case
+    NumV (E (Left x))  :< NumV (E (Left y))  :< Empty -> NumV (E (Left (x + y)))
+    args                      -> error $ "bad call to add: " ++ show args
+  "mul" -> Just $ \case
+    NumV (E (Left x))  :< NumV (E (Left y))  :< Empty -> NumV (E (Left (x * y)))
+    args                      -> error $ "bad call to mul: " ++ show args
+  "cat" -> Just $ \case
+    StrV (E (Right x)) :< StrV (E (Right y)) :< Empty -> StrV (E (Right (x <> y)))
+    args                      -> error $ "bad call to cat: " ++ show args
+  "len" -> Just $ \case
+    StrV (E (Right x))                       :< Empty -> NumV (E (Left (Text.length x)))
+    args                      -> error $ "bad call to len: " ++ show args
+
+  _ -> Nothing
+
+primParsers :: ExternalParsers E
+primParsers = makeExternalParsers
+  [ ("Num", E . Left  <$> (intLiteral :: ExternalParser Int))
+  , ("Str", E . Right <$> stringLiteral)
+  ]
+
+instance Show ((VarBindingF :+: MachineF :+: Val (Either Text E))
+          (Fix (VarBindingF :+: MachineF :+: Val (Either Text E)))) where
+  showsPrec = liftShowsPrec showsPrec showList

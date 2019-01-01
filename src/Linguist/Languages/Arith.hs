@@ -43,7 +43,7 @@ instance Pretty E where
     Left  i -> pretty i
     Right t -> "\"" <> pretty t <> "\""
 
-$(mkTypes (Options "Arith" "syntax" Map.empty)
+$(mkTypes (Options "Arith" (Just "syntax") Map.empty)
   "Arith ::=                                                               \n\
   \  Add(Arith; Arith)                                                     \n\
   \  Sub(Arith; Arith)                                                     \n\

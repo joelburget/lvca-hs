@@ -39,15 +39,15 @@ defaultBang = Bang NoSourceUnpackedness SourceStrict
 
 data Options = Options
   { dataTypeName    :: !Text
-  , syntaxChartName :: !Text
+  , syntaxChartName :: !(Maybe Text)
   , externals       :: !(Map SortName Type)
   }
 
 defOptions :: Options
-defOptions = Options (error "must define a data type name") "syntax" Map.empty
+defOptions = Options (error "must define a data type name") Nothing Map.empty
 
 mkTypes :: Options -> Text -> Q [Dec]
-mkTypes (Options dtName chartName externals) tDesc = do
+mkTypes (Options dtName mChartName externals) tDesc = do
   let desc = runParser parseSyntaxDescription "(template haskell)" tDesc
   SyntaxChart sorts <- case desc of
     Left err   -> fail $ show err
@@ -114,23 +114,32 @@ mkTypes (Options dtName chartName externals) tDesc = do
         (concat $ Map.elems ctors)
         []
 
-  let chartNameName = mkName' chartName
   ty      <- [t| SyntaxChart |]
   expr    <- [| SyntaxChart $(liftDataWithText sorts) |]
   helpers <- mkTermHelpers (SyntaxChart sorts) (mkName' dtName)
-  pure $
-    [ dataDecl
-    , SigD chartNameName ty
-    , ValD (VarP chartNameName) (NormalB expr) []
-    ] <> helpers
+  let chartDefs = case mChartName of
+        Nothing -> []
+        Just chartName ->
+          let chartNameName = mkName' chartName
+          in [ SigD chartNameName ty
+             , ValD (VarP chartNameName) (NormalB expr) []
+             ]
+  pure $ [ dataDecl ] <> chartDefs <> helpers
+
+data VarTy = SortVar Name | ExternalVar Name
+
+varTyVar :: VarTy -> PatQ
+varTyVar = \case
+  SortVar     v -> varP v
+  ExternalVar v -> varP v
 
 mkTermHelpers :: SyntaxChart -> Name -> Q [Dec]
 mkTermHelpers chart@(SyntaxChart chartContents) fName = do
   let allVarNames = [1 :: Int ..] <&> \i -> mkName ("v" ++ show i)
       varNameGen = zipWith
         (\varName (Valence _ resultSort) -> case resultSort of
-          SortAp{} -> Left varName
-          _        -> Right varName
+          SortAp{}   -> SortVar     varName
+          External{} -> ExternalVar varName
         )
         allVarNames
 
@@ -157,13 +166,13 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   (conP
                     (mkName' name)
-                    (varP . either id id <$> varNameGen valences))
+                    (varTyVar <$> varNameGen valences))
                   (normalB [|
                     PatternTm
                     $(litE $ StringL $ unpack name)
                     $(listE $ varNameGen valences <&> \case
-                      Left v  -> [| review patP' $(varE v) |]
-                      Right v -> [| review p     $(varE v) |])
+                      SortVar     v -> [| review patP' $(varE v) |]
+                      ExternalVar v -> [| review p     $(varE v) |])
                     |])
                   []
         ) [] ]
@@ -174,12 +183,12 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   [p| PatternTm
                     $(litP $ StringL $ unpack name)
-                    $(listP $ varP . either id id <$> varNameGen valences)
+                    $(listP $ varTyVar <$> varNameGen valences)
                   |]
                   (normalB $ foldl
                     (\con -> \case
-                      Left  v -> [| $con <*> preview patP' $(varE v) |]
-                      Right v -> [| $con <*> preview p     $(varE v) |])
+                      SortVar     v -> [| $con <*> preview patP' $(varE v) |]
+                      ExternalVar v -> [| $con <*> preview p     $(varE v) |])
                     [| pure $(conE $ mkName' name) |]
                     (varNameGen valences))
                   []
@@ -187,6 +196,10 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
 
       , sigD (mkName "p") [t| forall a. Prism' (Pattern a) a |]
       , valD (varP (mkName "p")) (normalB [| _PatternPrimVal . _Just |]) []
+
+      -- hide the warning about `p` not being used if there are no externals.
+      , sigD (mkName "_unused") [t| forall a. Prism' (Pattern a) a |]
+      , valD (varP (mkName "_unused")) (normalB [| p |]) []
       ]
     ]
 
@@ -210,13 +223,13 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   (conP
                     (mkName' name)
-                    (varP . either id id <$> varNameGen valences))
+                    (varTyVar <$> varNameGen valences))
                   (normalB [|
                     Fix (Term
                     $(litE $ StringL $ unpack name)
                     $(listE $ varNameGen valences <&> \case
-                      Left  v -> [| review termP' $(varE v) |]
-                      Right v -> [| review p      $(varE v) |])
+                      SortVar     v -> [| review termP' $(varE v) |]
+                      ExternalVar v -> [| review p      $(varE v) |])
                     ) |])
                   []
         ) [] ]
@@ -227,12 +240,12 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   [p| Fix (Term
                     $(litP $ StringL $ unpack name)
-                    $(listP $ varP . either id id <$> varNameGen valences)
+                    $(listP $ varTyVar <$> varNameGen valences)
                   ) |]
                   (normalB $ foldl
                     (\con -> \case
-                      Left  v -> [| $con <*> preview termP' $(varE v) |]
-                      Right v -> [| $con <*> preview p      $(varE v) |])
+                      SortVar     v -> [| $con <*> preview termP' $(varE v) |]
+                      ExternalVar v -> [| $con <*> preview p      $(varE v) |])
                     [| pure $(conE $ mkName' name) |]
                     (varNameGen valences))
                   []
@@ -240,6 +253,10 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
 
       , sigD (mkName "p") [t| forall a. Prism' (Term a) a |]
       , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValue |]) []
+
+      -- hide the warning about `p` not being used if there are no externals.
+      , sigD (mkName "_unused") [t| forall a. Prism' (Term a) a |]
+      , valD (varP (mkName "_unused")) (normalB [| p |]) []
       ]
     ]
 

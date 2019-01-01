@@ -61,7 +61,7 @@ syntax' = SyntaxChart $ Map.fromList
     ])
   ]
 
-$(mkTypes (Options "Exp" "expSyntax" Map.empty)
+$(mkTypes (Options "Exp" Nothing Map.empty)
   "Exp ::=                        \n\
   \  Z                            \n\
   \  S(Exp)                       \n\
@@ -70,7 +70,7 @@ $(mkTypes (Options "Exp" "expSyntax" Map.empty)
   \  Ap(Exp; Exp)")
 mkSyntaxInstances ''Exp
 
-$(mkTypes (Options "Val" "valSyntax" Map.empty)
+$(mkTypes (Options "Val" Nothing Map.empty)
   "Val ::= \n\
   \  Zv    \n\
   \  Sv(Val)")
