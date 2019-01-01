@@ -60,7 +60,6 @@ library
     Lvca.Util,
     Lvca.Languages.Arith,
     Lvca.Languages.Document,
-    Lvca.Languages.Document.Syntax,
     Lvca.Languages.SimpleExample,
     Lvca.Languages.Stlc,
     Lvca.Languages.TExample,

@@ -74,7 +74,7 @@ mkTypes (Options dtName mChartName externals) tDesc = do
     --       Operator name arity _ -> NormalC (mkName' name) (baseHandleArity arity)
 
   ctors <- ifor sorts $ \sortName (SortDef vars ops) -> do
-    let functorSortName = mkName' $ sortName <> "F"
+    let functorSortName = mkName' sortName
         -- functorVars     = fmap PlainTV $ (mkName' <$> vars) ++ [primName, expName]
 
         mkCon :: Text -> Type

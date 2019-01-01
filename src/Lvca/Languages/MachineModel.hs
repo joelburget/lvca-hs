@@ -22,17 +22,17 @@ import           Control.Lens
   (Prism', _1, _2, (%~), preview, review, prism', (&), _Left)
 import Data.Text (Text)
 
-import Lvca.Types                      hiding (patP, termP)
 import Lvca.FunctorUtil
+import Lvca.Types
 import Lvca.Util                       (_Fix)
 
 
-mkTypes (Options "Machine" Nothing $ Map.singleton "Text" (ConT ''Text))
-  "Machine ::=                                                              \n\
-  \  Lam'(Machine)                                                          \n\
-  \  App'(Machine; Machine)                                                 \n\
-  \  PrimApp'({Text}; List(Machine))"
-mkSyntaxInstances ''Machine
+-- mkTypes (Options "Machine" Nothing $ Map.singleton "Text" (ConT ''Text))
+--   "Machine ::=                                                              \n\
+--   \  Lam'(Machine)                                                          \n\
+--   \  App'(Machine; Machine)                                                 \n\
+--   \  PrimApp'({Text}; List(Machine))"
+-- mkSyntaxInstances ''Machine
 
 data MachineF a
   = Lam
@@ -113,9 +113,9 @@ mkDenotationChart
   -> Prism' (Term    b) (Fix (VarBindingF :+: MeaningOfF :+: g))
   -> DenotationChart' f g
   -> DenotationChart  a b
-mkDenotationChart patP termP (DenotationChart' rules) = DenotationChart $
-  rules & traverse . _1 %~ review patP
-        & traverse . _2 %~ review termP
+mkDenotationChart patP' termP' (DenotationChart' rules) = DenotationChart $
+  rules & traverse . _1 %~ review patP'
+        & traverse . _2 %~ review termP'
 
 -- TODO: find a better place to put this
 listP :: Prism' (Term a) b -> Prism' (Term a) [b]

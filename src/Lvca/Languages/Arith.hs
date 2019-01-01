@@ -21,7 +21,6 @@ import           Text.Megaparsec
 import           NeatInterpolation
 
 import           Lvca.FunctorUtil
-import           Lvca.Languages.Arith.Syntax    ()
 import           Lvca.ParseDenotationChart      (parseDenotationChart)
 import qualified Lvca.ParseDenotationChart      as PD
 import           Lvca.ParseUtil
