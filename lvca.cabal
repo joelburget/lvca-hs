@@ -1,13 +1,13 @@
 cabal-version:       2.2
 name:                lvca
 version:             0.1.0.0
--- synopsis:
+synopsis:            Language Verification, Construction, and Automation
 -- description:
 license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Joel Burget
 maintainer:          joelburget@gmail.com
--- copyright:
+copyright:           (c) 2018-2019 Joel Burget
 category:            Language
 build-type:          Simple
 extra-source-files:  ChangeLog.md
