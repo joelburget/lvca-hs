@@ -13,7 +13,6 @@ module Linguist.Languages.SimpleExample
 
 import           Codec.Serialise
 import           Control.Lens                          hiding (from, to, op)
-import           Control.Monad.Reader
 import           Data.Bifoldable
 import           Data.Bitraversable
 import qualified Data.Map                              as Map
@@ -62,18 +61,18 @@ pattern TS :: Text -> Term E
 pattern TS x = PrimValue' "Str" (Right x)
 
 $(mkTypes (Options "Exp" "syntax" $ Map.fromList
-  [ ("Annot", TupleT 0)
-  , ("Int", ConT ''Int)
-  , ("Text", ConT ''Text)
+  [ "Annot" :-> TupleT 0
+  , "Int"   :-> ConT ''Int
+  , "Text"  :-> ConT ''Text
   ])
-  "Exp ::=                    \n\
-  \  Plus(Exp; Exp)           \n\
-  \  Times(Exp; Exp)          \n\
-  \  Cat(Exp; Exp)            \n\
-  \  Len(Exp)                 \n\
-  \  Let(Exp; Exp)            \n\
-  \  Annotation({Annot}; Exp) \n\
-  \  NumLit{Int}              \n\
+  "Exp ::=                                                                  \n\
+  \  Plus(Exp; Exp)                                                         \n\
+  \  Times(Exp; Exp)                                                        \n\
+  \  Cat(Exp; Exp)                                                          \n\
+  \  Len(Exp)                                                               \n\
+  \  Let(Exp; Exp)                                                          \n\
+  \  Annotation({Annot}; Exp)                                               \n\
+  \  NumLit{Int}                                                            \n\
   \  StrLit{Text}")
 mkSyntaxInstances ''Exp
 
@@ -127,21 +126,21 @@ mkSyntaxInstances ''Exp
 --     StrLit     s   -> ss "StrLit "     . showsa    11 s
 --     where ss = showString
 
-instance Show prim => Show1 (Exp () prim) where
+instance Show prim => Show1 (Exp prim) where
  liftShowsPrec = liftShowsPrec2 showsPrec showList
-instance Eq prim => Eq1 (Exp () prim) where
+instance Eq prim => Eq1 (Exp prim) where
  liftEq = liftEq2 (==)
 
-instance Eq ty => Eq2 (Exp ty) where
-  liftEq2 _   eqe (Plus       a1 b1) (Plus       a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (Times      a1 b1) (Times      a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (Cat        a1 b1) (Cat        a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (Len        a1   ) (Len        a2   ) = eqe a1 a2
-  liftEq2 _   eqe (Let        a1 b1) (Let        a2 b2) = eqe a1 a2 && eqe b1 b2
-  liftEq2 _   eqe (Annotation t1 e1) (Annotation t2 e2) = t1 == t2  && eqe e1 e2
-  liftEq2 eqa  _  (NumLit     i1   ) (NumLit     i2   ) = eqa i1 i2
-  liftEq2 eqa  _  (StrLit     s1   ) (StrLit     s2   ) = eqa s1 s2
-  liftEq2 _   _   _                  _                  = False
+-- instance Eq ty => Eq2 Exp where
+--   liftEq2 _   eqe (Plus       a1 b1) (Plus       a2 b2) = eqe a1 a2 && eqe b1 b2
+--   liftEq2 _   eqe (Times      a1 b1) (Times      a2 b2) = eqe a1 a2 && eqe b1 b2
+--   liftEq2 _   eqe (Cat        a1 b1) (Cat        a2 b2) = eqe a1 a2 && eqe b1 b2
+--   liftEq2 _   eqe (Len        a1   ) (Len        a2   ) = eqe a1 a2
+--   liftEq2 _   eqe (Let        a1 b1) (Let        a2 b2) = eqe a1 a2 && eqe b1 b2
+--   liftEq2 _   eqe (Annotation t1 e1) (Annotation t2 e2) = t1 == t2  && eqe e1 e2
+--   liftEq2 eqa  _  (NumLit     i1   ) (NumLit     i2   ) = eqa i1 i2
+--   liftEq2 eqa  _  (StrLit     s1   ) (StrLit     s2   ) = eqa s1 s2
+--   liftEq2 _   _   _                  _                  = False
 
 data ValF prim val
   = NumV !prim
@@ -201,9 +200,9 @@ dynamics'
 dynamics' = runParser (PD.parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" dynamicsT
 
-tm1F, tm2F, tm3F :: Fix (VarBindingF :+: Exp () E)
+tm1F, tm2F, tm3F :: Fix (VarBindingF :+: Exp E)
 
-tm1F = Fix $ InR $ Annotation () $
+tm1F = Fix $ InR $ Annotation (E $ Right "annotation") $
   Fix $ InR $ Let
     (Fix $ InR $ NumLit $ E $ Left 1)
     (Fix $ InL $ BindingF ["x"] $ Fix $ InR $ Plus

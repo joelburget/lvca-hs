@@ -3,7 +3,7 @@
 
 module Linguist.TH (mkTypes, mkSyntaxInstances, Options(..), defOptions) where
 
-import           Control.Lens                    (ifor, (<&>), prism', (^..), preview, review)
+import           Control.Lens                    (Prism', ifor, (<&>), prism', (^..), preview, review, _Just)
 import           Control.Lens.TH                 (makeLenses)
 import           Control.Monad                   (join)
 import           Data.Bifunctor.TH               hiding (Options)
@@ -21,6 +21,7 @@ import           Language.Haskell.TH.Datatype
 import           Language.Haskell.TH.Syntax      (lift, dataToExpQ)
 
 import           Linguist.FunctorUtil            (Fix(Fix))
+import           Linguist.Util                   (_Fix)
 import           Linguist.ParseSyntaxDescription
 import           Linguist.Types                  hiding (valences)
 
@@ -126,7 +127,12 @@ mkTypes (Options dtName chartName externals) tDesc = do
 mkTermHelpers :: SyntaxChart -> Name -> Q [Dec]
 mkTermHelpers chart@(SyntaxChart chartContents) fName = do
   let allVarNames = [1 :: Int ..] <&> \i -> mkName ("v" ++ show i)
-      varNameGen = zipWith const allVarNames
+      varNameGen = zipWith
+        (\varName (Valence _ resultSort) -> case resultSort of
+          SortAp{} -> Left varName
+          _        -> Right varName
+        )
+        allVarNames
 
   syntaxDec <- funD (mkName "syntaxOf")
     [ clause [wildP] (normalB (liftDataWithText chart)) [] ]
@@ -151,12 +157,13 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   (conP
                     (mkName' name)
-                    (varP <$> varNameGen valences))
+                    (varP . either id id <$> varNameGen valences))
                   (normalB [|
                     PatternTm
                     $(litE $ StringL $ unpack name)
-                    $(listE $ varNameGen valences <&> \v ->
-                      [| review patP' $(varE v) |])
+                    $(listE $ varNameGen valences <&> \case
+                      Left v  -> [| review patP' $(varE v) |]
+                      Right v -> [| review p     $(varE v) |])
                     |])
                   []
         ) [] ]
@@ -167,14 +174,19 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   [p| PatternTm
                     $(litP $ StringL $ unpack name)
-                    $(listP $ varP <$> varNameGen valences)
+                    $(listP $ varP . either id id <$> varNameGen valences)
                   |]
                   (normalB $ foldl
-                    (\con var -> [| $(con) <*> preview patP' $(varE var) |])
+                    (\con -> \case
+                      Left  v -> [| $con <*> preview patP' $(varE v) |]
+                      Right v -> [| $con <*> preview p     $(varE v) |])
                     [| pure $(conE $ mkName' name) |]
                     (varNameGen valences))
                   []
         ) [] ]
+
+      , sigD (mkName "p") [t| forall a. Prism' (Pattern a) a |]
+      , valD (varP (mkName "p")) (normalB [| _PatternPrimVal . _Just |]) []
       ]
     ]
 
@@ -198,12 +210,13 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   (conP
                     (mkName' name)
-                    (varP <$> varNameGen valences))
+                    (varP . either id id <$> varNameGen valences))
                   (normalB [|
                     Fix (Term
                     $(litE $ StringL $ unpack name)
-                    $(listE $ varNameGen valences <&> \v ->
-                      [| review termP' $(varE v) |])
+                    $(listE $ varNameGen valences <&> \case
+                      Left  v -> [| review termP' $(varE v) |]
+                      Right v -> [| review p      $(varE v) |])
                     ) |])
                   []
         ) [] ]
@@ -214,14 +227,19 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                 match
                   [p| Fix (Term
                     $(litP $ StringL $ unpack name)
-                    $(listP $ varP <$> varNameGen valences)
+                    $(listP $ varP . either id id <$> varNameGen valences)
                   ) |]
                   (normalB $ foldl
-                    (\con var -> [| $con <*> preview termP' $(varE var) |])
+                    (\con -> \case
+                      Left  v -> [| $con <*> preview termP' $(varE v) |]
+                      Right v -> [| $con <*> preview p      $(varE v) |])
                     [| pure $(conE $ mkName' name) |]
                     (varNameGen valences))
                   []
         ) [] ]
+
+      , sigD (mkName "p") [t| forall a. Prism' (Term a) a |]
+      , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValue |]) []
       ]
     ]
 

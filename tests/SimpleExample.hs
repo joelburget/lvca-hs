@@ -520,7 +520,7 @@ explicitPatP = prism' rtl ltr where
       Cat   a b -> PatternTm "Cat"   [ review explicitPatP a , review explicitPatP b ]
       Len   a   -> PatternTm "Len"   [ review explicitPatP a                 ]
       Let   a b -> PatternTm "Let"   [ review explicitPatP a , review explicitPatP b ]
-      Annotation () a -> PatternTm "Annotation" [ review explicitPatP a ]
+      Annotation a b -> PatternTm "Annotation" [ review p a,   review explicitPatP b ]
       NumLit i  -> PatternTm "NumLit" [ review p i ]
       StrLit s  -> PatternTm "StrLit" [ review p s ]
     ltr' = \case
@@ -529,7 +529,7 @@ explicitPatP = prism' rtl ltr where
       PatternTm "Cat"        [ a, b ] -> Cat   <$> preview explicitPatP a <*> preview explicitPatP b
       PatternTm "Len"        [ a    ] -> Len   <$> preview explicitPatP a
       PatternTm "Let"        [ a, b ] -> Let   <$> preview explicitPatP a <*> preview explicitPatP b
-      PatternTm "Annotation" [ a    ] -> Annotation () <$> preview explicitPatP a
+      PatternTm "Annotation" [ a, b ] -> Annotation <$> preview p a <*> preview explicitPatP b
       PatternTm "NumLit"     [ i    ] -> NumLit <$> preview p i
       PatternTm "StrLit"     [ s    ] -> StrLit <$> preview p s
       _                               -> Nothing

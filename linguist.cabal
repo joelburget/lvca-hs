@@ -12,9 +12,8 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
-executable linguist
-  main-is:             Main.hs
-  other-modules:
+library
+  exposed-modules:
     Linguist.Brick,
     Linguist.FunctorUtil,
     Linguist.ParseLanguage,
@@ -34,7 +33,6 @@ executable linguist
     Linguist.Languages.MachineModel,
     Linguist.ParseDenotationChart,
     Text.Megaparsec.Char.LexerAlt
-  -- other-extensions:
   build-depends:
     base >=4.11 && <4.12,
     mtl,
@@ -92,9 +90,13 @@ executable linguist
     MultiWayIf,
     GeneralizedNewtypeDeriving
 
+executable linguist
+  main-is:             Main.hs
+  build-depends: base >=4.11 && <4.12, linguist
+
 test-suite tests
   main-is:          tests.hs
   type:             exitcode-stdio-1.0
-  hs-source-dirs: test
+  hs-source-dirs:   test
   default-language: Haskell2010
-  build-depends: base >=4.11 && <4.12, linguist, easytest
+  build-depends:    base >=4.11 && <4.12, linguist, easytest
