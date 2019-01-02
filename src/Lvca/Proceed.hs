@@ -115,7 +115,7 @@ fMatches
   -> f a    (Fix (VarBindingF :+: f a   ))
   -> Maybe (MatchResult f a)
 fMatches f1 f2 = do
-  zipped <- bimatchWith (fmap Just . (,)) matches f1 f2
+  zipped <- bizipMatchWith (fmap Just . (,)) matches f1 f2
   pure $ bifoldMap
     (\(i, a) -> MatchResult (Map.singleton i a) mempty)
     id

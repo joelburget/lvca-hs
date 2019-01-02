@@ -24,7 +24,8 @@ common deps
     prettyprinter,
     prettyprinter-ansi-terminal,
     megaparsec,
-    neat-interpolation
+    neat-interpolation,
+    matchable >= 0.1.2
 
 common extensions
   default-extensions:
