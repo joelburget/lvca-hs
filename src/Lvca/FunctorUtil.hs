@@ -22,22 +22,12 @@ module Lvca.FunctorUtil
   , pattern FixL
   , pattern FixR
   , closed
-  , identity
-  , compose
-  , composeIdentity
-  , free
-  , freeComposeIdentity
-  , type (~>)
-  , type (.~>)
-  , type (~>.)
 
   , Matchable(matchWith, match)
   , Bimatchable(bimatchWith, bimatch)
   ) where
 
-import           Control.Lens
-  (Prism', review, prism', iso, Iso', Identity(..), view, _Wrapped, preview,
-   Bifunctor)
+import Control.Lens (Prism', review, prism', preview, Bifunctor)
 import Control.Monad.Free
 import Data.Bitraversable (Bitraversable(bitraverse))
 import Data.Functor.Classes
@@ -45,14 +35,6 @@ import Data.Functor.Compose
 import Data.Functor.Const (Const(..))
 import Data.Functor.Foldable (Fix(Fix), unfix)
 import Data.Text
-
-infixr 5 ~>
-infixr 5 .~>
-infixr 5 ~>.
-
-type f ~>  g = forall i. f i -> g i  -- Natural transformation
-type f .~> g = forall i. f -> g i   -- Constant on the left
-type f ~>. g = forall i. f i -> g   -- Constant on the right
 
 type f :.: g = Compose f g
 
@@ -127,24 +109,6 @@ closed = prism' rtl ltr where
   ltr = \case
     Pure _  -> Nothing
     Free tm -> Fix <$> traverse ltr tm
-
-identity :: Iso' (Identity a) a
-identity = _Wrapped -- iso runIdentity Identity
-
-compose :: Iso' ((f :.: g) a) (f (g a))
-compose = _Wrapped -- iso getCompose Compose
-
-composeIdentity :: Functor f => Iso' ((f :.: Identity) a) (f a)
-composeIdentity = iso (fmap runIdentity . getCompose) (Compose . fmap Identity)
-
-free :: Functor f
-  => (forall a. Iso'      ((f :.: Identity) a)      (f a))
-  -> (forall a. Iso' (Free (f :.: Identity) a) (Free f a))
-free i = iso (hoistFree (view i)) (hoistFree (review i))
-
-freeComposeIdentity
-  :: Functor f => Iso' (Free (f :.: Identity) Text) (Free f Text)
-freeComposeIdentity = free composeIdentity
 
 -- | Subtyping relation from "Data types a la carte".
 --
