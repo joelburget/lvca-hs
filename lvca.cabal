@@ -15,17 +15,38 @@ extra-source-files:  ChangeLog.md
 common deps
   build-depends:
     base >=4.11 && <4.12,
-    mtl,
+    bifunctors,
+    brick >= 0.41,
+    bytestring,
+    cborg,
+    cmark,
+    cmark-patterns,
     containers,
-    text,
-    lens,
+    cryptohash-sha256,
     data-diverse,
     data-diverse-lens,
+    deriving-compat,
+    free,
+    hedgehog,
+    lens,
+    matchable >= 0.1.2,
+    megaparsec,
+    mmorph,
+    mtl,
+    multirec >= 0.7.8,
+    neat-interpolation,
     prettyprinter,
     prettyprinter-ansi-terminal,
-    megaparsec,
-    neat-interpolation,
-    matchable >= 0.1.2
+    recursion-schemes,
+    sbv,
+    serialise,
+    template-haskell >= 2.4 && < 2.15,
+    text,
+    th-abstraction,
+    transformers >= 0.5.5,
+    vty >= 5.25,
+    writer-cps-mtl,
+    zippers
 
 common extensions
   default-extensions:
@@ -64,27 +85,6 @@ library
     Lvca.Util,
     Lvca.ParseDenotationChart,
     Text.Megaparsec.Char.LexerAlt
-  build-depends:
-    brick >= 0.41,
-    vty >= 5.25,
-    zippers,
-    mmorph,
-    cmark,
-    cmark-patterns,
-    template-haskell >= 2.4 && < 2.15,
-    recursion-schemes,
-    free,
-    hedgehog,
-    cborg,
-    serialise,
-    cryptohash-sha256,
-    bytestring,
-    sbv,
-    writer-cps-mtl,
-    transformers >= 0.5.5,
-    bifunctors,
-    deriving-compat,
-    th-abstraction
   hs-source-dirs:      src
   default-language:    Haskell2010
 
@@ -92,7 +92,7 @@ executable lvca
   import:        extensions, deps
   hs-source-dirs: src
   main-is:       Main.hs
-  build-depends: lvca
+  build-depends: lvca, haskeline
 
 test-suite tests
   import:           extensions, deps
