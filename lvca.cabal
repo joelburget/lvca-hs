@@ -23,7 +23,8 @@ common deps
     data-diverse-lens,
     prettyprinter,
     prettyprinter-ansi-terminal,
-    megaparsec
+    megaparsec,
+    neat-interpolation
 
 common extensions
   default-extensions:
@@ -51,6 +52,8 @@ library
   exposed-modules:
     Lvca.Brick,
     Lvca.FunctorUtil,
+    Lvca.Languages.Edits,
+    Lvca.Languages.MachineModel,
     Lvca.ParseLanguage,
     Lvca.ParseSyntaxDescription,
     Lvca.ParseUtil,
@@ -58,12 +61,6 @@ library
     Lvca.TH,
     Lvca.Types,
     Lvca.Util,
-    Lvca.Languages.Arith,
-    Lvca.Languages.Document,
-    Lvca.Languages.SimpleExample,
-    Lvca.Languages.Stlc,
-    Lvca.Languages.TExample,
-    Lvca.Languages.MachineModel,
     Lvca.ParseDenotationChart,
     Text.Megaparsec.Char.LexerAlt
   build-depends:
@@ -71,13 +68,11 @@ library
     vty >= 5.25,
     zippers,
     mmorph,
-    neat-interpolation,
     cmark,
     cmark-patterns,
     template-haskell >= 2.4 && < 2.15,
     recursion-schemes,
     free,
-    multirec >= 0.7.8,
     hedgehog,
     cborg,
     serialise,
@@ -94,6 +89,7 @@ library
 
 executable lvca
   import:        extensions, deps
+  hs-source-dirs: src
   main-is:       Main.hs
   build-depends: base >=4.11 && <4.12, lvca
 

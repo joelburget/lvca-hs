@@ -30,16 +30,6 @@ module Lvca.FunctorUtil
   , type (~>)
   , type (.~>)
   , type (~>.)
-  , imapDefault
-  , iFoldMapDefault
-  , HFree(..)
-  , _I
-  , _K
-  , _K_I
-
-  , IxFunctor(..)
-  , IxFoldable(..)
-  , IxTraversable(..)
 
   , Matchable(matchWith, match)
   , Bimatchable(bimatchWith, bimatch)
@@ -55,9 +45,6 @@ import Data.Functor.Compose
 import Data.Functor.Const (Const(..))
 import Data.Functor.Foldable (Fix(Fix), unfix)
 import Data.Text
-
-import Generics.MultiRec.Base (I(I, unI), K(K, unK), unD)
-import qualified Generics.MultiRec.Base as MR
 
 infixr 5 ~>
 infixr 5 .~>
@@ -144,24 +131,11 @@ closed = prism' rtl ltr where
 identity :: Iso' (Identity a) a
 identity = _Wrapped -- iso runIdentity Identity
 
-_I :: Iso' (I xi r ix) (r xi)
-_I = iso unI I
-
 compose :: Iso' ((f :.: g) a) (f (g a))
 compose = _Wrapped -- iso getCompose Compose
 
-_K :: Iso' (K a r ix) a
-_K = iso unK K
-
 composeIdentity :: Functor f => Iso' ((f :.: Identity) a) (f a)
 composeIdentity = iso (fmap runIdentity . getCompose) (Compose . fmap Identity)
-
-_K_I :: Functor f => Iso' ((f MR.:.: I ix) a ix) (f (a ix))
-_K_I = iso (fmap unI . unD) (MR.D . fmap I)
-
-data HFree f a ix
-  = HPure a
-  | HFree (f (HFree f a) ix)
 
 free :: Functor f
   => (forall a. Iso'      ((f :.: Identity) a)      (f a))
@@ -171,36 +145,6 @@ free i = iso (hoistFree (view i)) (hoistFree (review i))
 freeComposeIdentity
   :: Functor f => Iso' (Free (f :.: Identity) Text) (Free f Text)
 freeComposeIdentity = free composeIdentity
-
--- hfree :: Functor f
---   => (forall (a :: * -> *). Iso'       ((f MR.:.: I ix)  a     ix)       (f (a ix)))
---   -> (forall (a :: * -> *). Iso' (HFree (f MR.:.: I ix) (a ix) ix) (Free  f (a ix)))
--- hfree i = iso (hoistHfree (view i)) (hoistHfree (review i))
-
--- hoistHfree :: IxFunctor g => (f a ~> g a) -> (HFree f b ~> HFree g b)
--- hoistHfree _ (Pure a)  = Pure a
--- hoistHfree f (Free as) = Free (hoistHfree f <$> f as)
-
--- hfree_K_I
---   :: Functor f => Iso' (HFree (f MR.:.: I ix) Text ix) (Free f Text)
--- hfree_K_I = hfree _K_I
-
-class IxFunctor (f :: (i -> *) -> (o -> *)) where
-  imap :: (a ~> b) -> (f a ~> f b)
-
-class IxFunctor t => IxTraversable t where
-  -- the type would be "(a ~> (f . b)) -> (t a ~> (f . t b))" if we had the composition
-  -- function on type level.
-  itraverse :: Applicative f => (forall i. a i -> f (b i)) -> (forall i. t a i -> f (t b i))
-
-class IxFoldable t where
-  iFoldMap :: Monoid m => (a ~>. m) -> (t a ~>. m)
-
-imapDefault :: IxTraversable t => (a ~> b) -> (t a ~> t b)
-imapDefault f = runIdentity . itraverse (Identity . f)
-
-iFoldMapDefault :: (IxTraversable t, Monoid m) => (a ~>. m) -> (t a ~>. m)
-iFoldMapDefault f = getConst . itraverse (Const . f)
 
 -- | Subtyping relation from "Data types a la carte".
 --
