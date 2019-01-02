@@ -21,7 +21,6 @@ module Lvca.FunctorUtil
   , pattern FreeR
   , pattern FixL
   , pattern FixR
-  , closed
 
   , Matchable(matchWith, match)
   , Bimatchable(bimatchWith, bimatch)
@@ -34,7 +33,6 @@ import Data.Functor.Classes
 import Data.Functor.Compose
 import Data.Functor.Const (Const(..))
 import Data.Functor.Foldable (Fix(Fix), unfix)
-import Data.Text
 
 type f :.: g = Compose f g
 
@@ -65,8 +63,8 @@ instance (Foldable f, Foldable g) => Foldable (f :+: g) where
   foldMap f (InR x) = foldMap f x
 
 instance (Traversable f, Traversable g) => Traversable (f :+: g) where
-  traverse f (InL x)= InL <$> traverse f x
-  traverse f (InR x)= InR <$> traverse f x
+  traverse f (InL x) = InL <$> traverse f x
+  traverse f (InR x) = InR <$> traverse f x
 
 _InL :: Prism' ((f :+: g) a) (f a)
 _InL = prism' InL $ \case
@@ -99,16 +97,6 @@ pattern FreeIn x = Free (In x)
 
 pattern FixIn :: f :<: g => f (Fix g) -> Fix g
 pattern FixIn x = Fix (In x)
-
--- We can always view a value (Fix f) as a term (Free f Text), but a term is
--- only convertible to a value if it doesn't hold any variables (Pure).
-closed :: Traversable f => Prism' (Free f Text) (Fix f)
-closed = prism' rtl ltr where
-  rtl = Free . fmap rtl . unfix
-
-  ltr = \case
-    Pure _  -> Nothing
-    Free tm -> Fix <$> traverse ltr tm
 
 -- | Subtyping relation from "Data types a la carte".
 --
