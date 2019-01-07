@@ -104,6 +104,9 @@ module Lvca.Types
   , (@@@)
   , (%%%)
   , (.--)
+
+  -- * Other
+  , Sha256(..)
   ) where
 
 
@@ -129,6 +132,7 @@ import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import           Data.Text.Prettyprint.Doc hiding ((<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
+import           Data.Void                 (Void)
 import           GHC.Exts                  (IsList (..))
 import           GHC.Generics (Generic)
 import           Text.Show.Deriving
@@ -308,6 +312,10 @@ class TermRepresentable f where
   patP
     :: Prism' (Pattern a)      (Fix f')
     -> Prism' (Pattern a) (f a (Fix f'))
+
+instance Serialise Void where
+  encode _ = error "Void cannot exist"
+  decode   = fail  "Void cannot exist"
 
 instance (Serialise a, Serialise term) => Serialise (TermF a term) where
   encode tm =

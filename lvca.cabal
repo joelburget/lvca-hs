@@ -27,9 +27,8 @@ common deps
     data-diverse-lens,
     deriving-compat,
     free,
-    gitlib,
-    gitlib-libgit2,
-    hedgehog,
+    git >= 0.2.2,
+    hourglass,
     lens,
     matchable >= 0.1.2,
     megaparsec,
@@ -92,10 +91,9 @@ library
   default-language:    Haskell2010
 
 executable lvca
-  import:        extensions, deps
-  hs-source-dirs: src
-  main-is:       Main.hs
-  build-depends: lvca, haskeline, process
+  import:         extensions, deps
+  main-is:        Main.hs
+  build-depends:  lvca, haskeline, process
 
 test-suite tests
   import:           extensions, deps
@@ -103,4 +101,4 @@ test-suite tests
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   default-language: Haskell2010
-  build-depends:    lvca, easytest
+  build-depends:    lvca, hedgehog, easytest

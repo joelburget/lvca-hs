@@ -1,3 +1,9 @@
 [submodule "easytest"]
 	path = easytest
 	url = git@github.com:joelburget/easytest.git
+[submodule "hs-git"]
+	path = hs-git
+	url = git@github.com:vincenthz/hs-git.git
+[submodule "haskeline"]
+	path = haskeline
+	url = git@github.com:rootmos/haskeline.git
