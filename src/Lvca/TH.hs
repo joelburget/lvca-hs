@@ -8,16 +8,15 @@ import           Control.Lens.TH                 (makeLenses)
 import           Control.Monad                   (join)
 import           Data.Bifunctor.TH               hiding (Options)
 import           Data.Data
+import           Data.Eq.Deriving
 import qualified Data.List                       as List
 import           Data.Map                        (Map)
 import qualified Data.Map                        as Map
+import           Data.Matchable.TH
 import           Data.Text                       (Text, pack, unpack)
 import           Language.Haskell.TH
 import           Text.Megaparsec                 (runParser)
 import           Text.Show.Deriving
-import           Data.Eq.Deriving
-import           Language.Haskell.TH.Datatype
-  (DatatypeInfo(..), ConstructorInfo(..), reifyDatatype)
 import           Language.Haskell.TH.Syntax      (lift, dataToExpQ)
 
 import           Lvca.FunctorUtil            (Fix(Fix))
@@ -40,7 +39,7 @@ defaultBang = Bang NoSourceUnpackedness SourceStrict
 data Options = Options
   { dataTypeName    :: !Text
   , syntaxChartName :: !(Maybe Text)
-  , externals       :: !(Map SortName Type)
+  , externals       :: !(Map SortName (Q Type))
   }
 
 defOptions :: Options
@@ -112,7 +111,14 @@ mkTypes (Options dtName mChartName externals) tDesc = do
         (fmap PlainTV [primName, expName])
         Nothing
         (concat $ Map.elems ctors)
-        []
+        [ DerivClause Nothing
+          [ ConT ''Eq
+          , ConT ''Show
+          , ConT ''Functor
+          , ConT ''Foldable
+          , ConT ''Traversable
+          ]
+        ]
 
   ty      <- [t| SyntaxChart |]
   expr    <- [| SyntaxChart $(liftDataWithText sorts) |]
@@ -146,7 +152,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
   syntaxDec <- funD (mkName "syntaxOf")
     [ clause [wildP] (normalB (liftDataWithText chart)) [] ]
 
---   patPSig <- sigD (mkName' "patP")
+--   patPSig <- sigD (mkName' "mkPatP")
 --     [t| Prism' (Pattern $(varT a))                          (Fix $(varT f))
 --      -> Prism' (Pattern $(varT a)) ($(conT fName) $(varT a) (Fix $(varT f)))
 --     |]
@@ -157,7 +163,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
   --       ltr: `Plus a b -> PatternTm "Plus" [ review patP' a, review patP' b ]`
   --       rtl: `PatternTm "Plus" [ a, b ]
   --         -> Plus <$> preview patP' a <*> preview patP' b`
-  patPDec <- funD (mkName' "patP")
+  patPDec <- funD (mkName' "mkPatP")
     [ clause [varP (mkName "patP'")] (normalB [| prism' rtl ltr |])
       [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
           concat $
@@ -203,7 +209,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
       ]
     ]
 
---   termPSig <- sigD (mkName' "termP")
+--   termPSig <- sigD (mkName' "mkTermP")
 --     [t| Prism' (Term $(varT a))                          (Fix $(varT f))
 --      -> Prism' (Term $(varT a)) ($(conT fName) $(varT a) (Fix $(varT f)))
 --     |]
@@ -214,7 +220,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
   --       ltr: `Plus a b -> Fix (Term "Plus" [ review termP' a, review termP' b ])`
   --       rtl: `Fix (Term "Plus" [ a, b ])
   --         -> Plus <$> preview termP' a <*> preview termP' b`
-  termPDec <- funD (mkName' "termP")
+  termPDec <- funD (mkName' "mkTermP")
     [ clause [varP (mkName "termP'")] (normalB [| prism' rtl ltr |])
       [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
           concat $
@@ -269,58 +275,11 @@ mkSyntaxInstances dtName = fmap join $ sequence
   [ deriveBifunctor         dtName
   , deriveBifoldable        dtName
   , deriveBitraversable     dtName
+  , deriveShow1             dtName
   , deriveShow2             dtName
+  , deriveEq1               dtName
   , deriveEq2               dtName
   , deriveBimatchable       dtName
   , makeLenses              dtName
   -- , deriveTermRepresentable dtName chart
   ]
-
-deriveBimatchable :: Name -> Q [Dec]
-deriveBimatchable name = do
-  info <- reifyDatatype name
-  let DatatypeInfo { datatypeVars = dtVars , datatypeCons = cons } = info
-      SigT tyTm _ : SigT tyPrim _ : _ = reverse dtVars
-
-  dec <- instanceD (pure []) (appT (conT (mkName "Bimatchable")) (conT name))
-    [ funD (mkName "bimatchWith") $ cons <&>
-      \(ConstructorInfo ctrName _ _ fields _ _) ->
-        let mkFields side = zipWith3
-              (\a b _ -> mkName (a : show b)) (repeat side)
-              [1 :: Int ..]
-              fields
-            (body, bodyUsesF, bodyUsesG) = foldl
-              (\(con, usesF, usesG) (ty, i) ->
-                let (fg, usesF', usesG') = if
-                      | ty == tyTm   -> (dyn "g", usesF, True)
-                      | ty == tyPrim -> (dyn "f", True, usesG)
-                      | otherwise    -> error
-                        "unexpected type in derivation of Bimatchable"
-                    li = dyn $ "l" ++ show i
-                    ri = dyn $ "r" ++ show i
-                in ([| $con <*> $fg $li $ri |], usesF', usesG')
-              )
-              ([| Just $(conE ctrName) |], False, False)
-              (zip fields [1 :: Int ..])
-        in clause
-          [ if bodyUsesF then varP $ mkName "f" else wildP
-          , if bodyUsesG then varP $ mkName "g" else wildP
-          , conP ctrName $ varP <$> mkFields 'l'
-          , conP ctrName $ varP <$> mkFields 'r'
-          ]
-          (normalB body)
-          []
-    ]
-  pure [dec]
-
--- eg:
--- instance Bimatchable (ExpF ()) where
---   bimatchWith _ g (Plus       a1 b1) (Plus       a2 b2) = Plus  <$> g a1 a2 <*> g b1 b2
---   bimatchWith _ g (Times      a1 b1) (Times      a2 b2) = Times <$> g a1 a2 <*> g b1 b2
---   bimatchWith _ g (Cat        a1 b1) (Cat        a2 b2) = Cat   <$> g a1 a2 <*> g b1 b2
---   bimatchWith _ g (Len        a1   ) (Len        a2   ) = Len   <$> g a1 a2
---   bimatchWith _ g (Let        a1 b1) (Let        a2 b2) = Let   <$> g a1 a2 <*> g b1 b2
---   bimatchWith _ g (Annotation () b1) (Annotation () b2) = Annotation ()     <$> g b1 b2
---   bimatchWith f _ (NumLit a1   )     (NumLit a2   )     = NumLit <$> f a1 a2
---   bimatchWith f _ (StrLit a1   )     (StrLit a2   )     = StrLit <$> f a1 a2
---   bimatchWith _ _ _                  _                  = Nothing

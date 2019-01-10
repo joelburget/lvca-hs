@@ -1,10 +1,17 @@
-module Test.ParseLanguage
+module Test.ParseLanguage where
 
+import Control.Monad.Reader
 import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
                                                         layoutPretty, Pretty(pretty))
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           EasyTest             (Test, expectEq)
 import           Hedgehog             hiding (Test, Var)
+import Data.Text (Text, unpack)
+import           Text.Megaparsec (parseMaybe, runParser, errorBundlePretty)
+
+import Lvca.Types
+import Lvca.ParseLanguage
+import Test.Types
 
 prop_parse_pretty
   :: (Show a, Pretty a, Eq a)

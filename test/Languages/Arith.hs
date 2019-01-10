@@ -20,16 +20,20 @@ import           Data.Void                          (Void)
 import           EasyTest
 import           Text.Megaparsec
   (ParseErrorBundle, runParser, choice, errorBundlePretty)
+import           NeatInterpolation
 
 import           Lvca.FunctorUtil
 import           Lvca.ParseDenotationChart      (parseDenotationChart)
 import qualified Lvca.ParseDenotationChart      as PD
 import           Lvca.ParseUtil
+import           Lvca.Proceed
 import           Lvca.Types
 import           Lvca.TH
 import           Lvca.ParseLanguage
+import           Lvca.Util
 
-import NeatInterpolation
+import Test.ParseLanguage
+import Test.Types
 
 newtype E = E { unE :: Either Int Text }
   deriving (Eq, Show)
@@ -181,11 +185,8 @@ evalMachinePrimitive (E (Right str)) = case str of
 evalMachinePrimitive _ = Nothing
 
 machineEval :: Term Void -> Either String (Term E)
-machineEval = error "TODO"
--- eval $ mkEvalEnv "Arith" syntax
---   (forceRight machineDynamics)
---   evalMachinePrimitive
---   (const Nothing)
+machineEval =
+  eval (EvalEnv Map.empty evalMachinePrimitive) (forceRight machineDynamics)
 
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval = error "TODO"

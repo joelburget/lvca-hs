@@ -12,20 +12,42 @@ category:            Language
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 
-common deps
+common core-deps
   build-depends:
     base >=4.11 && <4.12,
-    mtl,
+    bifunctors,
+    brick >= 0.41,
+    bytestring,
+    cborg,
     containers,
-    text,
-    lens,
+    cryptohash-sha256,
     data-diverse,
     data-diverse-lens,
+    deriving-compat,
+    free,
+    lens,
+    matchable >= 0.1.2,
+    matchable-th,
+    megaparsec,
+    mtl,
+    neat-interpolation,
     prettyprinter,
     prettyprinter-ansi-terminal,
-    megaparsec,
-    neat-interpolation,
-    matchable >= 0.1.2
+    recursion-schemes,
+    serialise,
+    template-haskell >= 2.4 && < 2.15,
+    text,
+    transformers >= 0.5.5,
+    vty >= 5.25,
+    writer-cps-mtl,
+    zippers,
+
+common extra-deps
+  build-depends:
+    cmark,
+    cmark-patterns,
+    hedgehog,
+    sbv,
 
 common extensions
   default-extensions:
@@ -48,56 +70,45 @@ common extensions
     MultiWayIf,
     GeneralizedNewtypeDeriving
 
+common library-modules
+
 library
-  import: extensions, deps
+  import: extensions, core-deps
   exposed-modules:
-    Lvca.Brick,
-    Lvca.FunctorUtil,
-    Lvca.Languages.Edits,
-    Lvca.Languages.MachineModel,
-    Lvca.ParseLanguage,
-    Lvca.ParseSyntaxDescription,
-    Lvca.ParseUtil,
-    Lvca.Proceed,
-    Lvca.TH,
-    Lvca.Types,
-    Lvca.Util,
-    Lvca.ParseDenotationChart,
+    Lvca.Brick
+    Lvca.FunctorUtil
+    Lvca.Languages.Edits
+    Lvca.Languages.MachineModel
+    Lvca.ParseLanguage
+    Lvca.ParseSyntaxDescription
+    Lvca.ParseUtil
+    Lvca.Proceed
+    Lvca.TH
+    Lvca.Types
+    Lvca.Util
+    Lvca.ParseDenotationChart
     Text.Megaparsec.Char.LexerAlt
-  build-depends:
-    brick >= 0.41,
-    vty >= 5.25,
-    zippers,
-    mmorph,
-    cmark,
-    cmark-patterns,
-    template-haskell >= 2.4 && < 2.15,
-    recursion-schemes,
-    free,
-    hedgehog,
-    cborg,
-    serialise,
-    cryptohash-sha256,
-    bytestring,
-    sbv,
-    writer-cps-mtl,
-    transformers >= 0.5.5,
-    bifunctors,
-    deriving-compat,
-    th-abstraction
   hs-source-dirs:      src
   default-language:    Haskell2010
 
 executable lvca
-  import:        extensions, deps
+  import:         extensions, core-deps, extra-deps
   hs-source-dirs: src
-  main-is:       Main.hs
-  build-depends: lvca
+  main-is:        Main.hs
+  build-depends:  lvca
 
 test-suite tests
-  import:           extensions, deps
+  import:           extensions, core-deps, extra-deps
   main-is:          tests.hs
+  other-modules:
+    Languages.Arith
+    Languages.Document
+    Languages.SimpleExample
+    Languages.Stlc
+    Languages.TExample
+    Test.ParseLanguage
+    Test.Types
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   default-language: Haskell2010
-  build-depends:    lvca, easytest
+  build-depends:    lvca, easytest, inspection-testing

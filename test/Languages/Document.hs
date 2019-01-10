@@ -11,6 +11,7 @@ import           Data.Void                          (Void, absurd)
 import           Text.Megaparsec                    (ParseErrorBundle, runParser)
 import           Data.Text.Prettyprint.Doc          (Pretty(..))
 import           NeatInterpolation
+import EasyTest
 
 import           Lvca.FunctorUtil
 import           Lvca.ParseLanguage
@@ -19,6 +20,7 @@ import           Lvca.ParseSyntaxDescription    hiding (Parser)
 import           Lvca.Types                     -- (SyntaxChart, Term (..))
 import           Lvca.Util                      (forceRight)
 
+import           Test.Types
 import           Test.ParseLanguage
 
 data InlineEmbed

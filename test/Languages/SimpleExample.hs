@@ -2,8 +2,6 @@
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
 {-# LANGUAGE DeriveGeneric     #-}
--- patP' and termP' are unused in the generated code
-{-# OPTIONS_GHC -fno-warn-unused-matches #-}
 
 module Languages.SimpleExample
   ( dynamicTests
@@ -16,43 +14,51 @@ module Languages.SimpleExample
   , translateTests
   , parseTests
   , propTests
+  , explicitPatP
+  , patP
+
+  -- currently unused:
+  , tm3
+  , typingJudgement
   ) where
-
-import           Control.Monad.Trans.Maybe
-import           Control.Monad.Writer.CPS
-import qualified Data.Map.Strict                       as Map
-import           Data.Sequence                         (Seq)
-import qualified Data.Text                             as Text
-import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
-                                                        layoutPretty, Pretty(pretty))
-import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
-import           Hedgehog                              (Property, property, (===), forAll, Gen)
-import qualified Hedgehog.Gen                          as Gen
-import qualified Hedgehog.Range                        as Range
-
-import           Lvca.ParseLanguage
-import           Lvca.Proceed                      hiding (matches, findMatch)
-import           Lvca.Languages.MachineModel
-import           Lvca.Util                         (forceRight)
 
 import           Codec.Serialise
 import           Control.Lens                          hiding (from, to, op)
-import qualified Data.Map                              as Map
+import           Control.Monad.Reader
+import           Control.Monad.Trans.Maybe
+import           Control.Monad.Writer.CPS
+import           Data.Sequence                         (Seq)
 import           Data.String                           (IsString(fromString))
 import           Data.Text                             (Text)
-import           Data.Text.Prettyprint.Doc             (Pretty(pretty))
+import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
+                                                        layoutPretty, Pretty(pretty))
+import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
+import           EasyTest
 import           GHC.Generics                          (Generic)
+import           Hedgehog                              (Property, property, (===), forAll, Gen)
 import           NeatInterpolation
 import           Text.Megaparsec
+import qualified Data.Map.Strict                       as Map
+import qualified Data.Text                             as Text
+import qualified Hedgehog.Gen                          as Gen
+import qualified Hedgehog.Range                        as Range
 
-import qualified Lvca.ParseDenotationChart         as PD
-import           Lvca.Types
+import           Language.Haskell.TH.Syntax (Type(..))
+
 import           Lvca.FunctorUtil
+import           Lvca.Languages.MachineModel
+import           Lvca.ParseLanguage
 import           Lvca.ParseUtil
+import           Lvca.Proceed                      hiding (matches, findMatch)
 import           Lvca.TH
+import           Lvca.Types
+import           Lvca.Util                         (forceRight)
+import qualified Lvca.ParseDenotationChart         as PD
 
-import Language.Haskell.TH.Syntax (Type(..))
+import qualified Test.Inspection as TI
+import Test.ParseLanguage
+import Test.Types
 
 newtype E = E (Either Int Text)
   deriving (Eq, Show, Generic)
@@ -78,9 +84,9 @@ pattern TS :: Text -> Term E
 pattern TS x = PrimValue' "Str" (Right x)
 
 mkTypes (Options "Exp" Nothing $ Map.fromList
-  [ "Annot" :-> TupleT 0
-  , "Int"   :-> ConT ''Int
-  , "Text"  :-> ConT ''Text
+  [ "Annot" :-> [t| ()   |]
+  , "Int"   :-> [t| Int  |]
+  , "Text"  :-> [t| Text |]
   ])
   "Exp ::=                                                                  \n\
   \  Plus(Exp; Exp)                                                         \n\
@@ -94,19 +100,13 @@ mkTypes (Options "Exp" Nothing $ Map.fromList
 mkSyntaxInstances ''Exp
 
 mkTypes (Options "Val" Nothing $ Map.fromList
-  [ "Int"  :-> ConT ''Int
-  , "Text" :-> ConT ''Text
+  [ "Int"  :-> [t| Int  |]
+  , "Text" :-> [t| Text |]
   ])
   "Val ::=                                                                  \n\
   \  NumV{Int}                                                              \n\
   \  StrV{Text}"
 mkSyntaxInstances ''Val
-
-instance Show a => Show1 (Val a) where
-  liftShowsPrec = liftShowsPrec2 showsPrec showList
-
-instance (Show a, Show b) => Show (Val a b) where
-  showsPrec = liftShowsPrec2 showsPrec showList showsPrec showList
 
 dynamicsT :: Text
 dynamicsT = [text|
@@ -221,11 +221,11 @@ genText :: Gen Text
 genText = Gen.text (Range.exponential 0 1000) Gen.unicode
 
 pattern FixExp
-  :: ExpF () E (Fix (PatVarF :+: ExpF () E))
-  -> Fix            (PatVarF :+: ExpF () E)
+  :: Exp E (Fix (PatVarF :+: Exp E))
+  -> Fix        (PatVarF :+: Exp E)
 pattern FixExp x = Fix (InR x)
 
-genPat :: Gen (Fix (PatVarF :+: ExpF () E))
+genPat :: Gen (Fix (PatVarF :+: Exp E))
 genPat = Gen.recursive Gen.choice [
     Fix . InL . PatVarF <$> Gen.choice
       [ pure Nothing
@@ -237,22 +237,32 @@ genPat = Gen.recursive Gen.choice [
   , Gen.subterm2 genPat genPat (fmap FixExp . Cat)
   , Gen.subterm  genPat        (     FixExp . Len)
   , Gen.subterm2 genPat genPat (fmap FixExp . Let)
-  , Gen.subterm  genPat        (     FixExp . Annotation ())
+  , Gen.subterm  genPat        (     FixExp . Annotation (E (Right "annotation")))
   ]
 
+patP_round_trip_prop :: Property
+patP_round_trip_prop = property $ do
+  x <- forAll genPat
+  preview patP (review patP x) === Just x
+
+valP_round_trip_prop :: Property
+valP_round_trip_prop = property $ do
+  x <- forAll genVal
+  preview termP (review termP x) === Just x
+
 pattern FixVal
-  :: ValF E (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF E))
-  -> Fix         (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF E)
+  :: Val E (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E))
+  -> Fix        (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E)
 pattern FixVal x = Fix (InR (InR (InR x)))
 
 pattern FixApp
   :: Text
-  -> [ Fix         (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF E) ]
-  -> Fix           (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF E)
+  -> [ Fix         (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E) ]
+  -> Fix           (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E)
 pattern FixApp name tms = Fix (InR (InR (InL (PrimApp name tms))))
 
 -- TODO: generate VarBindingF / MachineF as well
-genVal :: Gen (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF E))
+genVal :: Gen (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E))
 genVal = Gen.recursive Gen.choice [
     FixVal . NumV . E . Left  <$> Gen.int Range.exponentialBounded
   , FixVal . StrV . E . Right <$> genText
@@ -268,16 +278,6 @@ genVal = Gen.recursive Gen.choice [
 --   [ expectEq tm1F tm1
 --   ]
 
-patP_round_trip_prop :: Property
-patP_round_trip_prop = property $ do
-  x <- forAll genPat
-  preview patP (review patP x) === Just x
-
-valP_round_trip_prop :: Property
-valP_round_trip_prop = property $ do
-  x <- forAll genVal
-  preview valP (review valP x) === Just x
-
 dynamicTests :: Test ()
 dynamicTests =
   let
@@ -289,21 +289,22 @@ dynamicTests =
       n2          = TI 2
       x           = PatternVar (Just "x")
       patCheck    :: Maybe (PatternCheckResult Text)
-      patCheck    = runMatches syntax "Exp" $ patternCheck dynamics
+      patCheck    = runMatches syntax "Exp" $ patternCheck dynamics'
       env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
          lenStr
        , expectJust $ runMatches syntax "Exp" $ matches (PatternTm "Len" [x])
          lenStr
-       -- , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
+       -- XXX
+       -- , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics)
        --   lenStr
-       -- , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
+       -- , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics)
        --   (times n1 n2)
-       -- , expectJust $ runMatches syntax "Exp" $ findMatch dynamics
+       -- , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics)
        --   (plus n1 n2)
-       , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics')
-         tm1
+       -- , expectJust $ runMatches syntax "Exp" $ findMatch (forceRight dynamics)
+       --   tm1
 
 --        , let Just (subst, _) = findMatch syntax "Exp" dynamics tm1
 --              result = applySubst subst tm1
@@ -483,28 +484,28 @@ matchesTests = scope "matches" $
 
 evalTests :: Test ()
 evalTests =
-  let run tm expected = case evalF tm of
+  let run' tm expected = case evalF tm of
         (Left err,     _logs) -> fail err
         (Right result, _logs) -> expectEq result expected
   in tests
-       [ run tm1F $ Fix $ NumV $ E $ Left 3
-       , run tm2F $ Fix $ StrV "foobar"
-       , run tm3F $ Fix $ NumV $ E $ Left 15
+       [ run' tm1F $ Fix $ NumV $ E $ Left 3
+       , run' tm2F $ Fix $ StrV "foobar"
+       , run' tm3F $ Fix $ NumV $ E $ Left 15
        ]
 
 translateTests :: Test ()
 translateTests =
-  let run tm expected = case runWriter (runMaybeT (translate dynamicsF tm)) of
+  let run' tm expected = case runWriter (runMaybeT (translate dynamicsF tm)) of
         (Nothing,     _logs) -> fail "couldn't find match"
         (Just result, _logs) -> expectEq result expected
   in tests
-       [ run (Fix $ InR $ NumLit $ E $ Left 2) $
+       [ run' (Fix $ InR $ NumLit $ E $ Left 2) $
            Fix $ InR $ InR $ NumV $ Right $ E $ Left 2
 
-       , run (Fix $ InR $ StrLit $ E $ Right "str") $
+       , run' (Fix $ InR $ StrLit $ E $ Right "str") $
            Fix $ InR $ InR $ StrV $ Right $ E $ Right "str"
 
-       , run tm1F $
+       , run' tm1F $
            Fix $ InR $ InL $ App
              (Fix $ InR $ InL $ Lam $
                Fix $ InL $ BindingF ["x"] $
@@ -514,13 +515,13 @@ translateTests =
                    ])
              (Fix $ InR $ InR $ NumV $ Right $ E $ Left 1)
 
-       , run tm2F $
+       , run' tm2F $
            Fix $ InR $ InL $ PrimApp "cat"
              [ Fix $ InR $ InR $ StrV $ Right $ E $ Right "foo"
              , Fix $ InR $ InR $ StrV $ Right $ E $ Right "bar"
              ]
 
-       , run tm3F $
+       , run' tm3F $
            Fix $ InR $ InL $ PrimApp "mul"
              [ Fix $ InR $ InL $ PrimApp "len"
                [ Fix $ InR $ InR $ StrV $ Right $ E $ Right "hippo" ]
@@ -599,16 +600,16 @@ propTests =
          valP_round_trip_prop
        ]
 
-dynamics :: DenotationChart Text (Either Text Text)
-dynamics = mkDenotationChart patP valP dynamicsF
+dynamics' :: DenotationChart Text (Either Text Text)
+dynamics' = mkDenotationChart patP termP dynamicsF
 
 evalF
-  :: Fix (VarBindingF :+: ExpF () E)
-  -> (Either String (Fix (ValF E)), Seq Text)
+  :: Fix (VarBindingF :+: Exp E)
+  -> (Either String (Fix (Val E)), Seq Text)
 evalF = eval (EvalEnv Map.empty evalMachinePrimitiveF) dynamicsF
 
 -- TODO: non-erased types?
-dynamicsF :: DenotationChart' (ExpF () Text) (MachineF :+: ValF Text)
+dynamicsF :: DenotationChart' (Exp Text) (MachineF :+: Val Text)
 dynamicsF = DenotationChart'
   [ matchop Plus  :-> rhsop "add"
   , matchop Times :-> rhsop "mul"
@@ -626,7 +627,7 @@ dynamicsF = DenotationChart'
       (Fix $ InR $ InR $ InL $ Lam $ Fix $ InR $ InL $ MeaningOf "body")
       (Fix $ InR $ InL $ MeaningOf "e")))))
 
-  , Fix (InR (Annotation () (Fix (InL (PatVarF (Just "contents"))))))
+  , Fix (InR (Annotation "annotation" (Fix (InL (PatVarF (Just "contents"))))))
     :->
     Fix (InR (InL (MeaningOf "contents")))
 
@@ -644,21 +645,21 @@ dynamicsF = DenotationChart'
     :: Functor f
     => ( Fix (PatVarF :+: f)
       -> Fix (PatVarF :+: f)
-      -> ExpF () Text (Fix (PatVarF :+: ExpF () Text)))
-    -> Fix (PatVarF :+: ExpF () Text)
+      -> Exp Text (Fix (PatVarF :+: Exp Text)))
+    -> Fix (PatVarF :+: Exp Text)
   matchop op = FixIn $ op
     (Fix $ InL $ PatVarF $ Just "n1")
     (Fix $ InL $ PatVarF $ Just "n2")
 
   rhsop
-    :: (f ~ Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF Text))
+    :: (f ~ Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val Text))
     => Text -> f
   rhsop name = Fix $ InR $ InR $ InL $ PrimApp name
     [ Fix $ InR $ InL $ MeaningOf "n1"
     , Fix $ InR $ InL $ MeaningOf "n2"
     ]
 
-explicitPatP :: forall a. Prism' (Pattern a) (Fix (PatVarF :+: ExpF () a))
+explicitPatP :: forall a. Prism' (Pattern a) (Fix (PatVarF :+: Exp a))
 explicitPatP = prism' rtl ltr where
   rtl = \case
     Fix (InL pat) -> review patVarP pat
@@ -671,7 +672,7 @@ explicitPatP = prism' rtl ltr where
   p :: Prism' (Pattern a) a
   p = _PatternPrimVal . _Just
 
-  patP' :: Prism' (Pattern a) (ExpF () a (Fix (PatVarF :+: ExpF () a)))
+  patP' :: Prism' (Pattern a) (Exp a (Fix (PatVarF :+: Exp a)))
   patP' = prism' rtl' ltr' where
     rtl' = \case
       Plus  a b -> PatternTm "Plus"  [ review explicitPatP a , review explicitPatP b ]
@@ -693,36 +694,14 @@ explicitPatP = prism' rtl ltr where
       PatternTm "StrLit"     [ s    ] -> StrLit <$> preview p s
       _                               -> Nothing
 
-valP :: forall a. Prism'
-  (Term (Either Text a))
-  (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF a))
-valP = prism' rtl ltr where
-  rtl :: Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF a) -> Term (Either Text a)
-  rtl = \case
-    Fix (InL tm')             -> review (varBindingP valP) tm'
-    Fix (InR (InL tm'))       -> review meaningP           tm'
-    Fix (InR (InR (InL tm'))) -> review (machineP valP)    tm'
-    Fix (InR (InR (InR tm'))) -> review valP'              tm'
-
-  ltr :: Term (Either Text a) -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF a))
-  ltr tm = msum
-    [ Fix . InL             <$> preview (varBindingP valP) tm
-    , Fix . InR . InL       <$> preview meaningP           tm
-    , Fix . InR . InR . InL <$> preview (machineP valP)    tm
-    , Fix . InR . InR . InR <$> preview valP'              tm
-    ]
-
-  valP' :: Prism'
-    (Term (Either Text a))
-    (ValF a (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: ValF a)))
-  valP' = prism' rtl' ltr' where
-    rtl' = \case
-      NumV i      -> Fix $ Term "NumV" [ Fix $ PrimValue $ Right i ]
-      StrV s      -> Fix $ Term "StrV" [ Fix $ PrimValue $ Right s ]
-    ltr' (Fix tm) = case tm of
-      Term "NumV" [ Fix (PrimValue (Right i)) ] -> Just $ NumV i
-      Term "StrV" [ Fix (PrimValue (Right s)) ] -> Just $ StrV s
-      _                       -> Nothing
+--   valP' = prism' rtl' ltr' where
+--     rtl' = \case
+--       NumV i      -> Fix $ Term "NumV" [ Fix $ PrimValue $ Right i ]
+--       StrV s      -> Fix $ Term "StrV" [ Fix $ PrimValue $ Right s ]
+--     ltr' (Fix tm) = case tm of
+--       Term "NumV" [ Fix (PrimValue (Right i)) ] -> Just $ NumV i
+--       Term "StrV" [ Fix (PrimValue (Right s)) ] -> Just $ StrV s
+--       _                       -> Nothing
 
 tm1F, tm2F, tm3F :: Fix (VarBindingF :+: Exp E)
 

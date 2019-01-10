@@ -7,6 +7,7 @@ module Lvca.Languages.MachineModel
   , machineP
 
   , mkDenotationChart
+  , termP
 
   -- * Evaluation
   , StackFrame(..)
@@ -16,6 +17,7 @@ module Lvca.Languages.MachineModel
   , Focus(..)
   ) where
 
+import           Data.Foldable             (asum)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Control.Lens
@@ -162,3 +164,35 @@ data Focus a
   = Descending !(Term a)
   | Ascending  !(Term a)
   deriving Show
+
+termP
+  :: forall a f.
+     TermRepresentable f
+  => Prism'
+       (Term (Either Text a))
+       (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
+termP = prism' rtl ltr where
+  rtl
+    :: Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a)
+    -> Term (Either Text a)
+  rtl = \case
+    Fix (InL tm')             -> review (varBindingP termP) tm'
+    Fix (InR (InL tm'))       -> review meaningOfP          tm'
+    Fix (InR (InR (InL tm'))) -> review (machineP termP)    tm'
+    Fix (InR (InR (InR tm'))) -> review (mkTermP' termP)    tm'
+
+  ltr
+    :: Term (Either Text a)
+    -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
+  ltr tm = asum
+    [ Fix . InL             <$> preview (varBindingP termP) tm
+    , Fix . InR . InL       <$> preview meaningOfP          tm
+    , Fix . InR . InR . InL <$> preview (machineP termP)    tm
+    , Fix . InR . InR . InR <$> preview (mkTermP' termP)    tm
+    ]
+
+  mkTermP'
+    :: (f' ~ (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
+    => Prism' (Term (Either Text a))      (Fix f')
+    -> Prism' (Term (Either Text a)) (f a (Fix f'))
+  mkTermP' _ = undefined

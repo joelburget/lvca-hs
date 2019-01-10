@@ -1,11 +1,17 @@
+{-# LANGUAGE TemplateHaskell   #-}
+
 import           EasyTest
+
+-- import           Lvca.Languages.MachineModel
 
 import qualified Languages.Arith         as Arith
 import qualified Languages.Document      as Document
-import           Languages.MachineModel
 import qualified Languages.SimpleExample as SimpleExample
 import qualified Languages.Stlc          as Stlc
-import qualified Languages.TExample      as TExample
+import           Languages.TExample      ()
+
+-- import Test.Inspection
+import Test.Types
 
 main :: IO ()
 main = run allTests
@@ -27,3 +33,5 @@ allTests = scope "all tests" $ tests
   , scope "document"               Document.documentTests
   , scope "arith"                  Arith.arithTests
   ]
+
+-- inspect $ 'SimpleExample.patP === 'SimpleExample.explicitPatP

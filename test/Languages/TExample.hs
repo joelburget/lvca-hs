@@ -7,13 +7,11 @@ module Languages.TExample where
 -- Godel's system t
 
 import           Control.Lens              (Prism, Prism', prism, prism', review, preview)
-import           Data.Bitraversable
 import           Data.Foldable             (asum)
 import qualified Data.Map.Strict           as Map
 import           Data.Sequence             (Seq)
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty))
-import           Data.Traversable          (foldMapDefault, fmapDefault)
 import           Data.Void                 (Void)
 import           Prelude                   hiding (succ)
 
@@ -75,27 +73,6 @@ mkTypes (Options "Val" Nothing Map.empty)
   \  Zv                                                                     \n\
   \  Sv(Val)"
 mkSyntaxInstances ''Val
-
-instance Functor (Val (Either Text a)) where
-  fmap = fmapDefault
-instance Foldable (Val (Either Text a)) where
-  foldMap = foldMapDefault
-instance Traversable (Val (Either Text a)) where
-  traverse f val = bitraverse pure f val
-
-instance Show1 (Val Text) where
-  liftShowsPrec showsa showalist
-    = liftShowsPrec2 showsPrec showList showsa showalist
-instance Show1 (Val Void) where
-  liftShowsPrec showsa showalist
-    = liftShowsPrec2 showsPrec showList showsa showalist
-instance Show1 (Val (Either Text Void)) where
-  liftShowsPrec showsa showalist
-    = liftShowsPrec2 showsPrec showList showsa showalist
-
-instance Show1 (Exp Void) where
-  liftShowsPrec showsa showalist
-    = liftShowsPrec2 showsPrec showList showsa showalist
 
 instance Show ((VarBindingF :+: M.MachineF :+: Val (Either Text Void))
   (Fix (VarBindingF :+: (M.MachineF :+: Val (Either Text Void))))) where
@@ -188,7 +165,7 @@ valP = prism' rtl ltr where
        -> Term (Either Text Void)
   rtl = \case
     Fix (InL tm')                -> review (varBindingP valP) tm'
-    Fix (InR (InL tm'))          -> review meaningP           tm'
+    Fix (InR (InL tm'))          -> review meaningOfP         tm'
     Fix (InR (InR (InL tm')))    -> review (M.machineP valP)  tm'
     Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
     Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
@@ -200,7 +177,7 @@ valP = prism' rtl ltr where
     Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
     tm            -> asum @[]
       [ Fix . InL             <$> preview (varBindingP valP) tm
-      , Fix . InR . InL       <$> preview meaningP           tm
+      , Fix . InR . InL       <$> preview meaningOfP         tm
       , Fix . InR . InR . InL <$> preview (M.machineP valP)  tm
       ]
 

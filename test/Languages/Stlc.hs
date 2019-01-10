@@ -4,6 +4,7 @@ module Languages.Stlc where
 
 import           NeatInterpolation
 import           Text.Megaparsec                 (errorBundlePretty, runParser)
+import EasyTest
 
 import           Lvca.ParseLanguage
 import           Lvca.ParseSyntaxDescription hiding (Parser)
@@ -15,6 +16,8 @@ import           Lvca.FunctorUtil
 import           Lvca.Types                  hiding (Term)
 import qualified Lvca.Types                  as L
 
+import Test.Types
+import Test.ParseLanguage
 
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart $ Map.fromList

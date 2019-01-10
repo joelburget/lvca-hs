@@ -4,7 +4,13 @@ module Test.Types
   , prop_serialise_identity
   ) where
 
-import           Data.Foldable             (fold, foldlM, foldrM)
+import Control.Lens ((^?!), (<&>), ix)
+import           Codec.Serialise
+import           Data.Foldable             (foldrM)
+import Data.Functor.Identity
+import Data.Text (Text)
+import qualified Data.Text as Text
+import qualified Data.Map as Map
 import           Data.Void                 (Void)
 import           EasyTest
 import           Hedgehog                  (MonadGen, GenT, Property,
@@ -12,7 +18,8 @@ import           Hedgehog                  (MonadGen, GenT, Property,
 import qualified Hedgehog.Gen              as Gen
 import qualified Hedgehog.Range            as Range
 
-import Lvca.Types
+import Lvca.FunctorUtil
+import Lvca.Types hiding (valences)
 
 toPatternTests :: Test ()
 toPatternTests = scope "toPattern" $
@@ -95,3 +102,14 @@ prop_serialise_identity chart sort aGen = property $ do
   tm <- forAll $ genTerm chart sort aGen
   -- (this is serialiseIdentity from Codec.Serialise.Properties)
   tm === (deserialise . serialise) tm
+
+-- TODO:
+-- patP_round_trip_prop :: Eq1 f => Gen (Fix (PatVarF :+: f)) -> Property
+-- patP_round_trip_prop gen = property $ do
+--   x <- forAll genPat
+--   preview patP (review patP x) === Just x
+
+-- valP_round_trip_prop :: Eq1 f => Gen (Fix f) -> Property
+-- valP_round_trip_prop = property $ do
+--   x <- forAll genVal
+--   preview valP (review valP x) === Just x

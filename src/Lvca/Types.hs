@@ -55,7 +55,7 @@ module Lvca.Types
   , PatVarF(..)
   , patVarP
   , MeaningOfF(..)
-  , meaningP
+  , meaningOfP
   , TermF(..)
   , Term
   , _Term
@@ -66,6 +66,7 @@ module Lvca.Types
   , termName
   , identify
   , TermRepresentable(..)
+  , patP
 
   -- * Patterns
   -- ** Pattern
@@ -111,7 +112,6 @@ import           Codec.Serialise
 import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
 import           Control.Lens              hiding (op)
-import           Control.Monad.Morph
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
 import           Data.ByteString           (ByteString)
@@ -302,12 +302,28 @@ type Term a = Fix (TermF a)
 
 class TermRepresentable f where
   syntaxOf :: Proxy f -> SyntaxChart
-  termP
+  mkTermP
     :: Prism' (Term a)      (Fix f')
     -> Prism' (Term a) (f a (Fix f'))
-  patP
+  mkPatP
     :: Prism' (Pattern a)      (Fix f')
     -> Prism' (Pattern a) (f a (Fix f'))
+
+sumPrisms
+  :: Prism' (Pattern a) (f1 (Fix (f1 :+: f2)))
+  -> Prism' (Pattern a) (f2 (Fix (f1 :+: f2)))
+  -> Prism' (Pattern a) (Fix (f1 :+: f2))
+sumPrisms p1 p2 = prism' rtl ltr where
+  rtl = \case
+    Fix (InL pat) -> review p1 pat
+    Fix (InR pat) -> review p2 pat
+  ltr tm = msum
+    [ Fix . InL <$> preview p1 tm
+    , Fix . InR <$> preview p2 tm
+    ]
+
+patP :: TermRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
+patP = sumPrisms patVarP (mkPatP patP)
 
 instance (Serialise a, Serialise term) => Serialise (TermF a term) where
   encode tm =
@@ -711,8 +727,8 @@ instance Show1 MeaningOfF where
 instance Eq1 MeaningOfF where
   liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
 
-meaningP :: Prism' (Term (Either Text a)) (MeaningOfF (Fix f))
-meaningP = prism' rtl ltr where
+meaningOfP :: Prism' (Term (Either Text a)) (MeaningOfF (Fix f))
+meaningOfP = prism' rtl ltr where
   rtl (MeaningOf name)
     = Fix $ Term "MeaningOf" [ review (_Fix . _PrimValue . _Left) name ]
   ltr = \case
