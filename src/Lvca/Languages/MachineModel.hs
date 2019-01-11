@@ -6,8 +6,10 @@ module Lvca.Languages.MachineModel
   ( MachineF(..)
   , machineP
 
+  , denotationChartP
   , mkDenotationChart
-  , termP
+  , unMkDenotationChart
+  , machineTermP
 
   -- * Evaluation
   , StackFrame(..)
@@ -18,15 +20,15 @@ module Lvca.Languages.MachineModel
   ) where
 
 import           Data.Foldable             (asum)
+import           Data.Traversable          (for)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Control.Lens
-  (Prism', _1, _2, (%~), preview, review, prism', (&), _Left)
-import Data.Text (Text)
+  (Prism', _1, _2, (%~), preview, review, prism', (&))
+import           Data.Text                 (Text)
 
 import Lvca.FunctorUtil
 import Lvca.Types
-import Lvca.Util                       (_Fix)
 
 
 -- mkTypes (Options "Machine" Nothing $ Map.singleton "Text" (ConT ''Text))
@@ -78,13 +80,11 @@ instance Eq1 MachineF where
 
 machineP
   :: forall f a.
-     Prism' (Term (Either Text a))           (Fix f)
-  -> Prism' (Term (Either Text a)) (MachineF (Fix f))
-machineP p = prism' rtl ltr where
-  textP :: Prism' (Term (Either Text a)) Text
-  textP = _Fix . _PrimValue . _Left
-
-  rtl :: MachineF (Fix f) -> Term (Either Text a)
+     Prism' (Term a) Text
+  -> Prism' (Term a)           (Fix f)
+  -> Prism' (Term a) (MachineF (Fix f))
+machineP textP p = prism' rtl ltr where
+  rtl :: MachineF (Fix f) -> Term a
   rtl = \case
     Lam body -> Fix $ Term "Lam"
       [ review p body
@@ -98,7 +98,7 @@ machineP p = prism' rtl ltr where
       , review (listP p) args
       ]
 
-  ltr :: Term (Either Text a) -> Maybe (MachineF (Fix f))
+  ltr :: Term a -> Maybe (MachineF (Fix f))
   ltr (Fix tm) = case tm of
     Term "Lam" [body] -> Lam
       <$> preview p body
@@ -118,6 +118,23 @@ mkDenotationChart
 mkDenotationChart patP' termP' (DenotationChart' rules) = DenotationChart $
   rules & traverse . _1 %~ review patP'
         & traverse . _2 %~ review termP'
+
+unMkDenotationChart
+  :: Prism' (Pattern a) (Fix (PatVarF     :+: f))
+  -> Prism' (Term    b) (Fix (VarBindingF :+: MeaningOfF :+: g))
+  -> DenotationChart  a b
+  -> Maybe (DenotationChart' f g)
+unMkDenotationChart patP' termP' (DenotationChart rules)
+  = fmap DenotationChart' $ for rules $ \(a, b)
+    -> (,) <$> preview patP' a <*> preview termP' b
+
+denotationChartP
+  :: Prism' (Pattern a) (Fix (PatVarF     :+: f))
+  -> Prism' (Term    b) (Fix (VarBindingF :+: MeaningOfF :+: g))
+  -> Prism' (DenotationChart a b) (DenotationChart' f g)
+denotationChartP patP' termP' = prism'
+  (mkDenotationChart   patP' termP')
+  (unMkDenotationChart patP' termP')
 
 -- TODO: find a better place to put this
 listP :: Prism' (Term a) b -> Prism' (Term a) [b]
@@ -165,34 +182,34 @@ data Focus a
   | Ascending  !(Term a)
   deriving Show
 
-termP
+machineTermP
   :: forall a f.
      TermRepresentable f
-  => Prism'
-       (Term (Either Text a))
+  => Prism' (Term a) Text
+  -> Prism'
+       (Term a)
        (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
-termP = prism' rtl ltr where
+machineTermP textP = prism' rtl ltr where
+  termP' :: Prism'
+    (Term a)
+    (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
+  termP' = machineTermP textP
+
   rtl
     :: Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a)
-    -> Term (Either Text a)
+    -> Term a
   rtl = \case
-    Fix (InL tm')             -> review (varBindingP termP) tm'
-    Fix (InR (InL tm'))       -> review meaningOfP          tm'
-    Fix (InR (InR (InL tm'))) -> review (machineP termP)    tm'
-    Fix (InR (InR (InR tm'))) -> review (mkTermP' termP)    tm'
+    Fix (InL tm')             -> review (varBindingP termP')    tm'
+    Fix (InR (InL tm'))       -> review (meaningOfP textP)      tm'
+    Fix (InR (InR (InL tm'))) -> review (machineP textP termP') tm'
+    Fix (InR (InR (InR tm'))) -> review (mkTermP termP')        tm'
 
   ltr
-    :: Term (Either Text a)
+    :: Term a
     -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
   ltr tm = asum
-    [ Fix . InL             <$> preview (varBindingP termP) tm
-    , Fix . InR . InL       <$> preview meaningOfP          tm
-    , Fix . InR . InR . InL <$> preview (machineP termP)    tm
-    , Fix . InR . InR . InR <$> preview (mkTermP' termP)    tm
+    [ Fix . InL             <$> preview (varBindingP termP')    tm
+    , Fix . InR . InL       <$> preview (meaningOfP textP)      tm
+    , Fix . InR . InR . InL <$> preview (machineP textP termP') tm
+    , Fix . InR . InR . InR <$> preview (mkTermP termP')        tm
     ]
-
-  mkTermP'
-    :: (f' ~ (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
-    => Prism' (Term (Either Text a))      (Fix f')
-    -> Prism' (Term (Either Text a)) (f a (Fix f'))
-  mkTermP' _ = undefined

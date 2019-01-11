@@ -15,6 +15,7 @@ module Lvca.FunctorUtil
   , (:+:)(..)
   , _InL
   , _InR
+  , _Fix
   , (:<:)(..)
   , pattern In
   , pattern FreeIn
@@ -25,7 +26,7 @@ module Lvca.FunctorUtil
   , pattern FixR
   ) where
 
-import Control.Lens (Prism', review, prism', preview)
+import Control.Lens (Iso', Prism', iso, review, prism', preview)
 import Control.Monad.Free
 import Data.Functor.Classes
 import Data.Functor.Compose
@@ -75,6 +76,9 @@ _InR :: Prism' ((f :+: g) a) (g a)
 _InR = prism' InR $ \case
   InR ga -> Just ga
   _      -> Nothing
+
+_Fix :: Iso' (Fix f) (f (Fix f))
+_Fix = iso unfix Fix
 
 pattern FreeL :: f (Free (f :+: g) a) -> Free (f :+: g) a
 pattern FreeL x = Free (InL x)

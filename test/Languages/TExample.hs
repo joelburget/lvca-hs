@@ -2,11 +2,10 @@
 {-# LANGUAGE KindSignatures   #-}
 {-# LANGUAGE OverloadedLists  #-}
 {-# LANGUAGE TemplateHaskell  #-}
-{-# LANGUAGE TypeApplications #-}
 module Languages.TExample where
 -- Godel's system t
 
-import           Control.Lens              (Prism, Prism', prism, prism', review, preview)
+import           Control.Lens              (Prism, Prism', prism, prism', review, preview, _Left)
 import           Data.Foldable             (asum)
 import qualified Data.Map.Strict           as Map
 import           Data.Sequence             (Seq)
@@ -165,8 +164,8 @@ valP = prism' rtl ltr where
        -> Term (Either Text Void)
   rtl = \case
     Fix (InL tm')                -> review (varBindingP valP) tm'
-    Fix (InR (InL tm'))          -> review meaningOfP         tm'
-    Fix (InR (InR (InL tm')))    -> review (M.machineP valP)  tm'
+    Fix (InR (InL tm'))          -> review (meaningOfP textP)         tm'
+    Fix (InR (InR (InL tm')))    -> review (M.machineP textP valP)  tm'
     Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
     Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
 
@@ -177,9 +176,12 @@ valP = prism' rtl ltr where
     Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
     tm            -> asum @[]
       [ Fix . InL             <$> preview (varBindingP valP) tm
-      , Fix . InR . InL       <$> preview meaningOfP         tm
-      , Fix . InR . InR . InL <$> preview (M.machineP valP)  tm
+      , Fix . InR . InL       <$> preview (meaningOfP  textP)        tm
+      , Fix . InR . InR . InL <$> preview (M.machineP textP valP)  tm
       ]
+
+  textP :: Prism' (Term (Either Text Void)) Text
+  textP = _Fix . _PrimValue . _Left
 
 dynamics :: DenotationChart T (Either Text Void)
 dynamics = M.mkDenotationChart customPatP valP dynamics'

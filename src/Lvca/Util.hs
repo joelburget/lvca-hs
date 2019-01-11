@@ -1,22 +1,18 @@
 module Lvca.Util where
 
-import           Control.Lens          (FunctorWithIndex, Iso', imap, iso)
+import           Control.Lens          (FunctorWithIndex, imap)
 import           Control.Monad.Except  (MonadError, throwError)
 import           Control.Monad.State   (StateT (..))
-import           Data.Functor.Foldable (Fix(Fix), unfix)
+import           Data.Matchable
 import           GHC.Stack
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]
-pair []     []     = Just []
-pair (a:as) (b:bs) = ((a, b) :) <$> pair as bs
-pair _      _      = Nothing
+pair = zipMatch
 
 -- | Like 'zipWith', but lengths must match
 pairWith :: (a -> b -> c) -> [a] -> [b] -> Maybe [c]
-pairWith _f []     []     = Just []
-pairWith f  (a:as) (b:bs) = (f a b :) <$> pairWith f as bs
-pairWith _  _      _      = Nothing
+pairWith f = zipMatchWith $ \a b -> Just $ f a b
 
 -- | Like indexed 'zipWith', but lengths must match
 ipairWith :: (Int -> a -> b -> c) -> [a] -> [b] -> Maybe [c]
@@ -55,6 +51,3 @@ infixl 1 <@&>
 forceRight :: (HasCallStack, Show e) => Either e a -> a
 forceRight (Right x) = x
 forceRight (Left  e) = error $ "forceRight: unexpectedly called with " ++ show e
-
-_Fix :: Iso' (Fix f) (f (Fix f))
-_Fix = iso unfix Fix

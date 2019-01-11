@@ -248,7 +248,9 @@ patP_round_trip_prop = property $ do
 valP_round_trip_prop :: Property
 valP_round_trip_prop = property $ do
   x <- forAll genVal
-  preview termP (review termP x) === Just x
+  let termP' :: Prism' (Term E) (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E))
+      termP' = termP (error "TODO")
+  preview termP' (review termP' x) === Just x
 
 pattern FixVal
   :: Val E (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val E))
@@ -600,8 +602,13 @@ propTests =
          valP_round_trip_prop
        ]
 
-dynamics' :: DenotationChart Text (Either Text Text)
-dynamics' = mkDenotationChart patP termP dynamicsF
+termP
+  :: Prism' a b
+  -> Prism' (Term a) (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val b))
+termP _ = error "TODO"
+
+dynamics' :: DenotationChart Text Text
+dynamics' = mkDenotationChart patP (termP (error "TODO")) dynamicsF
 
 evalF
   :: Fix (VarBindingF :+: Exp E)

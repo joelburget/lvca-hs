@@ -61,16 +61,13 @@ type DomainFunctor f a =
 type CodomainFunctor g a =
   ( Bitraversable g
   , Show1 (g Text)
+  , Show1 (g (Either Text a))
   , Traversable (g (Either Text a))
   )
 
 eval
-  :: ( DomainFunctor f a, CodomainFunctor g a, Show a
-     , Show ((VarBindingF :+: MachineF :+: g (Either Text a))
-                (Fix (VarBindingF :+: (MachineF :+: g (Either Text a)))))
-     , Show1 (g (Either Text a))
-     , Show1 (g a)
-     )
+  :: forall f g a.
+     (DomainFunctor f a, CodomainFunctor g a, Show a)
   => EvalEnv (g a)
   -> DenotationChart' (f Text) (MachineF :+: g Text)
   -> Fix (VarBindingF :+: f a)
@@ -198,24 +195,19 @@ subst name arg (Fix body) = case body of
     -> Fix . InR <$> traverse (subst name arg) f
 
 eval'
-  :: ( Bitraversable f, Traversable (f (Either Text a))
-     , Show ((VarBindingF :+: MachineF :+: f (Either Text a))
-         (Fix (VarBindingF :+: MachineF :+: f (Either Text a))))
-     , Show1 (f (Either Text a))
-     , Show1 (f a)
-     )
+  :: CodomainFunctor f a
   => Fix (VarBindingF :+: MachineF :+: f (Either Text a))
   -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
-  InL BindingF{}  -> throwError $ "bare binding: " ++ show f
+  InL BindingF{}  -> throwError $ "bare binding: " ++ show' f
   InL (VarF name) -> view (evalVarVals . at name)
     ??? "couldn't look up variable " ++ show name
 
   InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
     ret <- subst name arg body
     eval' ret
-  InR (InL App{}) -> throwError $ "invalid app: " ++ show f
-  InR (InL Lam{}) -> throwError $ "bare lambda: " ++ show f
+  InR (InL App{}) -> throwError $ "invalid app: " ++ show' f
+  InR (InL Lam{}) -> throwError $ "bare lambda: " ++ show' f
 
   InR (InL (PrimApp name args)) -> do
     primApps <- view evalPrimApp
@@ -224,3 +216,5 @@ eval' (Fix f) = case f of
     pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
 
   InR (InR tm) -> Fix <$> bitraverse expectRight eval' tm
+
+  where show' a = liftShowsPrec showsPrec showList 0 a ""

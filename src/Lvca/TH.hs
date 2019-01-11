@@ -19,8 +19,7 @@ import           Text.Megaparsec                 (runParser)
 import           Text.Show.Deriving
 import           Language.Haskell.TH.Syntax      (lift, dataToExpQ)
 
-import           Lvca.FunctorUtil            (Fix(Fix))
-import           Lvca.Util                   (_Fix)
+import           Lvca.FunctorUtil            (Fix(Fix), _Fix)
 import           Lvca.ParseSyntaxDescription
 import           Lvca.Types                  hiding (valences)
 
@@ -200,10 +199,12 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                   []
         ) [] ]
 
+      -- , sigD (mkName "p") [t| forall a b. Prism (Pattern a) (Pattern b) a b |]
       , sigD (mkName "p") [t| forall a. Prism' (Pattern a) a |]
       , valD (varP (mkName "p")) (normalB [| _PatternPrimVal . _Just |]) []
 
       -- hide the warning about `p` not being used if there are no externals.
+      -- , sigD (mkName "_unused") [t| forall a b. Prism (Pattern a) (Pattern b) a b |]
       , sigD (mkName "_unused") [t| forall a. Prism' (Pattern a) a |]
       , valD (varP (mkName "_unused")) (normalB [| p |]) []
       ]
@@ -219,7 +220,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
   --     emit a line like:
   --       ltr: `Plus a b -> Fix (Term "Plus" [ review termP' a, review termP' b ])`
   --       rtl: `Fix (Term "Plus" [ a, b ])
-  --         -> Plus <$> preview termP' a <*> preview termP' b`
+  --         -> pure Plus <*> preview termP' a <*> preview termP' b`
   termPDec <- funD (mkName' "mkTermP")
     [ clause [varP (mkName "termP'")] (normalB [| prism' rtl ltr |])
       [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
@@ -257,10 +258,12 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                   []
         ) [] ]
 
+      -- , sigD (mkName "p") [t| forall a b. Prism (Term a) (Term b) a b |]
       , sigD (mkName "p") [t| forall a. Prism' (Term a) a |]
       , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValue |]) []
 
       -- hide the warning about `p` not being used if there are no externals.
+      -- , sigD (mkName "_unused") [t| forall a b. Prism (Term a) (Term b) a b |]
       , sigD (mkName "_unused") [t| forall a. Prism' (Term a) a |]
       , valD (varP (mkName "_unused")) (normalB [| p |]) []
       ]

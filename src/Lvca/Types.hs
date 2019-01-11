@@ -67,6 +67,7 @@ module Lvca.Types
   , identify
   , TermRepresentable(..)
   , patP
+  , termAdaptor
 
   -- * Patterns
   -- ** Pattern
@@ -114,6 +115,7 @@ import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
 import           Control.Lens              hiding (op)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
+import           Data.Bifunctor.TH               hiding (Options)
 import           Data.ByteString           (ByteString)
 import           Data.Data (Data)
 import           Data.Eq.Deriving
@@ -122,6 +124,7 @@ import           Data.List                 (intersperse, find)
 import           Data.Maybe                (fromMaybe)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
+import           Data.Matchable.TH
 import           Data.Monoid               (First (First, getFirst))
 import           Data.Proxy                (Proxy)
 import           Data.String               (IsString (fromString))
@@ -322,6 +325,19 @@ sumPrisms p1 p2 = prism' rtl ltr where
     , Fix . InR <$> preview p2 tm
     ]
 
+termAdaptor :: Prism' a b -> Prism' (Term a) (Term b)
+termAdaptor p = prism' rtl ltr where
+  rtl (Fix tm) = Fix $ case tm of
+    Term name subtms -> Term name $ rtl <$> subtms
+    Binding name tm' -> Binding name (rtl tm')
+    Var v            -> Var v
+    PrimValue a      -> PrimValue $ review p a
+  ltr (Fix tm) = fmap Fix $ case tm of
+    Term name subtms -> Term name <$> traverse ltr subtms
+    Binding name tm' -> Binding name <$> ltr tm'
+    Var v            -> Just $ Var v
+    PrimValue a      -> PrimValue <$> preview p a
+
 patP :: TermRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
 patP = sumPrisms patVarP (mkPatP patP)
 
@@ -391,6 +407,8 @@ pattern PatternEmpty = PatternUnion []
 
 deriveShow1 ''TermF
 deriveEq1   ''TermF
+deriveShow2 ''TermF
+deriveEq2   ''TermF
 
 -- | Denotation charts
 --
@@ -714,6 +732,10 @@ makePrisms ''Pattern
 makeLenses ''Operator
 makeLenses ''TermF
 makePrisms ''TermF
+deriveBifunctor ''TermF
+deriveBifoldable        ''TermF
+deriveBitraversable     ''TermF
+deriveBimatchable       ''TermF
 makeLenses ''PatternCheckResult
 
 data MeaningOfF a
@@ -727,13 +749,13 @@ instance Show1 MeaningOfF where
 instance Eq1 MeaningOfF where
   liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
 
-meaningOfP :: Prism' (Term (Either Text a)) (MeaningOfF (Fix f))
-meaningOfP = prism' rtl ltr where
+meaningOfP :: Prism' (Term a) Text -> Prism' (Term a) (MeaningOfF (Fix f))
+meaningOfP textP = prism' rtl ltr where
   rtl (MeaningOf name)
-    = Fix $ Term "MeaningOf" [ review (_Fix . _PrimValue . _Left) name ]
+    = Fix $ Term "MeaningOf" [ review textP name ]
   ltr = \case
     Fix (Term "MeaningOf" [name])
-      -> MeaningOf <$> preview (_Fix . _PrimValue . _Left) name
+      -> MeaningOf <$> preview textP name
     _ -> Nothing
 
 data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'

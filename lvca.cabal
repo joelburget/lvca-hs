@@ -51,24 +51,24 @@ common extra-deps
 
 common extensions
   default-extensions:
-    LambdaCase,
-    TypeOperators,
-    PatternSynonyms,
-    MultiParamTypeClasses,
-    GADTs,
-    TupleSections,
-    ScopedTypeVariables,
-    OverloadedStrings,
-    TypeApplications,
-    DeriveFunctor,
     DeriveFoldable,
+    DeriveFunctor,
     DeriveTraversable,
-    FlexibleInstances,
     FlexibleContexts,
-    TypeSynonymInstances,
-    Rank2Types,
+    FlexibleInstances,
+    GADTs,
+    GeneralizedNewtypeDeriving,
+    LambdaCase,
+    MultiParamTypeClasses,
     MultiWayIf,
-    GeneralizedNewtypeDeriving
+    OverloadedStrings,
+    PatternSynonyms,
+    Rank2Types,
+    ScopedTypeVariables,
+    TupleSections,
+    TypeApplications,
+    TypeOperators,
+    TypeSynonymInstances
 
 common library-modules
 
