@@ -10,28 +10,34 @@ import           Lvca.ParseUtil
 import           Lvca.Types
 
 
-type Parser a = Parsec
+type DenotationChartParser a = Parsec
   Void -- error type
   Text -- stream type
   a
 
 -- TODO: add tagged / untagged options for consistency with standard parser
 parseDenotationChart
-  :: Parser a -> Parser b -> Parser (DenotationChart a (Either Text b))
+  :: DenotationChartParser a
+  -> DenotationChartParser b
+  -> DenotationChartParser (DenotationChart a (Either Text b))
 parseDenotationChart parseA parseB = do
   _ <- scn -- TODO: principled whitespace handling
   DenotationChart <$> many (parseDenotationLine parseA parseB) <* eof
   <?> "denotation chart"
 
 parseDenotationLine
-  :: Parser a -> Parser b -> Parser (Pattern a, Term (Either Text b))
+  :: DenotationChartParser a
+  -> DenotationChartParser b
+  -> DenotationChartParser (Pattern a, Term (Either Text b))
 parseDenotationLine parseA parseB = (,)
   <$> oxfordBrackets (parsePattern parseA)
   <*  symbol "="
   <*> parseDenotationRhs parseB
   <?> "denotation line"
 
-parsePattern :: Parser a -> Parser (Pattern a)
+parsePattern
+  :: DenotationChartParser a
+  -> DenotationChartParser (Pattern a)
 parsePattern parseA
   = mkUnion <$> parsePattern' parseA `sepBy1` symbol "|"
   <?> "union of patterns"
@@ -39,7 +45,9 @@ parsePattern parseA
           [pat] -> pat
           pats  -> PatternUnion pats
 
-parsePattern' :: Parser a -> Parser (Pattern a)
+parsePattern'
+  :: DenotationChartParser a
+  -> DenotationChartParser (Pattern a)
 parsePattern' parseA = asum
   [ PatternVar Nothing <$ symbol "_" <?> "wildcard pattern"
   , do let betweenSemis = label "binding or term pattern" $ do
@@ -59,11 +67,13 @@ parsePattern' parseA = asum
          ]
   ] <?> "non-union pattern"
 
-parseBinders :: Parser [Text]
+parseBinders :: DenotationChartParser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
-parseDenotationRhs :: Parser b -> Parser (Term (Either Text b))
+parseDenotationRhs
+  :: DenotationChartParser b
+  -> DenotationChartParser (Term (Either Text b))
 parseDenotationRhs parseB = asum
   [ Fix . PrimValue . Right <$> braces parseB
   , do name <- parseName

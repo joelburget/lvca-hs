@@ -13,12 +13,7 @@ import           Data.Text.Prettyprint.Doc          (Pretty(..))
 import           NeatInterpolation
 import EasyTest
 
-import           Lvca.FunctorUtil
-import           Lvca.ParseLanguage
-import           Lvca.ParseUtil                 (noParse)
-import           Lvca.ParseSyntaxDescription    hiding (Parser)
-import           Lvca.Types                     -- (SyntaxChart, Term (..))
-import           Lvca.Util                      (forceRight)
+import Lvca
 
 import           Test.Types
 import           Test.ParseLanguage

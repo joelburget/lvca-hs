@@ -13,13 +13,16 @@ import           Lvca.Types
 import           Text.Megaparsec.Char.LexerAlt (indentBlock)
 
 
-type Parser a = Parsec Void Text a
+type SyntaxDescriptionParser a = Parsec
+  Void -- error type
+  Text -- stream type
+  a
 
-parseSyntaxDescription :: Parser SyntaxChart
+parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
 parseSyntaxDescription
   = SyntaxChart . Map.fromList <$> some parseSortDef <* eof
 
-parseSortDef :: Parser (SortName, SortDef)
+parseSortDef :: SyntaxDescriptionParser (SortName, SortDef)
 parseSortDef = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
   variables <- many parseName
@@ -31,7 +34,7 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
 -- - `{Num}` instead of
 -- - `Num{Num}` instead of
 -- - `Num({Num})`
-parseOperator :: Parser Operator
+parseOperator :: SyntaxDescriptionParser Operator
 parseOperator = asum
   [ do -- sugar for `{Num}`
        name <- braces parseName
@@ -50,17 +53,17 @@ parseOperator = asum
          ]
   ]
 
-parseArity :: Parser Arity
+parseArity :: SyntaxDescriptionParser Arity
 parseArity = fmap Arity $ option [] $
   parens $ option [] $ parseValence `sepBy1` symbol ";"
 
-parseValence :: Parser Valence
+parseValence :: SyntaxDescriptionParser Valence
 parseValence = do
   names <- parseSort `sepBy1` symbol "."
   let Just (sorts, result) = unsnoc names
   pure $ Valence sorts result
 
-parseSort :: Parser Sort
+parseSort :: SyntaxDescriptionParser Sort
 parseSort = asum
   [ braces $ External <$> parseName
   , SortAp

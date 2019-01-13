@@ -9,8 +9,8 @@ import           Text.Megaparsec                 (ParseErrorBundle, runParser)
 import           Lvca.ParseSyntaxDescription
 import           Lvca.Types                  (SyntaxChart)
 
-syntax :: Either (ParseErrorBundle Text Void) SyntaxChart
-syntax = runParser parseSyntaxDescription "(edits syntax)"
+editsSyntax :: Either (ParseErrorBundle Text Void) SyntaxChart
+editsSyntax = runParser parseSyntaxDescription "(edits syntax)"
   [text|
 pattern ::=
   PatternTm([text]; list(pattern))

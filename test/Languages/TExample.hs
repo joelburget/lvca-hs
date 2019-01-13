@@ -14,12 +14,7 @@ import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 import           Data.Void                 (Void)
 import           Prelude                   hiding (succ)
 
-import           Lvca.FunctorUtil
-import           Lvca.Proceed          (eval, EvalEnv(EvalEnv))
-import           Lvca.TH
-import           Lvca.Types
-import qualified Lvca.Languages.MachineModel as M
-
+import Lvca hiding (Lam)
 
 data T
 
@@ -73,11 +68,11 @@ mkTypes (Options "Val" Nothing Map.empty)
   \  Sv(Val)"
 mkSyntaxInstances ''Val
 
-instance Show ((VarBindingF :+: M.MachineF :+: Val (Either Text Void))
-  (Fix (VarBindingF :+: (M.MachineF :+: Val (Either Text Void))))) where
+instance Show ((VarBindingF :+: MachineF :+: Val (Either Text Void))
+  (Fix (VarBindingF :+: (MachineF :+: Val (Either Text Void))))) where
    showsPrec = liftShowsPrec showsPrec showList
 
-dynamics' :: DenotationChart' (Exp Text) (M.MachineF :+: Val Text)
+dynamics' :: DenotationChart' (Exp Text) (MachineF :+: Val Text)
 dynamics' = DenotationChart'
   [ Fix (InR Z)
     :->
@@ -90,7 +85,7 @@ dynamics' = DenotationChart'
       (Fix (InR (Lam (Fix (InL (PatVarF (Just "body")))))))
       (Fix (InL (PatVarF (Just "arg"))))))
     :->
-    Fix (InR (InR (InL (M.App
+    Fix (InR (InR (InL (App
       (Fix (InR (InL (MeaningOf "body"))))
       (Fix (InR (InL (MeaningOf "arg"))))))))
   ]
@@ -157,34 +152,34 @@ customPatP = prism' rtl ltr where
       _                     -> Nothing
 
 valP :: Prism' (Term (Either Text Void))
-               (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: Val a))
+               (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val a))
 valP = prism' rtl ltr where
 
-  rtl :: Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: Val a)
+  rtl :: Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val a)
        -> Term (Either Text Void)
   rtl = \case
     Fix (InL tm')                -> review (varBindingP valP) tm'
     Fix (InR (InL tm'))          -> review (meaningOfP textP)         tm'
-    Fix (InR (InR (InL tm')))    -> review (M.machineP textP valP)  tm'
+    Fix (InR (InR (InL tm')))    -> review (machineP textP valP)  tm'
     Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
     Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
 
   ltr :: Term (Either Text Void)
-      -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: M.MachineF :+: Val a))
+      -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val a))
   ltr = \case
     Fix (Term "Zv" [])  -> Just (Fix (InR (InR (InR Zv))))
     Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
     tm            -> asum @[]
       [ Fix . InL             <$> preview (varBindingP valP) tm
       , Fix . InR . InL       <$> preview (meaningOfP  textP)        tm
-      , Fix . InR . InR . InL <$> preview (M.machineP textP valP)  tm
+      , Fix . InR . InR . InL <$> preview (machineP textP valP)  tm
       ]
 
   textP :: Prism' (Term (Either Text Void)) Text
   textP = _Fix . _PrimValue . _Left
 
 dynamics :: DenotationChart T (Either Text Void)
-dynamics = M.mkDenotationChart customPatP valP dynamics'
+dynamics = mkDenotationChart customPatP valP dynamics'
 
 z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
 z = Fix $ Term "Z" []

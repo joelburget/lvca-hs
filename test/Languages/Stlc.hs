@@ -2,19 +2,14 @@
 {-# LANGUAGE TypeFamilies      #-}
 module Languages.Stlc where
 
-import           NeatInterpolation
-import           Text.Megaparsec                 (errorBundlePretty, runParser)
-import EasyTest
-
-import           Lvca.ParseLanguage
-import           Lvca.ParseSyntaxDescription hiding (Parser)
-
 import qualified Data.Map.Strict                 as Map
 import           Data.Void                       (Void)
+import           EasyTest
+import           NeatInterpolation
+import           Text.Megaparsec                 (errorBundlePretty, runParser)
 
-import           Lvca.FunctorUtil
-import           Lvca.Types                  hiding (Term)
-import qualified Lvca.Types                  as L
+import Lvca
+import Lvca.Types (matches)
 
 import Test.Types
 import Test.ParseLanguage
@@ -65,15 +60,15 @@ stlcChart = SyntaxChart $ Map.fromList
 --   ]
 
 
-stlcTm1, stlcTm2 :: L.Term Void
-stlcTm1 = Fix $ L.Term "lam"
+stlcTm1, stlcTm2 :: Term Void
+stlcTm1 = Fix $ Term "lam"
   [ Fix $ Var "ty"
-  , Fix $ Binding ["x"] $ Fix $ L.Term "ap"
+  , Fix $ Binding ["x"] $ Fix $ Term "ap"
     [ Fix $ Var "x"
     , Fix $ Var "x"
     ]
   ]
-stlcTm2 = Fix $ L.Term "ap" [stlcTm1, stlcTm1]
+stlcTm2 = Fix $ Term "ap" [stlcTm1, stlcTm1]
 
 stlcTests :: Test ()
 stlcTests = tests
@@ -129,9 +124,9 @@ stlcTests = tests
              |]
              stlcTm2
          , expectParse "lam(nat(); a. a)" $
-           Fix $ L.Term "lam"
-             [ Fix $ L.Term "nat" []
-             , Fix $ L.Binding [ "a" ] $ Fix $ L.Var "a"
+           Fix $ Term "lam"
+             [ Fix $ Term "nat" []
+             , Fix $ Binding [ "a" ] $ Fix $ Var "a"
              ]
          ]
   ]

@@ -46,15 +46,8 @@ import qualified Hedgehog.Range                        as Range
 
 import           Language.Haskell.TH.Syntax (Type(..))
 
-import           Lvca.FunctorUtil
-import           Lvca.Languages.MachineModel
-import           Lvca.ParseLanguage
-import           Lvca.ParseUtil
-import           Lvca.Proceed                      hiding (matches, findMatch)
-import           Lvca.TH
-import           Lvca.Types
-import           Lvca.Util                         (forceRight)
-import qualified Lvca.ParseDenotationChart         as PD
+import Lvca
+import Lvca.Types (matches)
 
 import qualified Test.Inspection as TI
 import Test.ParseLanguage
@@ -120,7 +113,7 @@ dynamicsT = [text|
   [[ Str(s)              ]] = StrV([[ s ]])
   |]
 
-parsePrim :: PD.Parser E
+parsePrim :: DenotationChartParser E
 parsePrim = E <$> choice
   [ Left        <$> intLiteral
   , Right "add" <$  symbol "add"
@@ -131,7 +124,7 @@ parsePrim = E <$> choice
 
 dynamics
   :: Either (ParseErrorBundle Text Void) (DenotationChart E (Either Text E))
-dynamics = runParser (PD.parseDenotationChart noParse parsePrim)
+dynamics = runParser (parseDenotationChart noParse parsePrim)
   "(arith machine dynamics)" dynamicsT
 
 tm1, tm2, tm3 :: Term E

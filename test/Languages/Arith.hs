@@ -24,16 +24,7 @@ import           Text.Megaparsec
   (ParseErrorBundle, runParser, choice, errorBundlePretty)
 import           NeatInterpolation
 
-import           Lvca.FunctorUtil
-import           Lvca.Languages.MachineModel
-import           Lvca.ParseDenotationChart      (parseDenotationChart)
-import qualified Lvca.ParseDenotationChart      as PD
-import           Lvca.ParseUtil
-import           Lvca.Proceed
-import           Lvca.Types
-import           Lvca.TH
-import           Lvca.ParseLanguage
-import           Lvca.Util
+import Lvca
 
 import Test.ParseLanguage
 import Test.Types
@@ -73,7 +64,7 @@ codomainT2 = [text|
     Rec(Int; Int; Int. Int. Int)
   |]
 
-parsePrim :: PD.Parser E
+parsePrim :: DenotationChartParser E
 parsePrim = E <$> choice
   [ Left <$> intLiteral
   , Right "add" <$ symbol "add"
