@@ -54,26 +54,8 @@ mkTypes (Options dtName mChartName externals) tDesc = do
   let primName        = mkName' "prim"
       expName         = mkName' "exp"
 
-    -- let baseSortName = mkName' sortName
-    --     baseVars     = PlainTV . mkName' <$> vars
-
-    --     baseMkCon t = (if t `List.elem` vars then VarT else ConT) (mkName' t)
-    --     baseHandleSort = \case
-    --       SortAp name [] -> baseMkCon name
-    --       SortAp name applicands
-    --         -> foldl AppT (baseMkCon name) (fmap baseHandleSort applicands)
-    --       External name -> case Map.lookup name externals of
-    --         Nothing -> error $ "unhandled binding external: " ++ unpack name
-    --         Just ty -> ty
-    --     baseHandleValence (Valence _ sort) = (defaultBang, baseHandleSort sort)
-    --     baseHandleArity (Arity valences) = fmap baseHandleValence valences
-
-    --     baseOps = ops <&> \case
-    --       Operator name arity _ -> NormalC (mkName' name) (baseHandleArity arity)
-
   ctors <- ifor sorts $ \sortName (SortDef vars ops) -> do
     let functorSortName = mkName' sortName
-        -- functorVars     = fmap PlainTV $ (mkName' <$> vars) ++ [primName, expName]
 
         mkCon :: Text -> Type
         mkCon t =
@@ -98,10 +80,6 @@ mkTypes (Options dtName mChartName externals) tDesc = do
             -- errors if there are any duplicate names
             -> NormalC (mkName' name) (handleArity arity)
 
-    -- let decls =
-    --       -- [ DataD [] baseSortName    baseVars    Nothing baseOps    []
-    --       [ DataD [] functorSortName functorVars Nothing functorOps []
-    --       ]
     pure sortCtors
 
   let dataDecl = DataD
@@ -150,11 +128,6 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
 
   syntaxDec <- funD (mkName "syntaxOf")
     [ clause [wildP] (normalB (liftDataWithText chart)) [] ]
-
---   patPSig <- sigD (mkName' "mkPatP")
---     [t| Prism' (Pattern $(varT a))                          (Fix $(varT f))
---      -> Prism' (Pattern $(varT a)) ($(conT fName) $(varT a) (Fix $(varT f)))
---     |]
 
   -- for each sort:
   --   for each operator:
@@ -209,11 +182,6 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
       , valD (varP (mkName "_unused")) (normalB [| p |]) []
       ]
     ]
-
---   termPSig <- sigD (mkName' "mkTermP")
---     [t| Prism' (Term $(varT a))                          (Fix $(varT f))
---      -> Prism' (Term $(varT a)) ($(conT fName) $(varT a) (Fix $(varT f)))
---     |]
 
   -- for each sort:
   --   for each operator:
@@ -275,14 +243,13 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
 
 mkSyntaxInstances :: Name -> Q [Dec]
 mkSyntaxInstances dtName = fmap join $ sequence
-  [ deriveBifunctor         dtName
-  , deriveBifoldable        dtName
-  , deriveBitraversable     dtName
-  , deriveShow1             dtName
-  , deriveShow2             dtName
-  , deriveEq1               dtName
-  , deriveEq2               dtName
-  , deriveBimatchable       dtName
-  , makeLenses              dtName
-  -- , deriveTermRepresentable dtName chart
+  [ deriveBifunctor     dtName
+  , deriveBifoldable    dtName
+  , deriveBitraversable dtName
+  , deriveShow1         dtName
+  , deriveShow2         dtName
+  , deriveEq1           dtName
+  , deriveEq2           dtName
+  , deriveBimatchable   dtName
+  , makeLenses          dtName
   ]
