@@ -1,7 +1,6 @@
 {-# LANGUAGE QuasiQuotes       #-}
 {-# LANGUAGE TemplateHaskell   #-}
 {-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE DeriveGeneric     #-}
 
 module Languages.SimpleExample
   ( dynamicTests
@@ -44,12 +43,9 @@ import qualified Data.Text                             as Text
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 
-import           Language.Haskell.TH.Syntax (Type(..))
-
 import Lvca
 import Lvca.Types (matches)
 
-import qualified Test.Inspection as TI
 import Test.ParseLanguage
 import Test.Types
 
@@ -744,7 +740,3 @@ primParsers = makeExternalParsers
   [ ("Num", E . Left  <$> (intLiteral :: ExternalParser Int))
   , ("Str", E . Right <$> stringLiteral)
   ]
-
-instance Show ((VarBindingF :+: MachineF :+: Val (Either Text E))
-          (Fix (VarBindingF :+: MachineF :+: Val (Either Text E)))) where
-  showsPrec = liftShowsPrec showsPrec showList

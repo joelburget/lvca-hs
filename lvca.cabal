@@ -54,6 +54,8 @@ common extensions
     DeriveFoldable,
     DeriveFunctor,
     DeriveTraversable,
+    DeriveGeneric,
+    DeriveDataTypeable,
     FlexibleContexts,
     FlexibleInstances,
     GADTs,
@@ -112,4 +114,4 @@ test-suite tests
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   default-language: Haskell2010
-  build-depends:    lvca, easytest, inspection-testing
+  build-depends:    lvca, easytest

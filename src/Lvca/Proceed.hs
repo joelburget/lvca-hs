@@ -60,8 +60,10 @@ type DomainFunctor f a =
 
 type CodomainFunctor g a =
   ( Bitraversable g
+  -- TODO: This could be subsumed by Show2
   , Show1 (g Text)
   , Show1 (g (Either Text a))
+  -- TODO: this should be subsumed by the Bitraversable constraint:
   , Traversable (g (Either Text a))
   )
 

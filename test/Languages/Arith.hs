@@ -1,7 +1,6 @@
 {-# language QuasiQuotes      #-}
 {-# language TemplateHaskell  #-}
 {-# language TypeFamilies     #-}
--- {-# language PatternSynonyms  #-}
 module Languages.Arith where
 
 import           Control.Applicative                ((<$))
