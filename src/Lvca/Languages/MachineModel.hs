@@ -19,7 +19,6 @@ module Lvca.Languages.MachineModel
   , Focus(..)
   ) where
 
-import           Data.Foldable             (asum)
 import           Data.Traversable          (for)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
@@ -29,9 +28,11 @@ import           Data.Text                 (Text)
 
 import Lvca.FunctorUtil
 import Lvca.Types
+import Lvca.Util
 
+import Debug.Trace
 
--- mkTypes (Options "Machine" Nothing $ Map.singleton "Text" (ConT ''Text))
+-- mkTypes (Options Nothing $ Map.singleton "Text" (ConT ''Text))
 --   "Machine ::=                                                              \n\
 --   \  Lam'(Machine)                                                          \n\
 --   \  App'(Machine; Machine)                                                 \n\
@@ -119,17 +120,24 @@ mkDenotationChart patP' termP' (DenotationChart' rules) = DenotationChart $
   rules & traverse . _1 %~ review patP'
         & traverse . _2 %~ review termP'
 
+traceNote :: Show a => String -> a -> a
+traceNote msg a = trace (msg ++ ": " ++ show a) a
+
 unMkDenotationChart
-  :: Prism' (Pattern a) (Fix (PatVarF     :+: f))
+  :: (Show1 f, Show a, Show1 g, Show b)
+  => Prism' (Pattern a) (Fix (PatVarF     :+: f))
   -> Prism' (Term    b) (Fix (VarBindingF :+: MeaningOfF :+: g))
-  -> DenotationChart  a b
+  ->        DenotationChart  a b
   -> Maybe (DenotationChart' f g)
 unMkDenotationChart patP' termP' (DenotationChart rules)
   = fmap DenotationChart' $ for rules $ \(a, b)
-    -> (,) <$> preview patP' a <*> preview termP' b
+    -> (,)
+      <$> traceNote "preview patP'" (preview patP' (traceNote "a" a))
+      <*> traceNote "preview termP'" (preview termP' (traceNote "b" b))
 
 denotationChartP
-  :: Prism' (Pattern a) (Fix (PatVarF     :+: f))
+  :: (Show1 f, Show a, Show1 g, Show b)
+  => Prism' (Pattern a) (Fix (PatVarF     :+: f))
   -> Prism' (Term    b) (Fix (VarBindingF :+: MeaningOfF :+: g))
   -> Prism' (DenotationChart a b) (DenotationChart' f g)
 denotationChartP patP' termP' = prism'
@@ -189,27 +197,8 @@ machineTermP
   -> Prism'
        (Term a)
        (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
-machineTermP textP = prism' rtl ltr where
-  termP' :: Prism'
-    (Term a)
-    (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
-  termP' = machineTermP textP
-
-  rtl
-    :: Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a)
-    -> Term a
-  rtl = \case
-    Fix (InL tm')             -> review (varBindingP termP')    tm'
-    Fix (InR (InL tm'))       -> review (meaningOfP textP)      tm'
-    Fix (InR (InR (InL tm'))) -> review (machineP textP termP') tm'
-    Fix (InR (InR (InR tm'))) -> review (mkTermP termP')        tm'
-
-  ltr
-    :: Term a
-    -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
-  ltr tm = asum
-    [ Fix . InL             <$> preview (varBindingP termP')    tm
-    , Fix . InR . InL       <$> preview (meaningOfP textP)      tm
-    , Fix . InR . InR . InL <$> preview (machineP textP termP') tm
-    , Fix . InR . InR . InR <$> preview (mkTermP termP')        tm
-    ]
+machineTermP textP = sumPrisms4'
+  varBindingP
+  (\_p ->  meaningOfP textP)
+  (machineP textP )
+  mkTermP

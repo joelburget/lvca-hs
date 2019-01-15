@@ -14,7 +14,6 @@ module Languages.SimpleExample
   , parseTests
   , propTests
   , explicitPatP
-  , patP
 
   -- currently unused:
   , tm3
@@ -72,7 +71,7 @@ pattern TI x = PrimValue' "Num" (Left x)
 pattern TS :: Text -> Term E
 pattern TS x = PrimValue' "Str" (Right x)
 
-mkTypes (Options "Exp" Nothing $ Map.fromList
+mkTypes (Options Nothing $ Map.fromList
   [ "Annot" :-> [t| ()   |]
   , "Int"   :-> [t| Int  |]
   , "Text"  :-> [t| Text |]
@@ -88,7 +87,7 @@ mkTypes (Options "Exp" Nothing $ Map.fromList
   \  StrLit{Text}"
 mkSyntaxInstances ''Exp
 
-mkTypes (Options "Val" Nothing $ Map.fromList
+mkTypes (Options Nothing $ Map.fromList
   [ "Int"  :-> [t| Int  |]
   , "Text" :-> [t| Text |]
   ])
@@ -232,7 +231,7 @@ genPat = Gen.recursive Gen.choice [
 patP_round_trip_prop :: Property
 patP_round_trip_prop = property $ do
   x <- forAll genPat
-  preview patP (review patP x) === Just x
+  preview patVarP (review patVarP x) === Just x
 
 valP_round_trip_prop :: Property
 valP_round_trip_prop = property $ do
@@ -597,7 +596,7 @@ termP
 termP _ = error "TODO"
 
 dynamics' :: DenotationChart Text Text
-dynamics' = mkDenotationChart patP (termP (error "TODO")) dynamicsF
+dynamics' = mkDenotationChart patVarP (termP (error "TODO")) dynamicsF
 
 evalF
   :: Fix (VarBindingF :+: Exp E)
@@ -658,18 +657,18 @@ dynamicsF = DenotationChart'
 explicitPatP :: forall a. Prism' (Pattern a) (Fix (PatVarF :+: Exp a))
 explicitPatP = prism' rtl ltr where
   rtl = \case
-    Fix (InL pat) -> review patVarP pat
-    Fix (InR pat) -> review patP'   pat
+    Fix (InL pat) -> review patVarP' pat
+    Fix (InR pat) -> review patP    pat
   ltr tm = msum
-    [ Fix . InL <$> preview patVarP tm
-    , Fix . InR <$> preview patP'   tm
+    [ Fix . InL <$> preview patVarP' tm
+    , Fix . InR <$> preview patP    tm
     ]
 
   p :: Prism' (Pattern a) a
   p = _PatternPrimVal . _Just
 
-  patP' :: Prism' (Pattern a) (Exp a (Fix (PatVarF :+: Exp a)))
-  patP' = prism' rtl' ltr' where
+  patP :: Prism' (Pattern a) (Exp a (Fix (PatVarF :+: Exp a)))
+  patP = prism' rtl' ltr' where
     rtl' = \case
       Plus  a b -> PatternTm "Plus"  [ review explicitPatP a , review explicitPatP b ]
       Times a b -> PatternTm "Times" [ review explicitPatP a , review explicitPatP b ]

@@ -53,7 +53,7 @@ syntax' = SyntaxChart $ Map.fromList
     ])
   ]
 
-mkTypes (Options "Exp" Nothing Map.empty)
+mkTypes (Options Nothing Map.empty)
   "Exp ::=                                                                  \n\
   \  Z                                                                      \n\
   \  S(Exp)                                                                 \n\
@@ -62,7 +62,7 @@ mkTypes (Options "Exp" Nothing Map.empty)
   \  Ap(Exp; Exp)"
 mkSyntaxInstances ''Exp
 
-mkTypes (Options "Val" Nothing Map.empty)
+mkTypes (Options Nothing Map.empty)
   "Val ::=                                                                  \n\
   \  Zv                                                                     \n\
   \  Sv(Val)"
@@ -117,13 +117,13 @@ customPatP :: Prism' (Pattern T) (Fix (PatVarF :+: Exp a))
 customPatP = prism' rtl ltr where
   rtl :: Fix (PatVarF :+: Exp a) -> Pattern T
   rtl = \case
-    Fix (InL pat) -> review patVarP pat
-    Fix (InR pat) -> review patP'   pat
+    Fix (InL pat) -> review patVarP' pat
+    Fix (InR pat) -> review patP'    pat
 
   ltr :: Pattern T -> Maybe (Fix (PatVarF :+: Exp a))
   ltr tm = asum @[]
-    [ Fix . InL <$> preview patVarP tm
-    , Fix . InR <$> preview patP'   tm
+    [ Fix . InL <$> preview patVarP' tm
+    , Fix . InR <$> preview patP'    tm
     ]
 
   patP' :: Prism' (Pattern T) (Exp a (Fix (PatVarF :+: Exp a)))

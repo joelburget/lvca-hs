@@ -26,11 +26,11 @@ module Lvca.FunctorUtil
   , pattern FixR
   ) where
 
-import Control.Lens (Iso', Prism', iso, review, prism', preview)
+import Control.Lens          (Iso', Prism', iso, review, prism', preview)
 import Control.Monad.Free
 import Data.Functor.Classes
 import Data.Functor.Compose
-import Data.Functor.Const (Const(..))
+import Data.Functor.Const    (Const(..))
 import Data.Functor.Foldable (Fix(Fix), unfix)
 import Data.Bimatchable
 import Data.Matchable

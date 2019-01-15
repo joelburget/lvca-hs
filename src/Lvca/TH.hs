@@ -13,7 +13,11 @@ import qualified Data.List                       as List
 import           Data.Map                        (Map)
 import qualified Data.Map                        as Map
 import           Data.Matchable.TH
+import           Data.Monoid.Same                (Same(..), allSame)
+import qualified Data.Set                        as Set
 import           Data.Text                       (Text, pack, unpack)
+import qualified Data.Text                       as Text
+import           Data.Traversable                (for)
 import           Language.Haskell.TH
 import           Text.Megaparsec                 (runParser)
 import           Text.Show.Deriving
@@ -36,78 +40,90 @@ defaultBang :: Bang
 defaultBang = Bang NoSourceUnpackedness SourceStrict
 
 data Options = Options
-  { dataTypeName    :: !Text
-  , syntaxChartName :: !(Maybe Text)
+  { syntaxChartName :: !(Maybe Text)
   , externals       :: !(Map SortName (Q Type))
   }
 
 defOptions :: Options
-defOptions = Options (error "must define a data type name") Nothing Map.empty
+defOptions = Options Nothing Map.empty
 
 mkTypes :: Options -> Text -> Q [Dec]
-mkTypes (Options dtName mChartName externals) tDesc = do
+mkTypes (Options mChartName externals) tDesc = do
   let desc = runParser parseSyntaxDescription "(template haskell)" tDesc
-  SyntaxChart sorts <- case desc of
+  chart <- case desc of
     Left err   -> fail $ show err
     Right good -> pure good
 
-  let primName        = mkName' "prim"
-      expName         = mkName' "exp"
+  let primName = mkName' "prim"
+      expName  = mkName' "exp"
+      SyntaxComponents components _ = findChartComponents chart
 
-  ctors <- ifor sorts $ \sortName (SortDef vars ops) -> do
-    let functorSortName = mkName' sortName
+  decls <- for components $ \(SyntaxComponent (SyntaxChart sorts) vars) -> do
+    let vars' = case allSame vars of
+          Same vars' -> vars'
+          DegenerateSame -> error "unexpected DegenerateSame in var check"
+          NotSame a b -> error $ "we can't currently handle a connected " ++
+            "component of data types with different parameters: eg (" ++
+            show a ++ ") / (" ++ show b ++ ")."
 
-        mkCon :: Text -> Type
-        mkCon t =
-          if | t `List.elem` vars
-             -> VarT $ mkName' t
-             | t == sortName
-             -> VarT expName
-             | otherwise
-             -> ConT functorSortName
-        handleSort = \case
-          SortAp name [] -> mkCon name
-          SortAp name applicands
-            -> foldl AppT (mkCon name) (fmap handleSort applicands)
-          External name -> case Map.lookup name externals of
-            Nothing  -> error $ "unhandled binding external: " ++ unpack name
-            Just _ty -> VarT primName
-        handleValence (Valence _ sort) = (defaultBang, handleSort sort)
-        handleArity (Arity valences) = fmap handleValence valences
+    let dtName = Text.concat $ Map.keys sorts
+    ctors <- ifor sorts $ \sortName (SortDef _vars ops) -> do
+      let functorSortName = mkName' sortName
+          sortSet  = Set.fromList $ Map.keys sorts
 
-        sortCtors = ops <&> \case
-          Operator name arity _
-            -- errors if there are any duplicate names
-            -> NormalC (mkName' name) (handleArity arity)
+          mkCon :: Text -> Type
+          mkCon t =
+            if | t `List.elem` vars'
+               -> VarT $ mkName' t
+               | t `elem` sortSet
+               -> VarT expName
+               | otherwise
+               -> ConT functorSortName
+          handleSort = \case
+            SortAp name [] -> mkCon name
+            SortAp name applicands
+              -> foldl AppT (mkCon name) (fmap handleSort applicands)
+            External name -> case Map.lookup name externals of
+              Nothing  -> error $ "unhandled binding external: " ++ unpack name
+              Just _ty -> VarT primName
+          handleValence (Valence _ sort) = (defaultBang, handleSort sort)
+          handleArity (Arity valences) = fmap handleValence valences
 
-    pure sortCtors
+          sortCtors = ops <&> \case
+            Operator name arity _
+              -- errors if there are any duplicate names
+              -> NormalC (mkName' name) (handleArity arity)
 
-  let dataDecl = DataD
-        []
-        (mkName' dtName)
-        (fmap PlainTV [primName, expName])
-        Nothing
-        (concat $ Map.elems ctors)
-        [ DerivClause Nothing
-          [ ConT ''Eq
-          , ConT ''Show
-          , ConT ''Functor
-          , ConT ''Foldable
-          , ConT ''Traversable
+      pure sortCtors
+
+    let dataDecl = DataD
+          []
+          (mkName' dtName)
+          (fmap PlainTV $ fmap mkName' vars' ++ [primName, expName])
+          Nothing
+          (concat $ Map.elems ctors)
+          [ DerivClause Nothing
+            [ ConT ''Eq
+            , ConT ''Show
+            , ConT ''Functor
+            , ConT ''Foldable
+            , ConT ''Traversable
+            ]
           ]
-        ]
 
-  ty      <- [t| SyntaxChart |]
-  expr    <- [| SyntaxChart $(liftDataWithText sorts) |]
-  helpers <- mkTermHelpers (SyntaxChart sorts) (mkName' dtName)
-  let chartDefs = case mChartName of
-        Nothing -> []
-        Just chartName ->
-          let chartNameName = mkName' chartName
-          in [ SigD chartNameName ty
-             , ValD (VarP chartNameName) (NormalB expr) []
-             ]
-  pure $ [ dataDecl ] <> chartDefs <> helpers
+    ty      <- [t| SyntaxChart |]
+    expr    <- [| SyntaxChart $(liftDataWithText sorts) |]
+    helpers <- mkTermHelpers (SyntaxChart sorts) (mkName' dtName) vars'
+    let chartDefs = case mChartName of
+          Nothing -> []
+          Just chartName ->
+            let chartNameName = mkName' chartName
+            in [ SigD chartNameName ty
+               , ValD (VarP chartNameName) (NormalB expr) []
+               ]
+    pure $ [ dataDecl ] <> chartDefs <> helpers
+
+  pure $ concat decls
 
 data VarTy = SortVar Name | ExternalVar Name
 
@@ -116,8 +132,8 @@ varTyVar = \case
   SortVar     v -> varP v
   ExternalVar v -> varP v
 
-mkTermHelpers :: SyntaxChart -> Name -> Q [Dec]
-mkTermHelpers chart@(SyntaxChart chartContents) fName = do
+mkTermHelpers :: SyntaxChart -> Name -> [Text] -> Q [Dec]
+mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
   let allVarNames = [1 :: Int ..] <&> \i -> mkName ("v" ++ show i)
       varNameGen = zipWith
         (\varName (Valence _ resultSort) -> case resultSort of
@@ -155,7 +171,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                   []
         ) [] ]
       , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
-          concat $
+          (concat $
             chartContents ^.. traverse <&> \(SortDef _vars operators) ->
               operators <&> \(Operator name (Arity valences) _desc) ->
                 match
@@ -169,7 +185,8 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                       ExternalVar v -> [| $con <*> preview p     $(varE v) |])
                     [| pure $(conE $ mkName' name) |]
                     (varNameGen valences))
-                  []
+                  [])
+          ++ [ match [p| _ |] (normalB [| Nothing |]) [] ]
         ) [] ]
 
       -- , sigD (mkName "p") [t| forall a b. Prism (Pattern a) (Pattern b) a b |]
@@ -209,7 +226,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                   []
         ) [] ]
       , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
-          concat $
+          (concat $
             chartContents ^.. traverse <&> \(SortDef _vars operators) ->
               operators <&> \(Operator name (Arity valences) _desc) ->
                 match
@@ -223,7 +240,8 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
                       ExternalVar v -> [| $con <*> preview p      $(varE v) |])
                     [| pure $(conE $ mkName' name) |]
                     (varNameGen valences))
-                  []
+                  [])
+          ++ [ match [p| _ |] (normalB [| Nothing |]) [] ]
         ) [] ]
 
       -- , sigD (mkName "p") [t| forall a b. Prism (Term a) (Term b) a b |]
@@ -237,7 +255,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName = do
       ]
     ]
 
-  inst <- instanceD (pure []) [t| TermRepresentable $(conT fName) |]
+  inst <- instanceD (pure []) [t| TermRepresentable ($(conT fName) $(vars)) |]
     (fmap pure [ syntaxDec, patPDec, termPDec ])
   pure [ inst ]
 

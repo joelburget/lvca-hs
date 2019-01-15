@@ -36,6 +36,14 @@ module Lvca.Types
   , Valence(..)
   , valenceSubst
   , valenceSorts
+  -- ** Syntax components
+  , SyntaxComponent(..)
+  , componentChart
+  , componentVars
+  , SyntaxComponents(..)
+  , syntaxComponents
+  , componentMapping
+  , findChartComponents
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -51,6 +59,7 @@ module Lvca.Types
   , VarBindingF(..)
   , varBindingP
   , PatVarF(..)
+  , patVarP'
   , patVarP
   , MeaningOfF(..)
   , meaningOfP
@@ -64,7 +73,7 @@ module Lvca.Types
   , termName
   , identify
   , TermRepresentable(..)
-  , patP
+  , patAdaptor
   , termAdaptor
 
   -- * Patterns
@@ -104,13 +113,18 @@ module Lvca.Types
   , (@@@)
   , (%%%)
   , (.--)
+
+  -- * Other
+  , prismSum
+  , prismSum3
+  , prismSum4
   ) where
 
 
 import           Codec.Serialise
 import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
-import           Control.Lens              hiding (op)
+import           Control.Lens              hiding (mapping, op, prism)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
 import           Data.Bifunctor.TH               hiding (Options)
@@ -118,6 +132,7 @@ import           Data.ByteString           (ByteString)
 import           Data.Data (Data)
 import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
+import           Data.Graph                (stronglyConnCompR, SCC(..))
 import           Data.List                 (intersperse, find)
 import           Data.Maybe                (fromMaybe)
 import           Data.Map.Strict           (Map)
@@ -161,6 +176,12 @@ sortSubst varVals = \case
     let subSorts' = sortSubst varVals <$> subSorts
     in SortAp name subSorts'
 
+-- | The list of sorts this sort (directly) depends on
+sortDeps :: Sort -> [SortName]
+sortDeps = \case
+  SortAp name sorts -> name : concatMap sortDeps sorts
+  External{}        -> []
+
 -- | A syntax chart defines the abstract syntax of a language, specified by a
 -- collection of operators and their arities. The abstract syntax provides a
 -- systematic, unambiguous account of the hierarchical and binding structure of
@@ -180,6 +201,61 @@ sortSubst varVals = \case
 -- @
 newtype SyntaxChart = SyntaxChart (Map SortName SortDef)
   deriving (Eq, Show, Data)
+
+data SyntaxComponent = SyntaxComponent
+  { _componentChart :: !SyntaxChart
+  -- ^ A sub-syntax chart, representing a strongly-connected subset of the
+  -- original chart
+  , _componentVars  :: ![[Text]]
+  -- ^ All the variable names that occur as a parameter to any type in this
+  -- component
+  }
+
+-- | It's sometimes useful to break a syntax chart into its connected
+-- components, which contain data types dependent on each other, and which
+-- become individual compilation units.
+data SyntaxComponents = SyntaxComponents
+  { _syntaxComponents :: ![SyntaxComponent]
+  -- ^ List of sub-syntax charts, each representing a strongly-connected subset
+  -- of the original chart
+  , _componentMapping :: !(Map SortName SyntaxComponent)
+  -- ^ Map from the originally defined sorts to the component they occur in
+  }
+
+-- | Find the strongly connected components / compilation units of a family of
+-- data types.
+findChartComponents :: SyntaxChart -> SyntaxComponents
+findChartComponents (SyntaxChart sorts) =
+  let sortsWithDeps :: [(SortDef, SortName, [SortName])]
+      sortsWithDeps = Map.toList sorts <&> \(name, sortDef@(SortDef _ ops)) ->
+        (sortDef,name,) $ concat3 $
+          ops <&> \(Operator _name (Arity valences) _desc) ->
+            valences <&> \(Valence vSorts result) ->
+              fmap sortDeps $ result : vSorts
+
+      components :: [SCC (SortDef, SortName, [SortName])]
+      components = stronglyConnCompR sortsWithDeps
+
+      (components', mappings) = unzip $ components <&> \scc ->
+        let preChart :: [(SortName, SortDef)]
+            (preChart, names) = case scc of
+              AcyclicSCC (sortDef, name, _) ->
+                ( [(name, sortDef)]
+                , [name]
+                )
+              CyclicSCC vertices ->
+                ( vertices <&> (\(sortDef, name, _) -> (name, sortDef))
+                , vertices ^.. traverse . _2
+                )
+
+            -- Collect all the variable names that occur in any sorts
+            vars = preChart <&> \(_, SortDef sortVars _) -> sortVars
+
+            component = SyntaxComponent
+              (SyntaxChart (Map.fromList preChart))
+              vars
+        in (component, Map.fromList $ zip names $ repeat component)
+  in SyntaxComponents components' (Map.unions mappings)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
@@ -272,12 +348,15 @@ varBindingP p = prism' rtl ltr where
 data PatVarF f = PatVarF !(Maybe Text)
   deriving (Functor, Foldable, Traversable)
 
-patVarP :: Prism' (Pattern a) (PatVarF (Fix f))
-patVarP = prism' rtl ltr where
+patVarP' :: Prism' (Pattern a) (PatVarF (Fix f))
+patVarP' = prism' rtl ltr where
   rtl (PatVarF name) = PatternVar name
   ltr = \case
     PatternVar name -> Just $ PatVarF name
     _               -> Nothing
+
+patVarP :: TermRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
+patVarP = sumPrisms patVarP' (mkPatP patVarP)
 
 instance Show1 PatVarF where
   liftShowsPrec _ _ p pat = showParen (p > 10) $ case pat of
@@ -310,24 +389,64 @@ class TermRepresentable f where
     :: Prism' (Pattern a)      (Fix f')
     -> Prism' (Pattern a) (f a (Fix f'))
 
-sumPrisms
-  :: Prism' (Pattern a) (f1 (Fix (f1 :+: f2)))
-  -> Prism' (Pattern a) (f2 (Fix (f1 :+: f2)))
-  -> Prism' (Pattern a) (Fix (f1 :+: f2))
-sumPrisms p1 p2 = prism' rtl ltr where
+class HasPrism a b where
+  prism :: Prism' a b
+
+instance HasPrism (Term a) (Term a) where
+  prism = id
+
+instance HasPrism (Pattern a) (Pattern a) where
+  prism = id
+
+instance HasPrism a b => HasPrism (Pattern a) (Pattern b) where
+  prism = patAdaptor prism
+
+patAdaptor :: Prism' a b -> Prism' (Pattern a) (Pattern b)
+patAdaptor p = prism' rtl ltr where
   rtl = \case
-    Fix (InL pat) -> review p1 pat
-    Fix (InR pat) -> review p2 pat
-  ltr tm = msum
-    [ Fix . InL <$> preview p1 tm
-    , Fix . InR <$> preview p2 tm
-    ]
+    PatternTm name subpats  -> PatternTm name $ rtl <$> subpats
+    BindingPattern name pat -> BindingPattern name $ rtl pat
+    PatternVar v            -> PatternVar v
+    PatternPrimVal Nothing  -> PatternPrimVal Nothing
+    PatternPrimVal (Just a) -> PatternPrimVal $ Just $ review p a
+    PatternUnion subpats    -> PatternUnion $ rtl <$> subpats
+  ltr = \case
+    PatternTm name subpats  -> PatternTm name <$> traverse ltr subpats
+    BindingPattern name pat -> BindingPattern name <$> ltr pat
+    PatternVar v            -> pure $ PatternVar v
+    PatternPrimVal Nothing  -> pure $ PatternPrimVal Nothing
+    PatternPrimVal (Just a) -> PatternPrimVal . Just <$> preview p a
+    PatternUnion subpats    -> PatternUnion <$> traverse ltr subpats
+
+prismSum ::
+  ( HasPrism a (f1 (Fix (f1 :+: f2)))
+  , HasPrism a (f2 (Fix (f1 :+: f2)))
+  ) => Prism' a (Fix ((f1 :+: f2)))
+prismSum = sumPrisms prism prism
+
+prismSum3 ::
+  ( HasPrism a (f1 (Fix (f1 :+: f2 :+: f3)))
+  , HasPrism a (f2 (Fix (f1 :+: f2 :+: f3)))
+  , HasPrism a (f3 (Fix (f1 :+: f2 :+: f3)))
+  ) => Prism' a (Fix ((f1 :+: f2 :+: f3)))
+prismSum3 = sumPrisms3 prism prism prism
+
+prismSum4 ::
+  ( HasPrism a (f1 (Fix (f1 :+: f2 :+: f3 :+: f4)))
+  , HasPrism a (f2 (Fix (f1 :+: f2 :+: f3 :+: f4)))
+  , HasPrism a (f3 (Fix (f1 :+: f2 :+: f3 :+: f4)))
+  , HasPrism a (f4 (Fix (f1 :+: f2 :+: f3 :+: f4)))
+  ) => Prism' a (Fix ((f1 :+: f2 :+: f3 :+: f4)))
+prismSum4 = sumPrisms4 prism prism prism prism
+
+instance HasPrism a b => HasPrism (Term a) (Term b) where
+  prism = termAdaptor prism
 
 termAdaptor :: Prism' a b -> Prism' (Term a) (Term b)
 termAdaptor p = prism' rtl ltr where
   rtl (Fix tm) = Fix $ case tm of
     Term name subtms -> Term name $ rtl <$> subtms
-    Binding name tm' -> Binding name (rtl tm')
+    Binding name tm' -> Binding name $ rtl tm'
     Var v            -> Var v
     PrimValue a      -> PrimValue $ review p a
   ltr (Fix tm) = fmap Fix $ case tm of
@@ -335,9 +454,6 @@ termAdaptor p = prism' rtl ltr where
     Binding name tm' -> Binding name <$> ltr tm'
     Var v            -> Just $ Var v
     PrimValue a      -> PrimValue <$> preview p a
-
-patP :: TermRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
-patP = sumPrisms patVarP (mkPatP patP)
 
 instance (Serialise a, Serialise term) => Serialise (TermF a term) where
   encode tm =
@@ -719,7 +835,8 @@ instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
-
+makeLenses ''SyntaxComponent
+makeLenses ''SyntaxComponents
 makeLenses ''Sort
 makePrisms ''Sort
 makeLenses ''SortDef

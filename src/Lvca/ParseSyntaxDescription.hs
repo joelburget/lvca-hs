@@ -27,8 +27,27 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
   variables <- many parseName
   _         <- symbol "::="
-  pure $ L.IndentMany Nothing (pure . (name,) . (SortDef variables))
-    parseOperator
+
+  asum
+    -- Try to parse the multiline version, eg:
+    --
+    -- @
+    -- Foo ::=
+    --   Bar
+    --   Baz
+    -- @
+    [ pure $ L.IndentMany Nothing (pure . (name,) . (SortDef variables))
+        parseOperator
+
+    -- TODO:
+    -- Failing that, try the single line version:
+    --
+    -- @
+    -- Foo ::= Bar | Baz
+    -- @
+    -- , L.IndentNone . (name,) . SortDef variables <$>
+    --     parseOperator `sepBy1` symbol "|"
+    ]
 
 -- The first two cases are sugar so you can write:
 -- - `{Num}` instead of
