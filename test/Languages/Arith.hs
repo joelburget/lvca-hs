@@ -1,7 +1,6 @@
 {-# language QuasiQuotes      #-}
 {-# language TemplateHaskell  #-}
 {-# language TypeFamilies     #-}
-{-# options_ghc -ddump-splices #-}
 module Languages.Arith where
 
 import           Control.Applicative                ((<$))
@@ -17,7 +16,7 @@ import qualified Data.Map                           as Map
 import           Data.Sequence                      (Seq)
 import           Data.Text                          (Text)
 import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
-import           Data.Void                          (Void, absurd)
+import           Data.Void                          (Void) -- , absurd)
 import           EasyTest
 import           Text.Megaparsec
   (ParseErrorBundle, runParser, choice, errorBundlePretty)
@@ -26,7 +25,6 @@ import           NeatInterpolation
 import Lvca
 
 import Test.ParseLanguage
-import qualified Text.Megaparsec as MP
 import Test.Types
 
 newtype E = E { unE :: Either Int Text }
@@ -53,6 +51,7 @@ mkTypes (Options (Just "syntax") Map.empty)
   \  S(Arith)"
 mkSyntaxInstances ''Arith
 
+{-
 -- XXX Fix syntax generation when we create multiple data types
 mkTypes (Options Nothing Map.empty)
   "Op ::=                                                                   \n\
@@ -64,12 +63,16 @@ mkTypes (Options Nothing Map.empty)
   \                                                                         \n\
   \Zero ::= Zero                                                            \n\
   \                                                                         \n\
-  \Program ::= Program(List(Op))                                            \n\
+  \Program ::= Pgm(OpSeq)                                                   \n\
   \                                                                         \n\
-  \List a ::=                                                               \n\
+  \OpSeq ::=                                                                \n\
   \  Nil                                                                    \n\
-  \  Cons(a; List(a))"
-mkSyntaxInstances ''StackMachine
+  \  Cons(Op; OpSeq)"
+mkSyntaxInstances ''Op
+mkSyntaxInstances ''Zero
+mkSyntaxInstances ''Program
+mkSyntaxInstances ''OpSeq
+-}
 
 stackMachineDenotation :: DenotationChart a (Either Text b)
 Right stackMachineDenotation = runParser (parseDenotationChart noParse noParse)
@@ -197,21 +200,21 @@ upcast p = prism' rtl ltr where
 upcast' :: forall sub sup. (sub -> sup) -> Term sub -> Term sup
 upcast' f (Fix tm) = Fix $ bimap f (upcast' f) tm
 
-machineEval :: Term Void -> Either String (Term Int)
-machineEval tm = case preview termP1 (upcast' @Void @Int absurd tm) of
-  Nothing  -> Left "couldn't view term as Arith term"
-  Just (tm' :: Fix (VarBindingF :+: Arith Int))
-    -> case unMkDenotationChart patP termP2 stackMachineDenotation of
-      Nothing    -> Left "couldn't unmake denotation chart"
-      Just (chart :: DenotationChart' (Arith Text) (MachineF :+: Arith Text)) ->
-        let resultTm :: (Either String (Fix (Arith Int)), Seq Text)
-            resultTm = eval (EvalEnv Map.empty (const Nothing)) chart tm'
-        in second (review termP3) $ fst resultTm
+-- machineEval :: Term Void -> Either String (Term Int)
+-- machineEval tm = case preview termP1 (upcast' @Void @Int absurd tm) of
+--   Nothing  -> Left "couldn't view term as Arith term"
+--   Just (tm' :: Fix (VarBindingF :+: Arith Int))
+--     -> case unMkDenotationChart patP termP2 stackMachineDenotation of
+--       Nothing    -> Left "couldn't unmake denotation chart"
+--       Just (chart :: DenotationChart' (Arith Text) (MachineF :+: Arith Text)) ->
+--         let resultTm :: (Either String (Fix (Arith Int)), Seq Text)
+--             resultTm = eval (EvalEnv Map.empty (const Nothing)) chart tm'
+--         in second (review termP3) $ fst resultTm
 
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval tm = case preview termP1 tm of
   Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' -> case unMkDenotationChart patP termP2' (forceRight peanoDynamics) of
+  Just tm' -> case unMkDenotationChart patP termP2 (forceRight peanoDynamics) of
     Nothing    -> Left "couldn't unmake denotation chart"
     Just chart ->
       let resultTm :: (Either String (Fix (Arith Void)), Seq Text)
@@ -234,8 +237,8 @@ termP3 = mkTermP termP3 . from _Fix
 
 arithTests :: Test ()
 arithTests = tests
-  [ scope "eval" $ expectEq (machineEval example) $ Right $ Fix $ Term "foo" []
-  , scope "prop_parse_pretty" $
+  -- [ scope "eval" $ expectEq (machineEval example) $ Right $ Fix $ Term "foo" []
+  [ scope "prop_parse_pretty" $
     testProperty $ prop_parse_pretty syntax "Arith"
       (const Nothing) primParsers
   , scope "prop_serialise_identity" $ testProperty $

@@ -60,29 +60,27 @@ mkTypes (Options mChartName externals) tDesc = do
 
   decls <- for components $ \(SyntaxComponent (SyntaxChart sorts) vars) -> do
     let vars' = case allSame vars of
-          Same vars' -> vars'
+          Same sameVars  -> sameVars
           DegenerateSame -> error "unexpected DegenerateSame in var check"
-          NotSame a b -> error $ "we can't currently handle a connected " ++
+          NotSame a b    -> error $ "we can't currently handle a connected " ++
             "component of data types with different parameters: eg (" ++
             show a ++ ") / (" ++ show b ++ ")."
 
     let dtName = Text.concat $ Map.keys sorts
-    ctors <- ifor sorts $ \sortName (SortDef _vars ops) -> do
-      let functorSortName = mkName' sortName
-          sortSet  = Set.fromList $ Map.keys sorts
+    ctors <- ifor sorts $ \_sortName (SortDef _vars ops) -> do
+      let -- functorSortName = mkName' sortName
+          sortSet = Set.fromList $ Map.keys sorts
 
-          mkCon :: Text -> Type
-          mkCon t =
-            if | t `List.elem` vars'
-               -> VarT $ mkName' t
-               | t `elem` sortSet
-               -> VarT expName
-               | otherwise
-               -> ConT functorSortName
           handleSort = \case
-            SortAp name [] -> mkCon name
             SortAp name applicands
-              -> foldl AppT (mkCon name) (fmap handleSort applicands)
+              | name `elem` sortSet
+              -> VarT expName
+              | name `List.elem` vars'
+              -> VarT $ mkName' name
+              | otherwise
+              -> foldl AppT (ConT (mkName' name)) $
+                fmap handleSort applicands ++
+                [VarT primName, VarT expName]
             External name -> case Map.lookup name externals of
               Nothing  -> error $ "unhandled binding external: " ++ unpack name
               Just _ty -> VarT primName
@@ -255,7 +253,12 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
       ]
     ]
 
-  inst <- instanceD (pure []) [t| TermRepresentable ($(conT fName) $(vars)) |]
+  let appliedCon = foldl
+        (\con var -> appT con (varT (mkName' var)))
+        (conT fName)
+        vars
+
+  inst <- instanceD (pure []) [t| TermRepresentable $(appliedCon) |]
     (fmap pure [ syntaxDec, patPDec, termPDec ])
   pure [ inst ]
 
