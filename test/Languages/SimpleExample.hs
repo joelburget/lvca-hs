@@ -87,6 +87,24 @@ mkTypes (Options Nothing $ Map.fromList
   \  StrLit{Text}"
 mkSyntaxInstances ''Exp
 
+concreteSyntaxChart = [text|
+  Exp :=
+    // TODO: precendence
+    // TODO: how to specify spaces between tokens?
+    a "*" b        <=> Times(a; b)
+    a "+" b        <=> Plus(a; b)
+    a "++" b       <=> Cat(a; b)
+    "len" a        <=> Len(a)
+    "let" a "in" b <=> Let(a; b)
+    a "//" b       <=> Annotation(b; a)
+
+    // TODO: how to handle these
+    i              <=> NumLit(i)
+    str            <=> StrLit(str)
+
+    "(" a ")"      <=> a
+  |]
+
 mkTypes (Options Nothing $ Map.fromList
   [ "Int"  :-> [t| Int  |]
   , "Text" :-> [t| Text |]
@@ -454,22 +472,23 @@ matchesTests = scope "matches" $
   let foo :: Term ()
       foo = Fix $ Term "foo" []
 
-  -- We intentionally include these `undefined`s to check that we don't depend
-  -- on the syntax / sort.
+      -- We intentionally include these `undefined`s to check that we don't
+      -- depend on the syntax / sort.
+      unforced = error "this term should not be forced"
+
   in tests
-       [ expectJust $ runMatches undefined undefined $ matches
+       [ expectJust $ runMatches unforced unforced $ matches
          (PatternVar (Just "x")) foo
-       , expectJust $ runMatches undefined undefined $ matches
+       , expectJust $ runMatches unforced unforced $ matches
          PatternAny foo
-       , expectJust $ runMatches undefined undefined $ matches
-         (PatternUnion [PatternAny, undefined]) foo
+       , expectJust $ runMatches unforced unforced $ matches
+         (PatternUnion [PatternAny, unforced]) foo
        , expect $
          (runMatches syntax "Typ" $ matches
-           (BindingPattern ["y"] PatternAny)
+           PatternAny
            (Fix $ Binding ["x"] $ Fix $ Term "num" []))
          ==
-         (Just (Subst Map.empty [("y", "x")])
-           :: Maybe (Subst ()))
+         (Just mempty :: Maybe (Subst ()))
        ]
 
 evalTests :: Test ()

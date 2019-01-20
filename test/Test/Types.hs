@@ -62,8 +62,8 @@ genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
           [ do
                name <- genName
                if name `elem` opNames
-               then Gen.discard
-               else pure $ Fix $ Var name
+                 then Gen.discard
+                 else pure $ Fix $ Var name
           ]
 
         genArity :: [Valence] -> m [Term a]

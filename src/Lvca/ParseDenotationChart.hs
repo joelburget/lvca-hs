@@ -50,12 +50,7 @@ parsePattern'
   -> DenotationChartParser (Pattern a)
 parsePattern' parseA = asum
   [ PatternVar Nothing <$ symbol "_" <?> "wildcard pattern"
-  , do let betweenSemis = label "binding or term pattern" $ do
-             binders <- parseBinders
-             body    <- parsePattern parseA
-             pure $ case binders of
-               [] -> body
-               _  -> BindingPattern binders body
+  , do let betweenSemis = label "binding or term pattern" $ parsePattern parseA
 
        name <- parseName
        option (PatternVar (Just name)) $ asum

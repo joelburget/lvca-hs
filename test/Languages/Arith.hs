@@ -3,9 +3,13 @@
 {-# language TypeFamilies     #-}
 module Languages.Arith where
 
+import Debug.Trace
+
 import           Control.Applicative                ((<$))
 import           Control.Arrow                      ((>>>))
-import           Control.Monad.Reader               (runReaderT)
+import           Control.Monad.Reader               (runReaderT, runReader)
+import           Control.Monad.Trans.Maybe
+import           Control.Monad.Writer.CPS
 import           Control.Lens
   (_Right, _Wrapped, preview, review, Prism', prism', _Left, from)
 import           Control.Lens.TH
@@ -50,6 +54,15 @@ mkTypes (Options (Just "syntax") Map.empty)
   \  Z                                                                      \n\
   \  S(Arith)"
 mkSyntaxInstances ''Arith
+
+domainSyntax :: SyntaxChart
+Right domainSyntax = runParser parseSyntaxDescription "arith domain"
+  [text|
+  "Domain ::=
+  \ Rec(Domain; Domain; Domain. Domain. Domain)                             \n\
+  \ Z                                                                       \n\
+  \ S(Domain)"
+  |]
 
 {-
 -- XXX Fix syntax generation when we create multiple data types
@@ -150,7 +163,7 @@ peanoDynamics = runParser (parseDenotationChart noParse noParse)
     [[ b ]];
     [[ a ]];
     _. acc. Rec([[ acc ]]; Z; accPred. _. accPred)
-    )
+  )
 
   // starting from Z, fold `b` times, adding `a` each time
   [[ Mul(a; b) ]] = Rec(
@@ -160,12 +173,12 @@ peanoDynamics = runParser (parseDenotationChart noParse noParse)
       [[ a ]];
       acc;
       _. acc'. S(acc')
-      )
     )
+  )
 
   // TODO: i'd like to write `Z` but then we need a way to disambiguate from a
   // var
-  [[ Z    ]] = Z()
+  [[ Z()  ]] = Z()
   [[ S(a) ]] = S([[ a ]])
   |]
 
@@ -176,16 +189,18 @@ pattern S' x = Fix (Term "S" [ x ])
 pattern Z'   = Fix (Term "Z" [   ])
 
 example :: Term Void
-example = Fix $ Term "Add"
-  [ Fix $ Term "Mul"
-    [ S' Z'
-    , Fix $ Term "Sub"
-      [ S' (S' Z')
-      , S' Z'
-      ]
-    ]
-  , S' (S' (S' Z'))
-  ]
+example = Fix $ Term "Add" [ S' Z', S' Z' ]
+
+-- example = Fix $ Term "Add"
+--   [ Fix $ Term "Mul"
+--     [ S' Z'
+--     , Fix $ Term "Sub"
+--       [ S' (S' Z')
+--       , S' Z'
+--       ]
+--     ]
+--   , S' (S' (S' Z'))
+--   ]
 
 pattern PrimInt :: Int -> Term E
 pattern PrimInt i = Fix (Term "Int" [ Fix (PrimValue (E (Left i))) ])
@@ -214,25 +229,45 @@ upcast' f (Fix tm) = Fix $ bimap f (upcast' f) tm
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval tm = case preview termP1 tm of
   Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' -> case unMkDenotationChart patP termP2 (forceRight peanoDynamics) of
+  Just tm' -> case unMkDenotationChart patP domainTermP (forceRight peanoDynamics) of
     Nothing    -> Left "couldn't unmake denotation chart"
     Just chart ->
-      let resultTm :: (Either String (Fix (Arith Void)), Seq Text)
+      let resultTm :: (Either String (Fix (TermF Void)), Seq Text)
           resultTm = eval (EvalEnv Map.empty (const Nothing)) chart tm'
       in second (review termP3) $ fst resultTm
 
-patP :: Prism' (Pattern a) (Fix (PatVarF :+: Arith a))
+peanoProceed :: Term Void -> Either String [StateStep TermF Void]
+peanoProceed tm = case preview termP1 tm of
+  Nothing  -> Left "couldn't view term as Arith term"
+  Just tm' -> case unMkDenotationChart patP domainTermP (forceRight peanoDynamics) of
+    Nothing    -> Left "couldn't unmake denotation chart"
+    Just chart -> case runWriter (runMaybeT (translate chart tm')) of
+      (Nothing, _logs) -> Left "couldn't translate term"
+      (Just tm'', _logs) -> do
+        traceM $ "translated: " ++ show tm''
+        let results :: [StateStep TermF Void]
+            results = runReader (runProceedM (proceed tm''))
+              (EvalEnv Map.empty (const Nothing), [])
+        Right results
+
+patP :: Prism' (Pattern a) (Fix (PatVarF :+: TermF a))
 patP = sumPrisms patVarP' (mkPatP patP)
 
-termP1 :: Prism' (Term a) (Fix (VarBindingF :+: Arith a))
+termP1 :: Prism' (Term a) (Fix (VarBindingF :+: TermF a))
 termP1 = sumPrisms (varBindingP termP1) (mkTermP termP1)
 
-termP2 :: Prism'
+domainTermP :: Prism'
+  (Term (Either Text a))
+  -- XXX not sure type should be Text
+  (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: TermF Text))
+domainTermP = termAdaptor _Left . machineTermP (_Fix . _PrimValue)
+
+arithTermP :: Prism'
   (Term (Either Text a))
   (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Arith Text))
-termP2 = termAdaptor _Left . machineTermP (_Fix . _PrimValue)
+arithTermP = termAdaptor _Left . machineTermP (_Fix . _PrimValue)
 
-termP3 :: Prism' (Term a) (Fix (Arith a))
+termP3 :: Prism' (Term a) (Fix (TermF a))
 termP3 = mkTermP termP3 . from _Fix
 
 arithTests :: Test ()

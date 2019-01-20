@@ -13,10 +13,12 @@ module Lvca.Languages.MachineModel
 
   -- * Evaluation
   , StackFrame(..)
-  , findBinding
-  , frameVals
+  -- , findBinding
+  -- , frameVals
   , StateStep(..)
   , Focus(..)
+  , Extended
+  , Extended'
   ) where
 
 import           Data.Traversable          (for)
@@ -29,8 +31,6 @@ import           Data.Text                 (Text)
 import Lvca.FunctorUtil
 import Lvca.Types
 import Lvca.Util
-
-import Debug.Trace
 
 -- mkTypes (Options Nothing $ Map.singleton "Text" (ConT ''Text))
 --   "Machine ::=                                                              \n\
@@ -120,9 +120,6 @@ mkDenotationChart patP' termP' (DenotationChart' rules) = DenotationChart $
   rules & traverse . _1 %~ review patP'
         & traverse . _2 %~ review termP'
 
-traceNote :: Show a => String -> a -> a
-traceNote msg a = trace (msg ++ ": " ++ show a) a
-
 unMkDenotationChart
   :: (Show1 f, Show a, Show1 g, Show b)
   => Prism' (Pattern a) (Fix (PatVarF     :+: f))
@@ -131,9 +128,7 @@ unMkDenotationChart
   -> Maybe (DenotationChart' f g)
 unMkDenotationChart patP' termP' (DenotationChart rules)
   = fmap DenotationChart' $ for rules $ \(a, b)
-    -> (,)
-      <$> traceNote "preview patP'" (preview patP' (traceNote "a" a))
-      <*> traceNote "preview termP'" (preview termP' (traceNote "b" b))
+    -> (,) <$> preview patP'  a <*> preview termP' b
 
 denotationChartP
   :: (Show1 f, Show a, Show1 g, Show b)
@@ -156,40 +151,6 @@ listP p = prism' rtl ltr where
     Term "Cons" [x, xs] -> (:) <$> preview p x <*> ltr xs
     _ -> Nothing
 
--- evaluation internals
-
-data StackFrame a
-  = EvalFrame    !Text !(Term a)
-  | BindingFrame !Text !(Term a)
-
-findBinding :: [StackFrame a] -> Text -> Maybe (Term a)
-findBinding [] _ = Nothing
-findBinding (BindingFrame bname tm : stack) name
-  | bname == name = Just tm
-  | otherwise = findBinding stack name
-findBinding (_ : stack) name = findBinding stack name
-
-frameVals :: [StackFrame a] -> Map Text (Term a)
-frameVals = foldl
-  (\sorts -> \case
-    BindingFrame name tm -> Map.insert name tm sorts
-    _                    -> sorts)
-  Map.empty
-
-data StateStep a = StateStep
-  { _stepFrames :: ![StackFrame a]
-  -- | Either descending into term or ascending with value
-  , _stepFocus  :: !(Focus a)
-  }
-
-  | Errored !Text
-  | Done !(Term a)
-
-data Focus a
-  = Descending !(Term a)
-  | Ascending  !(Term a)
-  deriving Show
-
 machineTermP
   :: forall a f.
      TermRepresentable f
@@ -202,3 +163,62 @@ machineTermP textP = sumPrisms4'
   (\_p ->  meaningOfP textP)
   (machineP textP )
   mkTermP
+
+-- evaluation internals
+
+type Extended  f a = VarBindingF :+: MachineF :+: f a
+type Extended' f a = Extended f (Either Text a)
+
+data StackFrame f a
+  = EvalFrame !(f a ()) ![Maybe (Fix (Extended' f a))]
+  -- ^ A term with holes at the position of each child + each child. @Nothing@
+  -- marks the location where we're currently working.
+  | BindingFrame !Text !(Fix (f a)) -- !(Fix (Extended' f a))
+  -- ^ Binding the name to the given value in the subterm
+
+instance (Show2 f, Show1 (f a), Show a) => Show (StackFrame f a) where
+  showsPrec p frame = showParen (p > 10) $ case frame of
+    EvalFrame frame' _tms ->
+        showString "EvalFrame "
+      . showsPrec2 11 frame'
+      . showString " TODO"
+      -- . showsPrec 11 tms
+    BindingFrame name tm ->
+        showString "BindingFrame "
+      . showsPrec 11 name
+      . showChar ' '
+      . showsPrec 11 tm
+
+-- findBinding :: [StackFrame a] -> Text -> Maybe (Term a)
+-- findBinding [] _ = Nothing
+-- findBinding (BindingFrame bname tm : stack) name
+--   | bname == name = Just tm
+--   | otherwise = findBinding stack name
+-- findBinding (_ : stack) name = findBinding stack name
+
+-- frameVals :: [StackFrame a] -> Map Text (Term a)
+-- frameVals = foldl
+--   (\sorts -> \case
+--     BindingFrame name tm -> Map.insert name tm sorts
+--     _                    -> sorts)
+--   Map.empty
+
+-- TODO: include note like RETURNING / SUBST, etc
+data StateStep f a = StateStep
+  { _stepFrames :: ![StackFrame f a]
+  -- | Either descending into term or ascending with value
+  , _stepFocus  :: !(Focus f a)
+  }
+
+  | Errored !Text
+  | Done !(Fix (f a))
+  deriving Show
+
+data Focus f a
+  = Descending !(Fix (Extended' f a))
+  | Ascending  !(Fix (f a))
+
+instance (Show2 f, Show1 (f a), Show a) => Show (Focus f a) where
+  showsPrec p focus = showParen (p > 10) $ case focus of
+    Descending _ -> showString "Descending (TODO)"
+    Ascending tm -> showString "Ascending" . showsPrec 11 tm

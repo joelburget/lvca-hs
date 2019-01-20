@@ -76,7 +76,7 @@ stlcTests = tests
       expectJust $ runMatches stlcChart "Exp" $ matches
         (PatternTm "lam"
           [ PatternVar (Just "ty")
-          , BindingPattern ["x"] (PatternVar (Just "body"))
+          , PatternVar (Just "body")
           ])
         stlcTm1
   , scope "parsing chart" $

@@ -1,14 +1,17 @@
 {-# LANGUAGE ConstraintKinds     #-}
+{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE TemplateHaskell     #-}
 module Lvca.Proceed where
 
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
+import           Control.Monad.List        (ListT)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
 import           Data.Bifoldable
 import           Data.Bitraversable
+import           Data.Foldable             (foldrM)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First (First, getFirst))
@@ -19,8 +22,10 @@ import qualified Data.Text                 as Text
 
 import           Lvca.Languages.MachineModel
 import           Lvca.Types            hiding (findMatch, matches)
-import           Lvca.Util             ((??), (???))
+import           Lvca.Util             ((??), (???), tShow, show1, show2)
 import           Lvca.FunctorUtil
+
+import Debug.Trace
 
 data TranslateEnv f g a = TranslateEnv
   { _dChart          :: DenotationChart' (f Text) (MachineF :+: g Text)
@@ -51,6 +56,11 @@ newtype EvalM f a = EvalM {
   runEvalM :: ExceptT String (WriterT (Seq Text) (Reader (EvalEnv f))) a
   } deriving (Functor, Applicative, Monad, MonadReader (EvalEnv f),
     MonadError String, MonadWriter (Seq Text))
+
+newtype ProceedM (f :: * -> * -> *) a b = ProceedM {
+  runProceedM :: Reader (EvalEnv (f a), [StackFrame f a]) b
+  } deriving (Functor, Applicative, Monad,
+    MonadReader (EvalEnv (f a), [StackFrame f a]))
 
 type DomainFunctor f a =
   ( Bifoldable f
@@ -143,9 +153,6 @@ translate chart tm = case unfix tm of
     mapMaybeT (`runReaderT` TranslateEnv chart primVarBindings varBindings)
       (translate' rhs)
 
-tShow :: Show a => a -> Text
-tShow = Text.pack . show
-
 tell1 :: MonadWriter (Seq Text) m => Text -> m ()
 tell1 = tell . Seq.singleton
 
@@ -196,20 +203,71 @@ subst name arg (Fix body) = case body of
   InR f
     -> Fix . InR <$> traverse (subst name arg) f
 
+errored :: String -> ProceedM f a [StateStep f b]
+errored msg = pure [ Errored $ Text.pack msg ]
+
+expectRight' :: Show a => Either a b -> ProceedM f c b
+expectRight' = \case
+  Left name -> error $ -- TODO
+    "found (prim) pattern variable in purification " ++ show name
+  Right a -> pure a
+
+subst'
+  :: Bitraversable f
+  => Text
+  -> Fix (VarBindingF :+: MachineF :+: f b)
+  -> Fix (VarBindingF :+: MachineF :+: f b)
+  -> ProceedM f a (Fix (VarBindingF :+: MachineF :+: f b))
+subst' = undefined
+
+proceed
+  :: CodomainFunctor f a
+  => Fix (VarBindingF :+: MachineF :+: f (Either Text a))
+  -> ProceedM f a [StateStep f a]
+proceed (Fix f) = do
+  traceM $ "f: " ++ show1 f
+  case f of
+    InL BindingF{}  -> do
+      errored $ "bare binding: " ++ show1 f
+    InL (VarF name) -> do
+      x <- view $ _1 . evalVarVals . at name
+      case x of
+        Nothing -> errored $ "couldn't look up variable " ++ show name
+        Just x  -> pure [ Done x ] -- XXX: Ascending
+
+    InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
+      body' <- subst' name arg body
+      frames <- view _2
+      let step = StateStep frames (Descending body')
+      (step :) <$> proceed body'
+    InR (InL App{}) -> errored $ "invalid app: " ++ show1 f
+    InR (InL Lam{}) -> errored $ "bare lambda: " ++ show1 f
+
+  --   InR (InL (PrimApp name args)) -> do
+  --     primApps <- view evalPrimApp
+  --     fun      <- primApps name ?? "couldn't look up prim function " ++ show name
+  --     args'    <- traverse eval' args
+  --     pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
+
+    InR (InR tm) -> do
+      tm' <- bitraverse expectRight' pure tm
+      stuff <- foldrM (\tm'' logs -> (<> logs) <$> proceed tm'') [] tm
+      pure stuff
+
 eval'
   :: CodomainFunctor f a
   => Fix (VarBindingF :+: MachineF :+: f (Either Text a))
   -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
-  InL BindingF{}  -> throwError $ "bare binding: " ++ show' f
+  InL BindingF{}  -> throwError $ "bare binding: " ++ show1 f
   InL (VarF name) -> view (evalVarVals . at name)
     ??? "couldn't look up variable " ++ show name
 
   InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
     ret <- subst name arg body
     eval' ret
-  InR (InL App{}) -> throwError $ "invalid app: " ++ show' f
-  InR (InL Lam{}) -> throwError $ "bare lambda: " ++ show' f
+  InR (InL App{}) -> throwError $ "invalid app: " ++ show1 f
+  InR (InL Lam{}) -> throwError $ "bare lambda: " ++ show1 f
 
   InR (InL (PrimApp name args)) -> do
     primApps <- view evalPrimApp
@@ -218,5 +276,3 @@ eval' (Fix f) = case f of
     pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
 
   InR (InR tm) -> Fix <$> bitraverse expectRight eval' tm
-
-  where show' a = liftShowsPrec showsPrec showList 0 a ""

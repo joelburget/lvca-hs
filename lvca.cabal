@@ -97,9 +97,10 @@ library
 
 executable lvca
   import:         extensions, core-deps, extra-deps
-  hs-source-dirs: src
+  hs-source-dirs: src, test
+  other-modules:  Languages.Arith
   main-is:        Main.hs
-  build-depends:  lvca
+  build-depends:  lvca, easytest
 
 test-suite tests
   import:           extensions, core-deps, extra-deps

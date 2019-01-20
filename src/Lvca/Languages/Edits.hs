@@ -14,7 +14,6 @@ editsSyntax = runParser parseSyntaxDescription "(edits syntax)"
   [text|
 pattern ::=
   PatternTm([text]; list(pattern))
-  BindingPattern(list([text]); pattern) "a pattern binding a list of names
   PatternVar(maybe(text))               "a variable with an optional name"
   PatternPrimVal(text; maybe(text))     "a prim val is an external name, eg 'str', and an optional variable name"
   PatternUnion(list(pattern))

@@ -381,13 +381,42 @@ data TermF a term
 type Term a = Fix (TermF a)
 
 class TermRepresentable f where
-  syntaxOf :: Proxy f -> SyntaxChart
+  syntaxOf :: Proxy f -> SyntaxChart -- TODO: should we get rid of this?
+
+  -- TODO: could we make both of these from one?
   mkTermP
     :: Prism' (Term a)      (Fix f')
     -> Prism' (Term a) (f a (Fix f'))
   mkPatP
     :: Prism' (Pattern a)      (Fix f')
     -> Prism' (Pattern a) (f a (Fix f'))
+
+instance TermRepresentable TermF where
+  syntaxOf = undefined
+  mkTermP p = prism' rtl ltr where
+    rtl = Fix . \case
+      Term name subtms -> Term name $ review p <$> subtms
+      Binding names tm -> Binding names $ review p tm
+      Var name         -> Var name
+      PrimValue a      -> PrimValue a
+    ltr (Fix tm) = case tm of
+      Term name subtms -> Term name <$> traverse (preview p) subtms
+      Binding names tm -> Binding names <$> preview p tm
+      Var name         -> pure $ Var name
+      PrimValue a      -> pure $ PrimValue a
+  mkPatP p = prism' rtl ltr where
+    rtl tm = case tm of
+      Term name subtms -> PatternTm name $ review p <$> subtms
+      Binding names tm -> error "XXX"
+      Var name         -> PatternVar (Just name)
+      PrimValue a      -> PatternPrimVal (Just a)
+    ltr = \case
+      PatternTm name subpats  -> Term name <$> traverse (preview p) subpats
+      PatternVar (Just name)  -> Just $ Var name
+      PatternVar Nothing      -> error "TODO"
+      PatternPrimVal (Just a) -> pure $ PrimValue a
+      PatternPrimVal Nothing  -> error "TODO"
+      PatternUnion{}          -> Nothing
 
 class HasPrism a b where
   prism :: Prism' a b
@@ -405,14 +434,12 @@ patAdaptor :: Prism' a b -> Prism' (Pattern a) (Pattern b)
 patAdaptor p = prism' rtl ltr where
   rtl = \case
     PatternTm name subpats  -> PatternTm name $ rtl <$> subpats
-    BindingPattern name pat -> BindingPattern name $ rtl pat
     PatternVar v            -> PatternVar v
     PatternPrimVal Nothing  -> PatternPrimVal Nothing
     PatternPrimVal (Just a) -> PatternPrimVal $ Just $ review p a
     PatternUnion subpats    -> PatternUnion $ rtl <$> subpats
   ltr = \case
     PatternTm name subpats  -> PatternTm name <$> traverse ltr subpats
-    BindingPattern name pat -> BindingPattern name <$> ltr pat
     PatternVar v            -> pure $ PatternVar v
     PatternPrimVal Nothing  -> pure $ PatternPrimVal Nothing
     PatternPrimVal (Just a) -> PatternPrimVal . Just <$> preview p a
@@ -493,6 +520,19 @@ instance Pretty a => Pretty (Term a) where
     Var name    -> pretty name
     PrimValue a -> braces (pretty a)
 
+instance Pretty a => Pretty (Pattern a) where
+  pretty = \case
+    PatternTm name subpats ->
+      pretty name <> parens (hsep $ punctuate semi $ fmap pretty subpats)
+    PatternVar Nothing -> "_"
+    PatternVar (Just name) -> pretty name
+    PatternPrimVal a -> braces (pretty a)
+    PatternUnion pats -> group $ encloseSep
+      (flatAlt "( " "(")
+      (flatAlt " )" ")")
+      " | "
+      (pretty <$> pats)
+
 -- | A pattern matches a term.
 --
 -- In fact, patterns and terms have almost exactly the same form. Differences:
@@ -503,8 +543,6 @@ instance Pretty a => Pretty (Term a) where
 data Pattern a
   -- | Matches the head of a term and any subpatterns
   = PatternTm !Text ![Pattern a]
-  -- TODO: should this exist?
-  | BindingPattern ![Text] !(Pattern a)
   -- TODO: Add non-binding, yet named variables, eg _foo
   -- | A variable pattern that matches everything, generating a substitution
   | PatternVar !(Maybe Text)
@@ -535,23 +573,18 @@ deriveEq2   ''TermF
 newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
   deriving Show
 
+instance (Pretty a, Pretty b) => Pretty (DenotationChart a b) where
+  pretty (DenotationChart rows) = vsep $ rows <&> \(pat, tm) ->
+    "[[ " <> pretty pat <> " ]] = " <> pretty tm
+
 pattern (:->) :: a -> b -> (a, b)
 pattern a :-> b = (a, b)
 
 (<->) :: a -> b -> (a, b)
 a <-> b = (a, b)
 
-data Subst a = Subst
-  { _assignments             :: !(Map Text (Term a))
-  -- | pattern <-> term variable correspondences.
-  , _variableCorrespondences :: ![(Text, Text)]
-  } deriving (Eq, Show)
-
-instance Semigroup (Subst a) where
-  Subst x1 y1 <> Subst x2 y2 = Subst (x1 <> x2) (y1 <> y2)
-
-instance Monoid (Subst a) where
-  mempty = Subst mempty mempty
+newtype Subst a = Subst { _assignments :: (Map Text (Term a)) }
+  deriving (Eq, Show, Semigroup, Monoid)
 
 data IsRedudant = IsRedudant | IsntRedundant
   deriving Eq
@@ -577,12 +610,13 @@ hasRedundantPat (PatternCheckResult _ overlaps)
   = any ((== IsRedudant) . snd) overlaps
 
 applySubst :: Show a => Subst a -> Term a -> Term a
-applySubst subst@(Subst assignments correspondences) (Fix tm) = case tm of
+applySubst subst@(Subst assignments) (Fix tm) = case tm of
   Term name subtms    -> Fix $ Term name (applySubst subst <$> subtms)
   Binding names subtm -> Fix $ Binding names (applySubst subst subtm)
   Var name            -> fromMaybe (Fix tm) $ do
-    name' <- fst <$> find (\(_patName, tmName) -> name == tmName) correspondences
-    assignments ^? ix name'
+    error "TODO"
+    -- name' <- fst <$> find (\(_patName, tmName) -> name == tmName) correspondences
+    -- assignments ^? ix name'
   _                   -> Fix tm
 
 -- | Match any instance of this operator
@@ -611,7 +645,7 @@ emptyMatch = pure mempty
 matches :: (Show a, Eq a) => Pattern a -> Term a -> Matching a (Subst a)
 -- matches pat (Left (Return val))     = matches pat (Right val)
 matches (PatternVar (Just name)) tm
-  = pure $ Subst (Map.singleton name tm) []
+  = pure $ Subst $ Map.singleton name tm
 matches (PatternVar Nothing)     _  = emptyMatch
 
 matches pat (Fix (Var name)) = do
@@ -636,11 +670,6 @@ matches (PatternPrimVal pVal) (Fix (PrimValue val))
   = emptyMatch
   | otherwise
   = noMatch
-
--- TODO: this piece must know the binding structure from the syntax chart
-matches (BindingPattern lnames subpat) (Fix (Binding rnames subtm)) = do
-  subst <- Subst Map.empty <$> lift (Util.pair lnames rnames)
-  fmap (subst <>) $ matches subpat subtm
 
 matches PatternAny _ = emptyMatch
 matches (PatternUnion pats) tm = do
@@ -689,12 +718,7 @@ minus x@(PatternPrimVal a) (PatternPrimVal b)
   = pure $ if a == b then PatternEmpty else x
 minus x@PatternPrimVal{} _ = pure x
 
-minus x@PatternTm{} BindingPattern{}      = pure x
 minus x@PatternTm{} PatternPrimVal{}      = pure x
-
-minus BindingPattern{} BindingPattern{}   = error "TODO"
-minus x@BindingPattern{} PatternTm{}      = pure x
-minus x@BindingPattern{} PatternPrimVal{} = pure x
 
 patternCheck
   :: forall a b.
@@ -875,3 +899,4 @@ meaningOfP textP = prism' rtl ltr where
 
 data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'
   [(Fix (PatVarF :+: f), Fix (VarBindingF :+: MeaningOfF :+: g))]
+  deriving Show

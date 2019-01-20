@@ -36,26 +36,26 @@ instance TmShow Text where
 
 type ListZipper a = Top :>> [a] :>> a
 
-data State a = State
-  { _timeline   :: ListZipper (StateStep a)
+data State f a = State
+  { _timeline :: ListZipper (StateStep f a)
   , _showHelp :: Bool
   }
 
 makeLenses ''State
 
-next :: State a -> State a
+next :: State f a -> State f a
 next state@(State tl _help) = case tl ^. focus of
   Done{} -> state
   _      -> case rightward tl of
     Just tl' -> state & timeline .~ tl'
     Nothing  -> state
 
-prev :: State a -> State a
+prev :: State f a -> State f a
 prev state@(State tl _help) = case leftward tl of
   Just tl' -> state & timeline .~ tl'
   Nothing  -> state
 
-toggleHelp :: State a -> State a
+toggleHelp :: State f a -> State f a
 toggleHelp = showHelp %~ not
 
 bordered :: Text -> Widget n -> Widget n
@@ -75,9 +75,9 @@ theMap = attrMap V.defAttr
   ]
 
 handleEvent
-  :: State s
+  :: State f s
   -> BrickEvent () a
-  -> EventM () (Next (State s))
+  -> EventM () (Next (State f s))
 handleEvent g (VtyEvent (V.EvKey V.KUp []))         = continue $ prev g
 handleEvent g (VtyEvent (V.EvKey V.KDown []))       = continue $ next g
 handleEvent g (VtyEvent (V.EvKey V.KRight []))      = continue $ next g
@@ -91,7 +91,7 @@ handleEvent g (VtyEvent (V.EvKey (V.KChar '?') [])) = continue $ toggleHelp g
 handleEvent g (VtyEvent (V.EvKey V.KEsc []))        = halt g
 handleEvent g _                                     = continue g
 
-drawUI :: TmShow s => State s -> Widget ()
+drawUI :: TmShow s => State f s -> Widget ()
 drawUI (State tl showHelp') =
 
   let mainView = case tl ^. focus of
@@ -100,7 +100,7 @@ drawUI (State tl showHelp') =
               rBox = bordered "Term"    $ center $ drawFocus valTm
           in lBox <+> rBox
         Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
-        Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawTm val
+        Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawTm' val
       helpView = bordered "Help" $ center $ txt [text|
         h - backward
         l - forward
@@ -109,21 +109,21 @@ drawUI (State tl showHelp') =
       |]
   in if showHelp' then mainView <=> helpView else mainView
 
-drawCtx :: TmShow a => [StackFrame a] -> Widget ()
+drawCtx :: TmShow a => [StackFrame f a] -> Widget ()
 drawCtx = \case
   []    -> fill ' '
   stack -> vBox (reverse $ fmap drawStackFrame stack)
 
-drawStackFrame :: TmShow a => StackFrame a -> Widget ()
+drawStackFrame :: TmShow a => StackFrame f a -> Widget ()
 drawStackFrame = hBox . \case
-  EvalFrame    k v -> [str "eval " <+> txt k <+> str "; " <+> drawTm v]
-  BindingFrame k v -> [txt k <+> str ": " <+> drawTm v]
+  EvalFrame    k v -> [str "eval " <+> txt "TODO: k" <+> str "; " <+> txt "TODO: v"]
+  BindingFrame k v -> [txt k <+> str ": " <+> drawTm' v]
 
 -- TODO: distinguish between in and out
-drawFocus :: TmShow a => Focus a -> Widget ()
+drawFocus :: TmShow a => Focus f a -> Widget ()
 drawFocus = \case
-  Descending tm -> drawTm tm
-  Ascending  tm -> drawTm tm
+  Descending tm -> drawTm  tm
+  Ascending  tm -> drawTm' tm
 
 showTermSlot :: TmShow a => Term a -> Widget ()
 showTermSlot (Fix tm) = case tm of
@@ -135,20 +135,25 @@ showTermSlot (Fix tm) = case tm of
 drawBinding :: (Text, Term a) -> Widget ()
 drawBinding _ = txt "binding"
 
-drawTm :: TmShow a => Term a -> Widget ()
-drawTm (Fix tm) = case tm of
-  Term name subtms ->
-    txt name
-    <=>
-    padLeft (Pad 2) (vBox (fmap drawTm subtms))
-  Binding names subterm ->
-    txt ("[" <> T.unwords names <> "]")
-    <=>
-    padLeft (Pad 2) (drawTm subterm)
-  Var name   -> txt name
-  PrimValue primVal -> txt "{" <+> drawPrim primVal <+> txt "}"
+drawTm' :: TmShow a => (Fix (f a)) -> Widget ()
+drawTm' _ = txt "TODO: drawTm'"
 
-app :: TmShow s => App (State s) a ()
+drawTm :: TmShow a => (Fix (Extended' f a)) -> Widget ()
+drawTm (Fix _tm) = txt "TODO: drawTm"
+
+-- case tm of
+--   Term name subtms ->
+--     txt name
+--     <=>
+--     padLeft (Pad 2) (vBox (fmap drawTm subtms))
+--   Binding names subterm ->
+--     txt ("[" <> T.unwords names <> "]")
+--     <=>
+--     padLeft (Pad 2) (drawTm subterm)
+--   Var name   -> txt name
+--   PrimValue primVal -> txt "{" <+> drawPrim primVal <+> txt "}"
+
+app :: TmShow s => App (State f s) a ()
 app = B.App
  { appDraw         = pure . drawUI
  , appChooseCursor = neverShowCursor

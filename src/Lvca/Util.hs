@@ -6,6 +6,8 @@ import           Control.Monad.State   (StateT (..))
 import           Data.Foldable         (asum)
 import           Data.Matchable
 import           GHC.Stack
+import           Data.Text             (Text)
+import qualified Data.Text             as Text
 
 import           Lvca.FunctorUtil -- (Fix)
 
@@ -54,6 +56,15 @@ infixl 1 <@&>
 forceRight :: (HasCallStack, Show e) => Either e a -> a
 forceRight (Right x) = x
 forceRight (Left  e) = error $ "forceRight: unexpectedly called with " ++ show e
+
+show1 :: (Show1 f, Show a) => f a -> String
+show1 a = showsPrec1 0 a ""
+
+show2 :: (Show2 f, Show a, Show b) => f a b -> String
+show2 a = showsPrec2 0 a ""
+
+tShow :: Show a => a -> Text
+tShow = Text.pack . show
 
 concat3 :: [[[[a]]]] -> [a]
 concat3 = concat . concat . concat
