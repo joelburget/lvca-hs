@@ -73,6 +73,7 @@ module Lvca.Types
   , termName
   , identify
   , TermRepresentable(..)
+  , PatternRepresentable(..)
   , patAdaptor
   , termAdaptor
 
@@ -355,7 +356,7 @@ patVarP' = prism' rtl ltr where
     PatternVar name -> Just $ PatVarF name
     _               -> Nothing
 
-patVarP :: TermRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
+patVarP :: PatternRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
 patVarP = sumPrisms patVarP' (mkPatP patVarP)
 
 instance Show1 PatVarF where
@@ -385,6 +386,8 @@ class TermRepresentable f where
   mkTermP
     :: Prism' (Term a)      (Fix f')
     -> Prism' (Term a) (f a (Fix f'))
+
+class PatternRepresentable f where
   mkPatP
     :: Prism' (Pattern a)      (Fix f')
     -> Prism' (Pattern a) (f a (Fix f'))
@@ -401,19 +404,6 @@ instance TermRepresentable TermF where
       Binding names tm -> Binding names <$> preview p tm
       Var name         -> pure $ Var name
       PrimValue a      -> pure $ PrimValue a
-  mkPatP p = prism' rtl ltr where
-    rtl tm = case tm of
-      Term name subtms -> PatternTm name $ review p <$> subtms
-      Binding names tm -> error "XXX"
-      Var name         -> PatternVar (Just name)
-      PrimValue a      -> PatternPrimVal (Just a)
-    ltr = \case
-      PatternTm name subpats  -> Term name <$> traverse (preview p) subpats
-      PatternVar (Just name)  -> Just $ Var name
-      PatternVar Nothing      -> error "TODO"
-      PatternPrimVal (Just a) -> pure $ PrimValue a
-      PatternPrimVal Nothing  -> error "TODO"
-      PatternUnion{}          -> Nothing
 
 class HasPrism a b where
   prism :: Prism' a b
@@ -713,9 +703,8 @@ minus pat (PatternUnion pats) = foldlM minus pat pats
 
 minus x@(PatternPrimVal a) (PatternPrimVal b)
   = pure $ if a == b then PatternEmpty else x
-minus x@PatternPrimVal{} _ = pure x
-
-minus x@PatternTm{} PatternPrimVal{}      = pure x
+minus x@PatternPrimVal{} _           = pure x
+minus x@PatternTm{} PatternPrimVal{} = pure x
 
 patternCheck
   :: forall a b.

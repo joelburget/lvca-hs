@@ -55,14 +55,12 @@ mkTypes (Options (Just "syntax") Map.empty)
   \  S(Arith)"
 mkSyntaxInstances ''Arith
 
-domainSyntax :: SyntaxChart
-Right domainSyntax = runParser parseSyntaxDescription "arith domain"
-  [text|
-  "Domain ::=
-  \ Rec(Domain; Domain; Domain. Domain. Domain)                             \n\
-  \ Z                                                                       \n\
-  \ S(Domain)"
-  |]
+mkTypes defOptions
+  "RecInt ::=                                                               \n\
+  \  Rec(RecInt; RecInt; RecInt. RecInt. RecInt)                            \n\
+  \  Zr()                                                                    \n\
+  \  Sr(RecInt)"
+mkSyntaxInstances ''RecInt
 
 {-
 -- XXX Fix syntax generation when we create multiple data types
@@ -100,14 +98,6 @@ Right stackMachineDenotation = runParser (parseDenotationChart noParse noParse)
 
 codomainT1 :: Text
 codomainT1 = "Int ::= {Int}"
-
-codomainT2 :: Text
-codomainT2 = [text|
-  Int ::=
-    Z()
-    S(Int)
-    Rec(Int; Int; Int. Int. Int)
-  |]
 
 parsePrim :: DenotationChartParser E
 parsePrim = E <$> choice
@@ -232,42 +222,40 @@ peanoEval tm = case preview termP1 tm of
   Just tm' -> case unMkDenotationChart patP domainTermP (forceRight peanoDynamics) of
     Nothing    -> Left "couldn't unmake denotation chart"
     Just chart ->
-      let resultTm :: (Either String (Fix (TermF Void)), Seq Text)
-          resultTm = eval (EvalEnv Map.empty (const Nothing)) chart tm'
+      let resultTm :: (Either String (Fix (RecInt Void)), Seq Text)
+          resultTm = eval @RecInt (EvalEnv Map.empty (const Nothing)) chart tm'
       in second (review termP3) $ fst resultTm
 
-peanoProceed :: Term Void -> Either String [StateStep TermF Void]
+peanoProceed :: Term Void -> Either String [StateStep RecInt Void]
 peanoProceed tm = case preview termP1 tm of
   Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' -> case unMkDenotationChart patP domainTermP (forceRight peanoDynamics) of
+  Just tm' -> case unMkDenotationChart (patP @RecInt) domainTermP (forceRight peanoDynamics) of
     Nothing    -> Left "couldn't unmake denotation chart"
     Just chart -> case runWriter (runMaybeT (translate chart tm')) of
       (Nothing, _logs) -> Left "couldn't translate term"
       (Just tm'', _logs) -> do
         traceM $ "translated: " ++ show tm''
-        let results :: [StateStep TermF Void]
+        let results :: [StateStep RecInt Void]
             results = runReader (runProceedM (proceed tm''))
               (EvalEnv Map.empty (const Nothing), [])
         Right results
 
-patP :: Prism' (Pattern a) (Fix (PatVarF :+: TermF a))
+patP :: forall f a.
+  PatternRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
 patP = sumPrisms patVarP' (mkPatP patP)
 
-termP1 :: Prism' (Term a) (Fix (VarBindingF :+: TermF a))
+termP1 :: TermRepresentable f => Prism' (Term a) (Fix (VarBindingF :+: f a))
 termP1 = sumPrisms (varBindingP termP1) (mkTermP termP1)
 
-domainTermP :: Prism'
-  (Term (Either Text a))
-  -- XXX not sure type should be Text
-  (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: TermF Text))
+domainTermP
+  :: TermRepresentable f
+  => Prism'
+       (Term (Either Text a))
+       -- XXX not sure type should be Text
+       (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f Text))
 domainTermP = termAdaptor _Left . machineTermP (_Fix . _PrimValue)
 
-arithTermP :: Prism'
-  (Term (Either Text a))
-  (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Arith Text))
-arithTermP = termAdaptor _Left . machineTermP (_Fix . _PrimValue)
-
-termP3 :: Prism' (Term a) (Fix (TermF a))
+termP3 :: TermRepresentable f => Prism' (Term a) (Fix (f a))
 termP3 = mkTermP termP3 . from _Fix
 
 arithTests :: Test ()

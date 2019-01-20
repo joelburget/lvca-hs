@@ -255,9 +255,11 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
         (conT fName)
         vars
 
-  inst <- instanceD (pure []) [t| TermRepresentable $(appliedCon) |]
-    (fmap pure [ patPDec, termPDec ])
-  pure [ inst ]
+  termRepInst <- instanceD (pure []) [t| TermRepresentable $(appliedCon) |]
+    (fmap pure [ termPDec ])
+  patRepInst <- instanceD (pure []) [t| PatternRepresentable $(appliedCon) |]
+    (fmap pure [ patPDec ])
+  pure [ termRepInst, patRepInst ]
 
 mkSyntaxInstances :: Name -> Q [Dec]
 mkSyntaxInstances dtName = fmap join $ sequence
