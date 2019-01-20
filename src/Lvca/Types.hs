@@ -381,8 +381,6 @@ data TermF a term
 type Term a = Fix (TermF a)
 
 class TermRepresentable f where
-  syntaxOf :: Proxy f -> SyntaxChart -- TODO: should we get rid of this?
-
   -- TODO: could we make both of these from one?
   mkTermP
     :: Prism' (Term a)      (Fix f')
@@ -392,7 +390,6 @@ class TermRepresentable f where
     -> Prism' (Pattern a) (f a (Fix f'))
 
 instance TermRepresentable TermF where
-  syntaxOf = undefined
   mkTermP p = prism' rtl ltr where
     rtl = Fix . \case
       Term name subtms -> Term name $ review p <$> subtms

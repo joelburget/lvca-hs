@@ -140,9 +140,6 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
         )
         allVarNames
 
-  syntaxDec <- funD (mkName "syntaxOf")
-    [ clause [wildP] (normalB (liftDataWithText chart)) [] ]
-
   -- for each sort:
   --   for each operator:
   --     emit a line like:
@@ -259,7 +256,7 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
         vars
 
   inst <- instanceD (pure []) [t| TermRepresentable $(appliedCon) |]
-    (fmap pure [ syntaxDec, patPDec, termPDec ])
+    (fmap pure [ patPDec, termPDec ])
   pure [ inst ]
 
 mkSyntaxInstances :: Name -> Q [Dec]
