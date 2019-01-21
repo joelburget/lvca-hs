@@ -159,31 +159,8 @@ customPatP = prism' rtl ltr where
 
 
 valP :: Prism' (Term (Either Text Void))
-               (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val a))
-valP = prism' rtl ltr where
-
-  rtl :: Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val a)
-       -> Term (Either Text Void)
-  rtl = \case
-    Fix (InL tm')                -> review (varBindingP valP) tm'
-    Fix (InR (InL tm'))          -> review (meaningOfP textP)         tm'
-    Fix (InR (InR (InL tm')))    -> review (lambdaP textP valP)  tm'
-    Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
-    Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
-
-  ltr :: Term (Either Text Void)
-      -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val a))
-  ltr = \case
-    Fix (Term "Zv" [])  -> Just (Fix (InR (InR (InR Zv))))
-    Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
-    tm            -> asum @[]
-      [ Fix . InL             <$> preview (varBindingP valP) tm
-      , Fix . InR . InL       <$> preview (meaningOfP  textP)        tm
-      , Fix . InR . InR . InL <$> preview (lambdaP textP valP)  tm
-      ]
-
-  textP :: Prism' (Term (Either Text Void)) Text
-  textP = _Fix . _PrimValue . _Left
+               (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val Text))
+valP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValue)
 
 dynamics :: DenotationChart T (Either Text Void)
 dynamics = mkDenotationChart customPatP valP dynamics'

@@ -39,7 +39,7 @@ import qualified Data.Text                             as Text
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 
-import Lvca
+import Lvca       hiding (statics)
 import Lvca.Types (matches)
 
 import Test.ParseTerm

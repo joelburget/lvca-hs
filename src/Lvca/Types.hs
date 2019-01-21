@@ -40,7 +40,6 @@ module Lvca.Types
   , valenceSorts
 
   -- | Concrete syntax charts
-  , Alternating(..)
   , PppDirective(..)
   , ConcreteSyntax(..)
 
@@ -269,17 +268,20 @@ instance IsString Valence where
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
-data Alternating a b
-  = ANil
-  | ACons a (Alternating b a)
-  deriving (Show, Eq)
+type TermNumber = Int
 
 -- | Parsing / pretty-printing directive
 data PppDirective
   = Literal !Text
+  | PprTerm !TermNumber
+  | Sequence !PppDirective !PppDirective
+  | Line
+  | Nest !Int !PppDirective
+  | Groue !PppDirective
+  | !PppDirective :<+ PppDirective
 
 newtype ConcreteSyntax = ConcreteSyntax
-  (Map OperatorName (Alternating Int PppDirective))
+  (Map OperatorName PppDirective)
 
 data VarBindingF f
   = BindingF ![Text] !f

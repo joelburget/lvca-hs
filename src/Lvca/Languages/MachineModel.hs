@@ -22,8 +22,6 @@ module Lvca.Languages.MachineModel
   ) where
 
 import           Data.Traversable          (for)
-import           Data.Map.Strict           (Map)
-import qualified Data.Map.Strict           as Map
 import           Control.Lens
   (Prism', _1, _2, (%~), preview, review, prism', (&))
 import           Data.Text                 (Text)
@@ -54,7 +52,7 @@ deriving instance (Eq   a) => Eq   (LambdaF a)
 deriving instance (Show a) => Show (LambdaF a)
 
 instance Show1 LambdaF where
-  liftShowsPrec showsf showListf p tm = showParen (p > 10) $ case tm of
+  liftShowsPrec showsf _ p tm = showParen (p > 10) $ case tm of
     Lam body     -> ss "Lam " . showsf 11 body
     App body arg -> ss "App " . showsf 11 body . ss " " . showsf 11 arg
     where ss = showString
@@ -66,10 +64,9 @@ instance Eq1 LambdaF where
 
 lambdaP
   :: forall f a.
-     Prism' (Term a) Text
-  -> Prism' (Term a)           (Fix f)
+     Prism' (Term a)           (Fix f)
   -> Prism' (Term a) (LambdaF (Fix f))
-lambdaP textP p = prism' rtl ltr where
+lambdaP p = prism' rtl ltr where
   rtl :: LambdaF (Fix f) -> Term a
   rtl = \case
     Lam body -> Fix $ Term "Lam"
@@ -117,18 +114,6 @@ denotationChartP patP' termP' = prism'
   (mkDenotationChart   patP' termP')
   (unMkDenotationChart patP' termP')
 
--- TODO: find a better place to put this
-listP :: Prism' (Term a) b -> Prism' (Term a) [b]
-listP p = prism' rtl ltr where
-  rtl = \case
-    []   -> Fix $ Term "Nil"  []
-    x:xs -> Fix $ Term "Cons" [ review p x , rtl xs ]
-
-  ltr (Fix tm) = case tm of
-    Term "Nil"  []      -> Just []
-    Term "Cons" [x, xs] -> (:) <$> preview p x <*> ltr xs
-    _ -> Nothing
-
 lambdaTermP
   :: forall a f.
      TermRepresentable f
@@ -139,11 +124,12 @@ lambdaTermP
 lambdaTermP textP = sumPrisms4'
   varBindingP
   (\_p ->  meaningOfP textP)
-  (lambdaP textP)
+  lambdaP
   mkTermP
 
 -- evaluation internals
 
+-- TODO: good names for these
 type Extended  f a = VarBindingF :+: LambdaF :+: f a
 type Extended' f a = Extended f (Either Text a)
 
