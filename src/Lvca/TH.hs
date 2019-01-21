@@ -3,13 +3,14 @@
 
 module Lvca.TH (mkTypes, mkSyntaxInstances, Options(..), defOptions) where
 
-import           Control.Lens                    (Prism', ifor, (<&>), prism', (^..), preview, review, _Just)
+import           Control.Lens                    (Prism', ifor, (<&>), prism', (^..), preview, review, _Just, findOf)
 import           Control.Lens.TH                 (makeLenses)
 import           Control.Monad                   (join)
 import           Data.Bifunctor.TH               hiding (Options)
 import           Data.Data
 import           Data.Eq.Deriving
 import qualified Data.List                       as List
+import           Data.Maybe                      (isJust)
 import           Data.Map                        (Map)
 import qualified Data.Map                        as Map
 import           Data.Matchable.TH
@@ -25,7 +26,9 @@ import           Language.Haskell.TH.Syntax      (lift, dataToExpQ)
 
 import           Lvca.FunctorUtil            (Fix(Fix), _Fix)
 import           Lvca.ParseSyntaxDescription
+import           Lvca.SyntaxComponents
 import           Lvca.Types                  hiding (valences)
+import qualified Lvca.Types                  as Types
 
 mkName' :: Text -> Name
 mkName' = mkName . unpack
@@ -123,12 +126,26 @@ mkTypes (Options mChartName externals) tDesc = do
 
   pure $ concat decls
 
-data VarTy = SortVar Name | ExternalVar Name
+data VarTy = SortVar !Name | ExternalVar !Name
 
 varTyVar :: VarTy -> PatQ
 varTyVar = \case
   SortVar     v -> varP v
   ExternalVar v -> varP v
+
+-- | Does this syntax chart ever refer to another sort?
+hasSortVar :: SyntaxChart -> Bool
+hasSortVar = isJust . findOf
+  (syntaxChartContents . traverse . sortOperators . traverse . operatorArity .
+   Types.valences . traverse . valenceSorts)
+  (\case { SortAp{} -> True; _ -> False })
+
+-- | Does this syntax chart ever refer to an external?
+hasExternalVar :: SyntaxChart -> Bool
+hasExternalVar = isJust . findOf
+  (syntaxChartContents . traverse . sortOperators . traverse . operatorArity .
+   Types.valences . traverse . valenceSorts)
+  (\case { External{} -> True; _ -> False })
 
 mkTermHelpers :: SyntaxChart -> Name -> [Text] -> Q [Dec]
 mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
@@ -140,6 +157,55 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
         )
         allVarNames
 
+      -- We only name patP' if it's used
+      patP'Name = if hasSortVar chart then "patP'" else "_"
+
+  -- we always declare rtl and ltr
+  let mkPatPDecls =
+        [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
+            concat $
+              chartContents ^.. traverse <&> \(SortDef _vars operators) ->
+                operators <&> \(Operator name (Arity valences) _desc) ->
+                  match
+                    (conP
+                      (mkName' name)
+                      (varTyVar <$> varNameGen valences))
+                    (normalB [|
+                      PatternTm
+                      $(litE $ StringL $ unpack name)
+                      $(listE $ varNameGen valences <&> \case
+                        SortVar     v -> [| review patP' $(varE v) |]
+                        ExternalVar v -> [| review p     $(varE v) |])
+                      |])
+                    []
+          ) [] ]
+        , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
+            (concat $
+              chartContents ^.. traverse <&> \(SortDef _vars operators) ->
+                operators <&> \(Operator name (Arity valences) _desc) ->
+                  match
+                    [p| PatternTm
+                      $(litP $ StringL $ unpack name)
+                      $(listP $ varTyVar <$> varNameGen valences)
+                    |]
+                    (normalB $ foldl
+                      (\con -> \case
+                        SortVar     v -> [| $con <*> preview patP' $(varE v) |]
+                        ExternalVar v -> [| $con <*> preview p     $(varE v) |])
+                      [| pure $(conE $ mkName' name) |]
+                      (varNameGen valences))
+                    [])
+            ++ [ match [p| _ |] (normalB [| Nothing |]) [] ]
+          ) [] ]
+        ]
+
+  -- we only declare p when it's used, ie there are externals
+  let mkPatPDecls' =
+        -- , sigD (mkName "p") [t| forall a b. Prism (Pattern a) (Pattern b) a b |]
+        [ sigD (mkName "p") [t| forall a. Prism' (Pattern a) a |]
+        , valD (varP (mkName "p")) (normalB [| _PatternPrimVal . _Just |]) []
+        ]
+
   -- for each sort:
   --   for each operator:
   --     emit a line like:
@@ -147,53 +213,56 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
   --       rtl: `PatternTm "Plus" [ a, b ]
   --         -> Plus <$> preview patP' a <*> preview patP' b`
   patPDec <- funD (mkName' "mkPatP")
-    [ clause [varP (mkName "patP'")] (normalB [| prism' rtl ltr |])
-      [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
-          concat $
-            chartContents ^.. traverse <&> \(SortDef _vars operators) ->
-              operators <&> \(Operator name (Arity valences) _desc) ->
-                match
-                  (conP
-                    (mkName' name)
-                    (varTyVar <$> varNameGen valences))
-                  (normalB [|
-                    PatternTm
-                    $(litE $ StringL $ unpack name)
-                    $(listE $ varNameGen valences <&> \case
-                      SortVar     v -> [| review patP' $(varE v) |]
-                      ExternalVar v -> [| review p     $(varE v) |])
-                    |])
-                  []
-        ) [] ]
-      , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
-          (concat $
-            chartContents ^.. traverse <&> \(SortDef _vars operators) ->
-              operators <&> \(Operator name (Arity valences) _desc) ->
-                match
-                  [p| PatternTm
-                    $(litP $ StringL $ unpack name)
-                    $(listP $ varTyVar <$> varNameGen valences)
-                  |]
-                  (normalB $ foldl
-                    (\con -> \case
-                      SortVar     v -> [| $con <*> preview patP' $(varE v) |]
-                      ExternalVar v -> [| $con <*> preview p     $(varE v) |])
-                    [| pure $(conE $ mkName' name) |]
-                    (varNameGen valences))
-                  [])
-          ++ [ match [p| _ |] (normalB [| Nothing |]) [] ]
-        ) [] ]
-
-      -- , sigD (mkName "p") [t| forall a b. Prism (Pattern a) (Pattern b) a b |]
-      , sigD (mkName "p") [t| forall a. Prism' (Pattern a) a |]
-      , valD (varP (mkName "p")) (normalB [| _PatternPrimVal . _Just |]) []
-
-      -- hide the warning about `p` not being used if there are no externals.
-      -- , sigD (mkName "_unused") [t| forall a b. Prism (Pattern a) (Pattern b) a b |]
-      , sigD (mkName "_unused") [t| forall a. Prism' (Pattern a) a |]
-      , valD (varP (mkName "_unused")) (normalB [| p |]) []
-      ]
+    [ clause [varP (mkName patP'Name)] (normalB [| prism' rtl ltr |]) $
+      mkPatPDecls ++ if hasExternalVar chart then mkPatPDecls' else []
     ]
+
+      -- We only name patP' if it's used
+  let termP'Name = if hasSortVar chart then "termP'" else "_"
+
+  let mkTermPDecls =
+        [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
+            concat $
+              chartContents ^.. traverse <&> \(SortDef _vars operators) ->
+                operators <&> \(Operator name (Arity valences) _desc) ->
+                  match
+                    (conP
+                      (mkName' name)
+                      (varTyVar <$> varNameGen valences))
+                    (normalB [|
+                      Fix (Term
+                      $(litE $ StringL $ unpack name)
+                      $(listE $ varNameGen valences <&> \case
+                        SortVar     v -> [| review termP' $(varE v) |]
+                        ExternalVar v -> [| review p      $(varE v) |])
+                      ) |])
+                    []
+          ) [] ]
+        , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
+            (concat $
+              chartContents ^.. traverse <&> \(SortDef _vars operators) ->
+                operators <&> \(Operator name (Arity valences) _desc) ->
+                  match
+                    [p| Fix (Term
+                      $(litP $ StringL $ unpack name)
+                      $(listP $ varTyVar <$> varNameGen valences)
+                    ) |]
+                    (normalB $ foldl
+                      (\con -> \case
+                        SortVar     v -> [| $con <*> preview termP' $(varE v) |]
+                        ExternalVar v -> [| $con <*> preview p      $(varE v) |])
+                      [| pure $(conE $ mkName' name) |]
+                      (varNameGen valences))
+                    [])
+            ++ [ match [p| _ |] (normalB [| Nothing |]) [] ]
+          ) [] ]
+        ]
+
+  -- we only declare p when it's used, ie there are externals
+  let mkTermPDecls' =
+        [ sigD (mkName "p") [t| forall a. Prism' (Term a) a |]
+        , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValue |]) []
+        ]
 
   -- for each sort:
   --   for each operator:
@@ -202,52 +271,8 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
   --       rtl: `Fix (Term "Plus" [ a, b ])
   --         -> pure Plus <*> preview termP' a <*> preview termP' b`
   termPDec <- funD (mkName' "mkTermP")
-    [ clause [varP (mkName "termP'")] (normalB [| prism' rtl ltr |])
-      [ funD (mkName "rtl") [ clause [] (normalB $ lamCaseE $
-          concat $
-            chartContents ^.. traverse <&> \(SortDef _vars operators) ->
-              operators <&> \(Operator name (Arity valences) _desc) ->
-                match
-                  (conP
-                    (mkName' name)
-                    (varTyVar <$> varNameGen valences))
-                  (normalB [|
-                    Fix (Term
-                    $(litE $ StringL $ unpack name)
-                    $(listE $ varNameGen valences <&> \case
-                      SortVar     v -> [| review termP' $(varE v) |]
-                      ExternalVar v -> [| review p      $(varE v) |])
-                    ) |])
-                  []
-        ) [] ]
-      , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
-          (concat $
-            chartContents ^.. traverse <&> \(SortDef _vars operators) ->
-              operators <&> \(Operator name (Arity valences) _desc) ->
-                match
-                  [p| Fix (Term
-                    $(litP $ StringL $ unpack name)
-                    $(listP $ varTyVar <$> varNameGen valences)
-                  ) |]
-                  (normalB $ foldl
-                    (\con -> \case
-                      SortVar     v -> [| $con <*> preview termP' $(varE v) |]
-                      ExternalVar v -> [| $con <*> preview p      $(varE v) |])
-                    [| pure $(conE $ mkName' name) |]
-                    (varNameGen valences))
-                  [])
-          ++ [ match [p| _ |] (normalB [| Nothing |]) [] ]
-        ) [] ]
-
-      -- , sigD (mkName "p") [t| forall a b. Prism (Term a) (Term b) a b |]
-      , sigD (mkName "p") [t| forall a. Prism' (Term a) a |]
-      , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValue |]) []
-
-      -- hide the warning about `p` not being used if there are no externals.
-      -- , sigD (mkName "_unused") [t| forall a b. Prism (Term a) (Term b) a b |]
-      , sigD (mkName "_unused") [t| forall a. Prism' (Term a) a |]
-      , valD (varP (mkName "_unused")) (normalB [| p |]) []
-      ]
+    [ clause [varP (mkName termP'Name)] (normalB [| prism' rtl ltr |]) $
+      mkTermPDecls ++ if hasExternalVar chart then mkTermPDecls' else []
     ]
 
   let appliedCon = foldl

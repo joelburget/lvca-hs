@@ -84,12 +84,13 @@ library
     Lvca.Languages.Edits
     Lvca.Languages.MachineModel
     Lvca.ParseDenotationChart
-    Lvca.ParseLanguage
+    Lvca.ParseTerm
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil
     Lvca.Proceed
     Lvca.TH
     Lvca.Types
+    Lvca.SyntaxComponents
     Lvca.Util
     Text.Megaparsec.Char.LexerAlt
   hs-source-dirs:      src
@@ -111,7 +112,7 @@ test-suite tests
     Languages.SimpleExample
     Languages.Stlc
     Languages.TExample
-    Test.ParseLanguage
+    Test.ParseTerm
     Test.Types
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test

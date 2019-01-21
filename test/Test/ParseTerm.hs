@@ -1,4 +1,4 @@
-module Test.ParseLanguage where
+module Test.ParseTerm where
 
 import Control.Monad.Reader
 import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
@@ -10,7 +10,7 @@ import Data.Text (Text, unpack)
 import           Text.Megaparsec (parseMaybe, runParser, errorBundlePretty)
 
 import Lvca.Types
-import Lvca.ParseLanguage
+import Lvca.ParseTerm
 import Test.Types
 
 prop_parse_pretty

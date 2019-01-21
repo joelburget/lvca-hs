@@ -1,6 +1,7 @@
 {-# LANGUAGE EmptyCase        #-}
 {-# LANGUAGE KindSignatures   #-}
 {-# LANGUAGE OverloadedLists  #-}
+{-# LANGUAGE QuasiQuotes      #-}
 {-# LANGUAGE TemplateHaskell  #-}
 module Languages.TExample where
 -- Godel's system t
@@ -13,6 +14,7 @@ import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 import           Data.Void                 (Void)
 import           Prelude                   hiding (succ)
+import           NeatInterpolation         (text)
 
 import Lvca hiding (Lam)
 
@@ -54,25 +56,29 @@ syntax' = SyntaxChart $ Map.fromList
   ]
 
 mkTypes (Options Nothing Map.empty)
-  "Exp ::=                                                                  \n\
-  \  Z                                                                      \n\
-  \  S(Exp)                                                                 \n\
-  \  Rec(Exp; Exp. Exp. Exp; Exp)                                           \n\
-  \  Lam(Exp. Exp)                                                          \n\
-  \  Ap(Exp; Exp)"
+  [text|
+  Exp ::=
+    Z
+    S(Exp)
+    Rec(Exp; Exp. Exp. Exp; Exp)
+    Lam(Exp. Exp)
+    Ap(Exp; Exp)
+  |]
 mkSyntaxInstances ''Exp
 
 mkTypes (Options Nothing Map.empty)
-  "Val ::=                                                                  \n\
-  \  Zv                                                                     \n\
-  \  Sv(Val)"
+  [text|
+  Val ::=
+    Zv
+    Sv(Val)
+  |]
 mkSyntaxInstances ''Val
 
-instance Show ((VarBindingF :+: MachineF :+: Val (Either Text Void))
-  (Fix (VarBindingF :+: (MachineF :+: Val (Either Text Void))))) where
+instance Show ((VarBindingF :+: LambdaF :+: Val (Either Text Void))
+  (Fix (VarBindingF :+: (LambdaF :+: Val (Either Text Void))))) where
    showsPrec = liftShowsPrec showsPrec showList
 
-dynamics' :: DenotationChart' (Exp Text) (MachineF :+: Val Text)
+dynamics' :: DenotationChart' (Exp Text) (LambdaF :+: Val Text)
 dynamics' = DenotationChart'
   [ Fix (InR Z)
     :->
@@ -151,28 +157,29 @@ customPatP = prism' rtl ltr where
       PatternTm "Ap" [a, b] -> Ap <$> preview customPatP a <*> preview customPatP b
       _                     -> Nothing
 
+
 valP :: Prism' (Term (Either Text Void))
-               (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val a))
+               (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val a))
 valP = prism' rtl ltr where
 
-  rtl :: Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val a)
+  rtl :: Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val a)
        -> Term (Either Text Void)
   rtl = \case
     Fix (InL tm')                -> review (varBindingP valP) tm'
     Fix (InR (InL tm'))          -> review (meaningOfP textP)         tm'
-    Fix (InR (InR (InL tm')))    -> review (machineP textP valP)  tm'
+    Fix (InR (InR (InL tm')))    -> review (lambdaP textP valP)  tm'
     Fix (InR (InR (InR Zv)))     -> Fix $ Term "Zv" []
     Fix (InR (InR (InR (Sv v)))) -> Fix $ Term "Sv" [review valP v]
 
   ltr :: Term (Either Text Void)
-      -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: Val a))
+      -> Maybe (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val a))
   ltr = \case
     Fix (Term "Zv" [])  -> Just (Fix (InR (InR (InR Zv))))
     Fix (Term "Sv" [t]) -> Fix . InR . InR . InR . Sv <$> preview valP t
     tm            -> asum @[]
       [ Fix . InL             <$> preview (varBindingP valP) tm
       , Fix . InR . InL       <$> preview (meaningOfP  textP)        tm
-      , Fix . InR . InR . InL <$> preview (machineP textP valP)  tm
+      , Fix . InR . InR . InL <$> preview (lambdaP textP valP)  tm
       ]
 
   textP :: Prism' (Term (Either Text Void)) Text
@@ -204,4 +211,4 @@ sszv = Fix $ Term "Sv" [szv]
 --     (const Nothing)
 
 evalF :: Fix (VarBindingF :+: Exp Void) -> (Either String (Fix (Val Void)), Seq Text)
-evalF = eval (EvalEnv Map.empty (const Nothing)) dynamics'
+evalF = eval (EvalEnv Map.empty) dynamics'

@@ -5,7 +5,6 @@ module Lvca.Proceed where
 
 import           Control.Lens              hiding (from, to, (??))
 import           Control.Monad.Except
-import           Control.Monad.List        (ListT)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
@@ -22,13 +21,13 @@ import qualified Data.Text                 as Text
 
 import           Lvca.Languages.MachineModel
 import           Lvca.Types            hiding (findMatch, matches)
-import           Lvca.Util             ((??), (???), tShow, show1, show2)
+import           Lvca.Util             ((???), tShow, show1)
 import           Lvca.FunctorUtil
 
 import Debug.Trace
 
 data TranslateEnv f g a = TranslateEnv
-  { _dChart          :: DenotationChart' (f Text) (MachineF :+: g Text)
+  { _dChart          :: DenotationChart' (f Text) (LambdaF :+: g Text)
   , _primVarBindings :: Map Text a
   , _varBindings     :: Map Text (Fix (VarBindingF :+: f a))
   }
@@ -36,7 +35,6 @@ data TranslateEnv f g a = TranslateEnv
 data EvalEnv f = EvalEnv
   { _evalVarVals         :: !(Map Text (Fix f))
   -- , _evalFrames          :: !Int
-  , _evalPrimApp         :: !(Text -> Maybe (Seq (f (Fix f)) -> f (Fix f)))
   }
 
 makeLenses ''EvalEnv
@@ -81,7 +79,7 @@ eval
   :: forall f g a.
      (DomainFunctor f a, CodomainFunctor g a, Show a)
   => EvalEnv (g a)
-  -> DenotationChart' (f Text) (MachineF :+: g Text)
+  -> DenotationChart' (f Text) (LambdaF :+: g Text)
   -> Fix (VarBindingF :+: f a)
   -> (Either String (Fix (g a)), Seq Text)
 eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
@@ -93,10 +91,10 @@ eval env chart tm = case runWriter (runMaybeT (translate chart tm)) of
 findMatch
   :: forall f g a.
      (DomainFunctor f a, CodomainFunctor g a , Show a)
-  => DenotationChart' (f Text) (MachineF :+: g Text)
+  => DenotationChart' (f Text) (LambdaF :+: g Text)
   -> Fix (VarBindingF :+: f a)
   -> Maybe ( MatchResult f a
-           , Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: g Text)
+           , Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: g Text)
            )
 findMatch (DenotationChart' cases) tm = getFirst $ foldMap
   (\(pat, rhs) -> First $ (,rhs) <$> matches pat tm)
@@ -136,9 +134,9 @@ translate
      , MonadWriter (Seq Text) m
      , Show a
      )
-  => DenotationChart' (f Text) (MachineF :+: g Text)
+  => DenotationChart' (f Text) (LambdaF :+: g Text)
   -> Fix (VarBindingF :+: f a)
-  -> MaybeT m (Fix (VarBindingF :+: MachineF :+: g (Either Text a)))
+  -> MaybeT m (Fix (VarBindingF :+: LambdaF :+: g (Either Text a)))
 translate chart tm = case unfix tm of
   InL (BindingF names subtm)
     -> Fix . InL . BindingF names <$> translate chart subtm
@@ -161,8 +159,8 @@ translate'
      , MonadWriter (Seq Text) m, MonadReader (TranslateEnv f g a) m
      , Show a
      )
-  => Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: g Text)
-  -> MaybeT m (Fix (VarBindingF :+: MachineF :+: g (Either Text a)))
+  => Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: g Text)
+  -> MaybeT m (Fix (VarBindingF :+: LambdaF :+: g (Either Text a)))
 translate' (Fix tm) = case tm of
   InR (InL (MeaningOf name)) -> do
     tell1 $ "translate' MeaningOf " <> tShow name
@@ -192,16 +190,16 @@ expectRight = \case
 subst
   :: Traversable f
   => Text
-  -> Fix (VarBindingF :+: MachineF :+: f)
-  -> Fix (VarBindingF :+: MachineF :+: f)
-  -> EvalM f' (Fix (VarBindingF :+: MachineF :+: f))
+  -> Fix (VarBindingF :+: f)
+  -> Fix (VarBindingF :+: f)
+  -> Fix (VarBindingF :+: f)
 subst name arg (Fix body) = case body of
   InL (VarF name')
-    -> pure $ if name == name' then arg else Fix $ InL $ VarF name'
+    -> if name == name' then arg else Fix $ InL $ VarF name'
   InL (BindingF names body')
-    -> Fix . InL . BindingF names <$> subst name arg body'
+    -> Fix . InL . BindingF names $ subst name arg body'
   InR f
-    -> Fix . InR <$> traverse (subst name arg) f
+    -> Fix . InR $ subst name arg <$> f
 
 errored :: String -> ProceedM f a [StateStep f b]
 errored msg = pure [ Errored $ Text.pack msg ]
@@ -215,14 +213,14 @@ expectRight' = \case
 subst'
   :: Bitraversable f
   => Text
-  -> Fix (VarBindingF :+: MachineF :+: f b)
-  -> Fix (VarBindingF :+: MachineF :+: f b)
-  -> ProceedM f a (Fix (VarBindingF :+: MachineF :+: f b))
+  -> Fix (VarBindingF :+: LambdaF :+: f b)
+  -> Fix (VarBindingF :+: LambdaF :+: f b)
+  -> ProceedM f a (Fix (VarBindingF :+: LambdaF :+: f b))
 subst' = undefined
 
 proceed
   :: CodomainFunctor f a
-  => Fix (VarBindingF :+: MachineF :+: f (Either Text a))
+  => Fix (VarBindingF :+: LambdaF :+: f (Either Text a))
   -> ProceedM f a [StateStep f a]
 proceed (Fix f) = do
   traceM $ "f: " ++ show1 f
@@ -233,7 +231,7 @@ proceed (Fix f) = do
       x <- view $ _1 . evalVarVals . at name
       case x of
         Nothing -> errored $ "couldn't look up variable " ++ show name
-        Just x  -> pure [ Done x ] -- XXX: Ascending
+        Just y  -> pure [ Done y ] -- XXX: Ascending
 
     InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
       body' <- subst' name arg body
@@ -243,20 +241,14 @@ proceed (Fix f) = do
     InR (InL App{}) -> errored $ "invalid app: " ++ show1 f
     InR (InL Lam{}) -> errored $ "bare lambda: " ++ show1 f
 
-  --   InR (InL (PrimApp name args)) -> do
-  --     primApps <- view evalPrimApp
-  --     fun      <- primApps name ?? "couldn't look up prim function " ++ show name
-  --     args'    <- traverse eval' args
-  --     pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
-
     InR (InR tm) -> do
-      tm' <- bitraverse expectRight' pure tm
+      _tm' <- bitraverse expectRight' pure tm
       stuff <- foldrM (\tm'' logs -> (<> logs) <$> proceed tm'') [] tm
       pure stuff
 
 eval'
   :: CodomainFunctor f a
-  => Fix (VarBindingF :+: MachineF :+: f (Either Text a))
+  => Fix (VarBindingF :+: LambdaF :+: f (Either Text a))
   -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
   InL BindingF{}  -> throwError $ "bare binding: " ++ show1 f
@@ -264,15 +256,9 @@ eval' (Fix f) = case f of
     ??? "couldn't look up variable " ++ show name
 
   InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
-    ret <- subst name arg body
+    let ret = subst name arg body
     eval' ret
   InR (InL App{}) -> throwError $ "invalid app: " ++ show1 f
   InR (InL Lam{}) -> throwError $ "bare lambda: " ++ show1 f
-
-  InR (InL (PrimApp name args)) -> do
-    primApps <- view evalPrimApp
-    fun      <- primApps name ?? "couldn't look up prim function " ++ show name
-    args'    <- traverse eval' args
-    pure $ Fix $ fun $ Seq.fromList $ unfix <$> args'
 
   InR (InR tm) -> Fix <$> bitraverse expectRight eval' tm

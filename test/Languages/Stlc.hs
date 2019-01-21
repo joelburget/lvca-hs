@@ -12,7 +12,7 @@ import Lvca
 import Lvca.Types (matches)
 
 import Test.Types
-import Test.ParseLanguage
+import Test.ParseTerm
 
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart $ Map.fromList

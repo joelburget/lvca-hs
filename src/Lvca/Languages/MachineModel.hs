@@ -3,13 +3,13 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell    #-}
 module Lvca.Languages.MachineModel
-  ( MachineF(..)
-  , machineP
+  ( LambdaF(..)
+  , lambdaP
 
   , denotationChartP
   , mkDenotationChart
   , unMkDenotationChart
-  , machineTermP
+  , lambdaTermP
 
   -- * Evaluation
   , StackFrame(..)
@@ -32,14 +32,15 @@ import Lvca.FunctorUtil
 import Lvca.Types
 import Lvca.Util
 
--- mkTypes (Options Nothing $ Map.singleton "Text" (ConT ''Text))
---   "Machine ::=                                                              \n\
---   \  Lam'(Machine)                                                          \n\
---   \  App'(Machine; Machine)                                                 \n\
---   \  PrimApp'({Text}; List(Machine))"
+-- mkTypes (Options Nothing $ Map.empty)
+--   [text|
+--   Machine ::=
+--     Lam'(Machine)
+--     App'(Machine; Machine)
+--   |]
 -- mkSyntaxInstances ''Machine
 
-data MachineF a
+data LambdaF a
   = Lam
     { _lamBody :: !a
     }
@@ -47,45 +48,29 @@ data MachineF a
     { _bodyTerm :: !a
     , _argTerm  :: !a
     }
-  | PrimApp
-    { _primName    :: !Text
-    , _primAppArgs :: ![a]
-    }
   deriving (Functor, Foldable, Traversable)
 
-deriving instance (Eq   a) => Eq   (MachineF a)
-deriving instance (Show a) => Show (MachineF a)
+deriving instance (Eq   a) => Eq   (LambdaF a)
+deriving instance (Show a) => Show (LambdaF a)
 
-instance Show1 MachineF where
+instance Show1 LambdaF where
   liftShowsPrec showsf showListf p tm = showParen (p > 10) $ case tm of
-    Lam body ->
-        ss "Lam "
-      . showsf 11 body
-    App body arg ->
-        ss "App "
-      . showsf 11 body
-      . ss " "
-      . showsf 11 arg
-    PrimApp name args ->
-        ss "PrimApp "
-      . showsPrec 11 name
-      . ss " "
-      . showListf args
+    Lam body     -> ss "Lam " . showsf 11 body
+    App body arg -> ss "App " . showsf 11 body . ss " " . showsf 11 arg
     where ss = showString
 
-instance Eq1 MachineF where
-  liftEq eq (Lam     a1   ) (Lam     a2   ) = eq a1 a2
-  liftEq eq (App     a1 b1) (App     a2 b2) = eq a1 a2 && eq b1 b2
-  liftEq eq (PrimApp a1 b1) (PrimApp a2 b2) = a1 == a2 && and (zipWith eq b1 b2)
-  liftEq _  _               _               = False
+instance Eq1 LambdaF where
+  liftEq eq (Lam a1   ) (Lam a2   ) = eq a1 a2
+  liftEq eq (App a1 b1) (App a2 b2) = eq a1 a2 && eq b1 b2
+  liftEq _  _           _           = False
 
-machineP
+lambdaP
   :: forall f a.
      Prism' (Term a) Text
   -> Prism' (Term a)           (Fix f)
-  -> Prism' (Term a) (MachineF (Fix f))
-machineP textP p = prism' rtl ltr where
-  rtl :: MachineF (Fix f) -> Term a
+  -> Prism' (Term a) (LambdaF (Fix f))
+lambdaP textP p = prism' rtl ltr where
+  rtl :: LambdaF (Fix f) -> Term a
   rtl = \case
     Lam body -> Fix $ Term "Lam"
       [ review p body
@@ -94,21 +79,14 @@ machineP textP p = prism' rtl ltr where
       [ review p body
       , review p arg
       ]
-    PrimApp name args -> Fix $ Term "PrimApp"
-      [ review textP     name
-      , review (listP p) args
-      ]
 
-  ltr :: Term a -> Maybe (MachineF (Fix f))
+  ltr :: Term a -> Maybe (LambdaF (Fix f))
   ltr (Fix tm) = case tm of
     Term "Lam" [body] -> Lam
       <$> preview p body
     Term "App" [body, arg] -> App
       <$> preview p body
       <*> preview p arg
-    Term "PrimApp" [name, args] -> PrimApp
-      <$> preview textP     name
-      <*> preview (listP p) args
     _ -> Nothing
 
 mkDenotationChart
@@ -151,22 +129,22 @@ listP p = prism' rtl ltr where
     Term "Cons" [x, xs] -> (:) <$> preview p x <*> ltr xs
     _ -> Nothing
 
-machineTermP
+lambdaTermP
   :: forall a f.
      TermRepresentable f
   => Prism' (Term a) Text
   -> Prism'
        (Term a)
-       (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f a))
-machineTermP textP = sumPrisms4'
+       (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: f a))
+lambdaTermP textP = sumPrisms4'
   varBindingP
   (\_p ->  meaningOfP textP)
-  (machineP textP )
+  (lambdaP textP)
   mkTermP
 
 -- evaluation internals
 
-type Extended  f a = VarBindingF :+: MachineF :+: f a
+type Extended  f a = VarBindingF :+: LambdaF :+: f a
 type Extended' f a = Extended f (Either Text a)
 
 data StackFrame f a

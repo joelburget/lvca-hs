@@ -28,7 +28,7 @@ import           NeatInterpolation
 
 import Lvca
 
-import Test.ParseLanguage
+import Test.ParseTerm
 import Test.Types
 
 newtype E = E { unE :: Either Int Text }
@@ -45,40 +45,46 @@ instance Pretty E where
     Right t -> "\"" <> pretty t <> "\""
 
 mkTypes (Options (Just "syntax") Map.empty)
-  "Arith ::=                                                                \n\
-  \  Add(Arith; Arith)                                                      \n\
-  \  Sub(Arith; Arith)                                                      \n\
-  \  Mul(Arith; Arith)                                                      \n\
-  \  // note: skipping division because it's hard to implement using peano  \n\
-  \  // numbers                                                             \n\
-  \  Z                                                                      \n\
-  \  S(Arith)"
+  [text|
+  Arith ::=
+    Add(Arith; Arith)
+    Sub(Arith; Arith)
+    Mul(Arith; Arith)
+    // note: skipping division because it's hard to implement using peano
+    // numbers
+    Z
+    S(Arith)
+  |]
 mkSyntaxInstances ''Arith
 
 mkTypes defOptions
-  "RecInt ::=                                                               \n\
-  \  Rec(RecInt; RecInt; RecInt. RecInt. RecInt)                            \n\
-  \  Zr()                                                                    \n\
-  \  Sr(RecInt)"
+  [text|
+  RecInt ::=
+    Rec(RecInt; RecInt; RecInt. RecInt. RecInt)
+    Zr()
+    Sr(RecInt)
+  |]
 mkSyntaxInstances ''RecInt
 
 {-
 -- XXX Fix syntax generation when we create multiple data types
 mkTypes (Options Nothing Map.empty)
-  "Op ::=                                                                   \n\
-  \  AddOp                                                                  \n\
-  \  SubOp                                                                  \n\
-  \  MulOp                                                                  \n\
-  \  Push                                                                   \n\
-  \  Succ                                                                   \n\
-  \                                                                         \n\
-  \Zero ::= Zero                                                            \n\
-  \                                                                         \n\
-  \Program ::= Pgm(OpSeq)                                                   \n\
-  \                                                                         \n\
-  \OpSeq ::=                                                                \n\
-  \  Nil                                                                    \n\
-  \  Cons(Op; OpSeq)"
+  [text|
+  Op ::=
+    AddOp
+    SubOp
+    MulOp
+    Push
+    Succ
+
+  Zero ::= Zero
+
+  Program ::= Pgm(OpSeq)
+
+  OpSeq ::=
+    Nil
+    Cons(Op; OpSeq)
+  |]
 mkSyntaxInstances ''Op
 mkSyntaxInstances ''Zero
 mkSyntaxInstances ''Program
@@ -106,34 +112,6 @@ parsePrim = E <$> choice
   , Right "sub" <$ symbol "sub"
   , Right "mul" <$ symbol "mul"
   ]
-
--- Meaning of terms with int externals in terms of add, sub, and mul
--- primitives.
---
--- Due to using machine primitives this has an operational feel because we need
--- to evaluate terms before handing them to primitives.
--- XXX
-machineDynamics
-  :: Either (ParseErrorBundle Text Void) (DenotationChart Text (Either Text E))
-machineDynamics = runParser (parseDenotationChart noParse parsePrim)
-  "(arith machine dynamics)"
-  [text|
-  [[ Cons(a; Cons(b; Add)) ]] = Prim({add}; a; b)
-  [[ Cons(a; Cons(b; Sub)) ]] = Prim({sub}; a; b)
-  [[ Cons(a; Cons(b; Mul)) ]] = Prim({mul}; a; b)
-
-  [[ Add(a; b) ]] = Eval([[ a ]]; a'.
-                      Eval([[ b ]]; b'.
-                        PrimApp({add}; a'; b')))
-  [[ Sub(a; b) ]] = Eval([[ a ]]; a'.
-                      Eval([[ b ]]; b'.
-                        PrimApp({sub}; a'; b')))
-  [[ Mul(a; b) ]] = Eval([[ a ]]; a'.
-                      Eval([[ b ]]; b'.
-                        PrimApp({mul}; a'; b')))
-  [[ Z()       ]] = Value(Int{0})
-  [[ S(a)      ]] = Eval([[ a ]]; a'. PrimApp({add}; a'; Int{1}))
-  |]
 
 peanoDynamics
   :: Either (ParseErrorBundle Text Void) (DenotationChart Text (Either Text Void))
@@ -205,17 +183,6 @@ upcast p = prism' rtl ltr where
 upcast' :: forall sub sup. (sub -> sup) -> Term sub -> Term sup
 upcast' f (Fix tm) = Fix $ bimap f (upcast' f) tm
 
--- machineEval :: Term Void -> Either String (Term Int)
--- machineEval tm = case preview termP1 (upcast' @Void @Int absurd tm) of
---   Nothing  -> Left "couldn't view term as Arith term"
---   Just (tm' :: Fix (VarBindingF :+: Arith Int))
---     -> case unMkDenotationChart patP termP2 stackMachineDenotation of
---       Nothing    -> Left "couldn't unmake denotation chart"
---       Just (chart :: DenotationChart' (Arith Text) (MachineF :+: Arith Text)) ->
---         let resultTm :: (Either String (Fix (Arith Int)), Seq Text)
---             resultTm = eval (EvalEnv Map.empty (const Nothing)) chart tm'
---         in second (review termP3) $ fst resultTm
-
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval tm = case preview termP1 tm of
   Nothing  -> Left "couldn't view term as Arith term"
@@ -223,7 +190,7 @@ peanoEval tm = case preview termP1 tm of
     Nothing    -> Left "couldn't unmake denotation chart"
     Just chart ->
       let resultTm :: (Either String (Fix (RecInt Void)), Seq Text)
-          resultTm = eval @RecInt (EvalEnv Map.empty (const Nothing)) chart tm'
+          resultTm = eval @RecInt (EvalEnv Map.empty) chart tm'
       in second (review termP3) $ fst resultTm
 
 peanoProceed :: Term Void -> Either String [StateStep RecInt Void]
@@ -237,7 +204,7 @@ peanoProceed tm = case preview termP1 tm of
         traceM $ "translated: " ++ show tm''
         let results :: [StateStep RecInt Void]
             results = runReader (runProceedM (proceed tm''))
-              (EvalEnv Map.empty (const Nothing), [])
+              (EvalEnv Map.empty, [])
         Right results
 
 patP :: forall f a.
@@ -252,15 +219,14 @@ domainTermP
   => Prism'
        (Term (Either Text a))
        -- XXX not sure type should be Text
-       (Fix (VarBindingF :+: MeaningOfF :+: MachineF :+: f Text))
-domainTermP = termAdaptor _Left . machineTermP (_Fix . _PrimValue)
+       (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: f Text))
+domainTermP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValue)
 
 termP3 :: TermRepresentable f => Prism' (Term a) (Fix (f a))
 termP3 = mkTermP termP3 . from _Fix
 
 arithTests :: Test ()
 arithTests = tests
-  -- [ scope "eval" $ expectEq (machineEval example) $ Right $ Fix $ Term "foo" []
   [ scope "prop_parse_pretty" $
     testProperty $ prop_parse_pretty syntax "Arith"
       (const Nothing) primParsers
@@ -279,8 +245,8 @@ arithTests = tests
       , ("Prim", E . Right <$> stringLiteral)
       ]
 
-    example2 :: Term E
-    example2 =
+    _example2 :: Term E
+    _example2 =
       let env = ParseEnv syntax "Arith" UntaggedExternals primParsers
           parse = runReaderT standardParser env
           exampleTerm :: Text

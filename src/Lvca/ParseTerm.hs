@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TemplateHaskell            #-}
-module Lvca.ParseLanguage
+module Lvca.ParseTerm
   ( Parser
   , ParseEnv(..)
   , ExternalStyle(..)

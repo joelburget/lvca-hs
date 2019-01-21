@@ -13,14 +13,16 @@
 -- Tools for defining the syntax and semantics of languages.
 
 module Lvca.Types
-  ( -- * Syntax charts
+  ( -- * Abstract syntax charts
     -- | Syntax definition.
     SortName
+  , OperatorName
   , Sort(..)
   , externalName
   , _SortAp
   , _External
   , SyntaxChart(..)
+  , syntaxChartContents
   , SortDef(..)
   , sortOperators
   , sortVariables
@@ -36,14 +38,11 @@ module Lvca.Types
   , Valence(..)
   , valenceSubst
   , valenceSorts
-  -- ** Syntax components
-  , SyntaxComponent(..)
-  , componentChart
-  , componentVars
-  , SyntaxComponents(..)
-  , syntaxComponents
-  , componentMapping
-  , findChartComponents
+
+  -- | Concrete syntax charts
+  , Alternating(..)
+  , PppDirective(..)
+  , ConcreteSyntax(..)
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -115,6 +114,18 @@ module Lvca.Types
   , (%%%)
   , (.--)
 
+  -- * Languages
+  , Language(..)
+  , abstractSyntax
+  , concreteSyntax
+  , denotationChart
+  , statics
+  , Language'(..)
+  , abstractSyntax'
+  , concreteSyntax'
+  , denotationChart'
+  , statics'
+
   -- * Other
   , prismSum
   , prismSum3
@@ -133,14 +144,12 @@ import           Data.ByteString           (ByteString)
 import           Data.Data (Data)
 import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
-import           Data.Graph                (stronglyConnCompR, SCC(..))
 import           Data.List                 (intersperse, find)
 import           Data.Maybe                (fromMaybe)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Matchable.TH
 import           Data.Monoid               (First (First, getFirst))
-import           Data.Proxy                (Proxy)
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
@@ -151,11 +160,13 @@ import           GHC.Generics (Generic)
 import           Text.Show.Deriving
 
 import           Lvca.FunctorUtil
-import           Lvca.Util             as Util
+import           Lvca.Util                 as Util
 
 -- syntax charts
 
 type SortName = Text
+type OperatorName = Text
+
 data Sort
   = SortAp !SortName ![Sort]
   | External { _externalName :: !Text }
@@ -177,12 +188,6 @@ sortSubst varVals = \case
     let subSorts' = sortSubst varVals <$> subSorts
     in SortAp name subSorts'
 
--- | The list of sorts this sort (directly) depends on
-sortDeps :: Sort -> [SortName]
-sortDeps = \case
-  SortAp name sorts -> name : concatMap sortDeps sorts
-  External{}        -> []
-
 -- | A syntax chart defines the abstract syntax of a language, specified by a
 -- collection of operators and their arities. The abstract syntax provides a
 -- systematic, unambiguous account of the hierarchical and binding structure of
@@ -200,63 +205,9 @@ sortDeps = \case
 --         len(Exp)           length
 --         let(Exp; Exp.Exp)  definition
 -- @
-newtype SyntaxChart = SyntaxChart (Map SortName SortDef)
+newtype SyntaxChart = SyntaxChart
+  { _syntaxChartContents :: Map SortName SortDef }
   deriving (Eq, Show, Data)
-
-data SyntaxComponent = SyntaxComponent
-  { _componentChart :: !SyntaxChart
-  -- ^ A sub-syntax chart, representing a strongly-connected subset of the
-  -- original chart
-  , _componentVars  :: ![[Text]]
-  -- ^ All the variable names that occur as a parameter to any type in this
-  -- component
-  }
-
--- | It's sometimes useful to break a syntax chart into its connected
--- components, which contain data types dependent on each other, and which
--- become individual compilation units.
-data SyntaxComponents = SyntaxComponents
-  { _syntaxComponents :: ![SyntaxComponent]
-  -- ^ List of sub-syntax charts, each representing a strongly-connected subset
-  -- of the original chart
-  , _componentMapping :: !(Map SortName SyntaxComponent)
-  -- ^ Map from the originally defined sorts to the component they occur in
-  }
-
--- | Find the strongly connected components / compilation units of a family of
--- data types.
-findChartComponents :: SyntaxChart -> SyntaxComponents
-findChartComponents (SyntaxChart sorts) =
-  let sortsWithDeps :: [(SortDef, SortName, [SortName])]
-      sortsWithDeps = Map.toList sorts <&> \(name, sortDef@(SortDef _ ops)) ->
-        (sortDef,name,) $ concat3 $
-          ops <&> \(Operator _name (Arity valences) _desc) ->
-            valences <&> \(Valence vSorts result) ->
-              fmap sortDeps $ result : vSorts
-
-      components :: [SCC (SortDef, SortName, [SortName])]
-      components = stronglyConnCompR sortsWithDeps
-
-      (components', mappings) = unzip $ components <&> \scc ->
-        let preChart :: [(SortName, SortDef)]
-            (preChart, names) = case scc of
-              AcyclicSCC (sortDef, name, _) ->
-                ( [(name, sortDef)]
-                , [name]
-                )
-              CyclicSCC vertices ->
-                ( vertices <&> (\(sortDef, name, _) -> (name, sortDef))
-                , vertices ^.. traverse . _2
-                )
-
-            -- Collect all the variable names that occur in any sorts
-            vars = preChart <&> \(_, SortDef sortVars _) -> sortVars
-
-            component = SyntaxComponent
-              (SyntaxChart (Map.fromList preChart))
-              vars
-        in (component, Map.fromList $ zip names $ repeat component)
-  in SyntaxComponents components' (Map.unions mappings)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
@@ -269,9 +220,9 @@ data SortDef = SortDef
 -- | One of the fundamental constructions of a language. Operators are grouped
 -- into sorts. Each operator has an /arity/, specifying its arguments.
 data Operator = Operator
-  { _operatorName  :: !Text  -- ^ operator name
-  , _operatorArity :: !Arity -- ^ arity
-  , _operatorDesc  :: !Text  -- ^ description
+  { _operatorName  :: !OperatorName -- ^ operator name
+  , _operatorArity :: !Arity        -- ^ arity
+  , _operatorDesc  :: !Text         -- ^ description
   } deriving (Eq, Show, Data)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
@@ -317,6 +268,18 @@ instance IsString Valence where
 -- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
+
+data Alternating a b
+  = ANil
+  | ACons a (Alternating b a)
+  deriving (Show, Eq)
+
+-- | Parsing / pretty-printing directive
+data PppDirective
+  = Literal !Text
+
+newtype ConcreteSyntax = ConcreteSyntax
+  (Map OperatorName (Alternating Int PppDirective))
 
 data VarBindingF f
   = BindingF ![Text] !f
@@ -400,10 +363,10 @@ instance TermRepresentable TermF where
       Var name         -> Var name
       PrimValue a      -> PrimValue a
     ltr (Fix tm) = case tm of
-      Term name subtms -> Term name <$> traverse (preview p) subtms
-      Binding names tm -> Binding names <$> preview p tm
-      Var name         -> pure $ Var name
-      PrimValue a      -> pure $ PrimValue a
+      Term name subtms  -> Term name <$> traverse (preview p) subtms
+      Binding names tm' -> Binding names <$> preview p tm'
+      Var name          -> pure $ Var name
+      PrimValue a       -> pure $ PrimValue a
 
 class HasPrism a b where
   prism :: Prism' a b
@@ -608,7 +571,7 @@ applySubst subst@(Subst assignments) (Fix tm) = case tm of
 
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern a
-toPattern (Operator name (Arity valences) _desc)
+toPattern (Operator name (Arity valences) _)
   = PatternTm name $ valences <&> \case
       Valence [] External{} -> PatternPrimVal Nothing
       _valence              -> PatternAny
@@ -827,7 +790,7 @@ instance Pretty SyntaxChart where
     in vsep $ f <$> Map.toList sorts
 
 instance Pretty Operator where
-  pretty (Operator name arity _desc) = case arity of
+  pretty (Operator name arity _) = case arity of
     -- Elide parens if it's just an external
     ExternalArity name' -> pretty name <> braces (pretty name')
     _                   -> pretty name <> pretty arity
@@ -845,8 +808,21 @@ instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
-makeLenses ''SyntaxComponent
-makeLenses ''SyntaxComponents
+data Language a b = Language
+  { _abstractSyntax  :: !SyntaxChart
+  , _concreteSyntax  :: !ConcreteSyntax
+  , _denotationChart :: !(DenotationChart a b)
+  , _statics         :: !JudgementRules
+  }
+
+data Language' f g = Language'
+  { _abstractSyntax'  :: !SyntaxChart
+  , _concreteSyntax'  :: !ConcreteSyntax
+  , _denotationChart' :: !(DenotationChart f g)
+  , _statics'         :: !JudgementRules
+  }
+
+makeLenses ''SyntaxChart
 makeLenses ''Sort
 makePrisms ''Sort
 makeLenses ''SortDef
@@ -858,10 +834,12 @@ makeLenses ''Operator
 makeLenses ''TermF
 makePrisms ''TermF
 deriveBifunctor ''TermF
-deriveBifoldable        ''TermF
-deriveBitraversable     ''TermF
-deriveBimatchable       ''TermF
+deriveBifoldable ''TermF
+deriveBitraversable ''TermF
+deriveBimatchable ''TermF
 makeLenses ''PatternCheckResult
+makeLenses ''Language
+makeLenses ''Language'
 
 data MeaningOfF a
   = MeaningOf !Text

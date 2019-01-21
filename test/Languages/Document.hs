@@ -16,7 +16,7 @@ import EasyTest
 import Lvca
 
 import           Test.Types
-import           Test.ParseLanguage
+import           Test.ParseTerm
 
 data InlineEmbed
 

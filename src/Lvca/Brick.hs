@@ -9,7 +9,6 @@ import           Brick.Widgets.Center       (center)
 import           Control.Lens
 import           Control.Zipper
 import           Data.Text                  (Text)
-import qualified Data.Text                  as T
 import           Data.Void                 (Void, absurd)
 import qualified Graphics.Vty               as V
 import           NeatInterpolation
@@ -116,7 +115,7 @@ drawCtx = \case
 
 drawStackFrame :: TmShow a => StackFrame f a -> Widget ()
 drawStackFrame = hBox . \case
-  EvalFrame    k v -> [str "eval " <+> txt "TODO: k" <+> str "; " <+> txt "TODO: v"]
+  EvalFrame    _k _v -> [str "eval " <+> txt "TODO: k" <+> str "; " <+> txt "TODO: v"]
   BindingFrame k v -> [txt k <+> str ": " <+> drawTm' v]
 
 -- TODO: distinguish between in and out
