@@ -112,7 +112,7 @@ stlcTests = tests
    , scope "prop_serialise_identity" $ testProperty $
      prop_serialise_identity @() stlcChart "Exp" (const Nothing)
 
-  , let expectParse = parseTest $
+  , let expectParse = standardParseTermTest $
           ParseEnv stlcChart "Exp" UntaggedExternals noExternalParsers
 
     in scope "parse" $ tests

@@ -57,6 +57,16 @@ mkTypes (Options (Just "syntax") Map.empty)
   |]
 mkSyntaxInstances ''Arith
 
+concreteArith :: ConcreteSyntax
+concreteArith = mkConcreteSyntax
+  [ [ "Z"   :-> "Z" ]
+  , [ "S"   :-> directiveFromList [ "S " , PprTerm [0] ] ]
+  , [ "Mul" :-> InfixDirective " * " Infixl ]
+  , [ "Add" :-> InfixDirective " + " Infixl
+    , "Sub" :-> InfixDirective " - " Infixl
+    ]
+  ]
+
 mkTypes defOptions
   [text|
   RecInt ::=
@@ -113,8 +123,9 @@ parsePrim = E <$> choice
   , Right "mul" <$ symbol "mul"
   ]
 
-peanoDynamics
-  :: Either (ParseErrorBundle Text Void) (DenotationChart Text (Either Text Void))
+peanoDynamics :: Either
+  (ParseErrorBundle Text Void)
+  (DenotationChart Text (Either Text Void))
 peanoDynamics = runParser (parseDenotationChart noParse noParse)
   "(arith peano dynamics)"
   [text|
@@ -156,19 +167,26 @@ pattern Z' ::           Term a
 pattern S' x = Fix (Term "S" [ x ])
 pattern Z'   = Fix (Term "Z" [   ])
 
-example :: Term Void
-example = Fix $ Term "Add" [ S' Z', S' Z' ]
+addOneOne :: Term Void
+addOneOne = Fix $ Term "Add" [ S' Z', S' Z' ]
 
--- example = Fix $ Term "Add"
---   [ Fix $ Term "Mul"
---     [ S' Z'
---     , Fix $ Term "Sub"
---       [ S' (S' Z')
---       , S' Z'
---       ]
---     ]
---   , S' (S' (S' Z'))
---   ]
+addAssoc :: Term Void
+addAssoc = Fix $ Term "Add"
+  [ Fix $ Term "Add" [ Z', Z' ]
+  , Fix $ Term "Add" [ Z', Z' ]
+  ]
+
+example :: Term Void
+example = Fix $ Term "Add"
+  [ Fix $ Term "Mul"
+    [ S' Z'
+    , Fix $ Term "Sub"
+      [ S' (S' Z')
+      , S' Z'
+      ]
+    ]
+  , S' (S' (S' Z'))
+  ]
 
 pattern PrimInt :: Int -> Term E
 pattern PrimInt i = Fix (Term "Int" [ Fix (PrimValue (E (Left i))) ])
@@ -186,26 +204,32 @@ upcast' f (Fix tm) = Fix $ bimap f (upcast' f) tm
 peanoEval :: Term Void -> Either String (Term Void)
 peanoEval tm = case preview termP1 tm of
   Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' -> case unMkDenotationChart patP domainTermP (forceRight peanoDynamics) of
-    Nothing    -> Left "couldn't unmake denotation chart"
-    Just chart ->
-      let resultTm :: (Either String (Fix (RecInt Void)), Seq Text)
-          resultTm = eval @RecInt (EvalEnv Map.empty) chart tm'
-      in second (review termP3) $ fst resultTm
+  Just tm' ->
+    let peanoDynamics'
+          = unMkDenotationChart patP domainTermP (forceRight peanoDynamics)
+    in case peanoDynamics' of
+      Nothing    -> Left "couldn't unmake denotation chart"
+      Just chart ->
+        let resultTm :: (Either String (Fix (RecInt Void)), Seq Text)
+            resultTm = eval @RecInt (EvalEnv Map.empty) chart tm'
+        in second (review termP3) $ fst resultTm
 
 peanoProceed :: Term Void -> Either String [StateStep RecInt Void]
 peanoProceed tm = case preview termP1 tm of
   Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' -> case unMkDenotationChart (patP @RecInt) domainTermP (forceRight peanoDynamics) of
-    Nothing    -> Left "couldn't unmake denotation chart"
-    Just chart -> case runWriter (runMaybeT (translate chart tm')) of
-      (Nothing, _logs) -> Left "couldn't translate term"
-      (Just tm'', _logs) -> do
-        traceM $ "translated: " ++ show tm''
-        let results :: [StateStep RecInt Void]
-            results = runReader (runProceedM (proceed tm''))
-              (EvalEnv Map.empty, [])
-        Right results
+  Just tm' ->
+    let peanoDynamics' = unMkDenotationChart
+          (patP @RecInt) domainTermP (forceRight peanoDynamics)
+    in case peanoDynamics' of
+      Nothing    -> Left "couldn't unmake denotation chart"
+      Just chart -> case runWriter (runMaybeT (translate chart tm')) of
+        (Nothing, _logs) -> Left "couldn't translate term"
+        (Just tm'', _logs) -> do
+          traceM $ "translated: " ++ show tm''
+          let results :: [StateStep RecInt Void]
+              results = runReader (runProceedM (proceed tm''))
+                (EvalEnv Map.empty, [])
+          Right results
 
 patP :: forall f a.
   PatternRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
@@ -232,10 +256,20 @@ arithTests = tests
       (const Nothing) primParsers
   , scope "prop_serialise_identity" $ testProperty $
     prop_serialise_identity @() syntax "Arith" (const Nothing)
-  , scope "parse" $ parseTest
+  , scope "standard parsing" $ standardParseTermTest
       (ParseEnv syntax "Arith" UntaggedExternals primParsers)
       "Za"
       (Fix (Var "Za"))
+  , scope "pretty-printing" $
+    let expectEq' tm str = show (prettyTm (-1) concreteArith tm) `expectEq` str
+    in tests
+         [ addOneOne `expectEq'` "S Z + S Z"
+         , addAssoc `expectEq'` "Z + Z + (Z + Z)"
+         , example `expectEq'` "S Z * (S (S Z) - S Z) + S (S (S Z))"
+         -- , example2 `expectEq'` "S (Z) + S (Z)"
+         ]
+
+  , scope "concrete parsing" $ parseTest
   ]
   where
 

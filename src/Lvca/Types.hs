@@ -41,7 +41,12 @@ module Lvca.Types
 
   -- | Concrete syntax charts
   , PppDirective(..)
+  , OperatorDirective(..)
+  , Fixity(..)
+  , directiveFromList
   , ConcreteSyntax(..)
+  , mkConcreteSyntax
+  , prettyTm
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -143,12 +148,14 @@ import           Data.ByteString           (ByteString)
 import           Data.Data (Data)
 import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
-import           Data.List                 (intersperse, find)
-import           Data.Maybe                (fromMaybe)
+import           Data.List                 (find, intersperse)
+import           Data.Maybe                (fromMaybe, isJust)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Matchable.TH
 import           Data.Monoid               (First (First, getFirst))
+import           Data.Sequence             (Seq)
+import qualified Data.Sequence             as Seq
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
@@ -273,15 +280,128 @@ type TermNumber = Int
 -- | Parsing / pretty-printing directive
 data PppDirective
   = Literal !Text
-  | PprTerm !TermNumber
+  | PprTerm ![TermNumber]
   | Sequence !PppDirective !PppDirective
   | Line
   | Nest !Int !PppDirective
-  | Groue !PppDirective
-  | !PppDirective :<+ PppDirective
+  | Group !PppDirective
+  | !PppDirective :<+ !PppDirective
 
+instance IsString PppDirective where
+  fromString = Literal . fromString
+
+-- TODO:
+-- + block model / smart spacing
+
+type a :-> b = (a, b)
+
+data Fixity = Infixl | Infixr | Infix
+
+data OperatorDirective
+  = InfixDirective !Text !Fixity
+  | GeneralDirective !PppDirective
+
+instance IsString OperatorDirective where
+  fromString = GeneralDirective . fromString
+
+-- | A concrete syntax chart specifies how to parse and pretty-print a language
+--
+-- Each level of the chart corresponds to a precendence level, starting with
+-- the highest precendence and droping to the lowest. Example:
+--
+-- @
+-- ConcreteSyntax
+--   [ [ "Z"   :-> "Z" ]
+--   , [ "S"   :-> directiveFromList [ "S " , PprTerm [0] ] ]
+--   , [ "Mul" :-> InfixDirective " * " Infixl ]
+--   , [ "Add" :-> InfixDirective " + " Infixl
+--     , "Sub" :-> InfixDirective " - " Infixl
+--     ]
+--   ]
+-- @
 newtype ConcreteSyntax = ConcreteSyntax
-  (Map OperatorName PppDirective)
+  (Seq [OperatorName :-> OperatorDirective])
+
+mkConcreteSyntax :: [[OperatorName :-> OperatorDirective]] -> ConcreteSyntax
+mkConcreteSyntax = ConcreteSyntax . Seq.fromList
+
+directiveFromList :: [PppDirective] -> OperatorDirective
+directiveFromList = GeneralDirective . foldr1 Sequence
+
+type Printer a = Reader (Int, ConcreteSyntax) a
+
+-- | Pretty-print a term given its conrete syntax chart.
+prettyTm :: Pretty a => Term a -> Printer (Doc ())
+prettyTm (Fix tm) = do
+  (envPrec, ConcreteSyntax directives) <- ask
+  case tm of
+    Term name subtms -> fromMaybe
+
+      -- If thrown this error is from one of the steps that uses `sameName`
+      (error $ "couldn't find " ++ show name ++
+        " in concrete syntax directives")
+
+      $ do
+
+      -- Does this name, directive pair have the name we're looking for?
+      let sameName (name', _) = name' == name
+
+      (_, directive) <- findOf (traverse . traverse) sameName directives
+
+      -- Find the precedence (determined by index) of the operator
+      reverseOpPrec <- Seq.findIndexL (isJust . find sameName) directives
+
+      -- reverseOperatorPrec counts from front to to back ([0..n]). But we want
+      -- the first operators to have the highest precendence, so we reverse the
+      -- precedence to [n..0].
+      let opPrec = Seq.length directives - reverseOpPrec
+
+          body = case directive of
+            GeneralDirective dir      -> doPppDirective subtms tm dir
+            InfixDirective str fixity -> printInfixDirective str fixity subtms
+
+      -- If the child has a lower precedence than the parent you must
+      -- parenthesize it
+      pure $ if opPrec <= envPrec then parens <$> body else body
+
+    Binding{}   -> error "TODO"
+    Var name    -> pure $ pretty name
+    PrimValue a -> pure $ pretty a
+
+doPppDirective
+  :: Pretty a
+  => [Term a] -> TermF a (Term a) -> PppDirective -> Printer (Doc ())
+doPppDirective subtms tm' directive = case directive of
+  Literal str -> pure $ pretty str
+  PprTerm steps -> case steps of
+    [] -> prettyTm $ Fix tm'
+    step:steps' -> case subtms ^? ix step of
+      Just (Fix subtm) -> go subtm $ PprTerm steps'
+      Nothing -> error $
+        "couldn't find subterm at location " ++ show steps
+
+  Sequence a b -> (<>) <$> go tm' a <*> go tm' b
+  Line -> pure line
+  Nest i a -> nest i <$> go tm' a
+  Group a -> group <$> go tm' a
+  a :<+ _ -> go tm' a
+  where go = doPppDirective subtms
+
+printInfixDirective
+  :: Pretty a
+  => Text -> Fixity -> [Term a] -> Printer (Doc ())
+printInfixDirective str fixity subtms = case subtms of
+  [l, r] -> do
+    -- For infix operators, we call `pred` on the side that *should not* show a
+    -- paren in the case of an operator of the same precedence.
+    let assoc = local (_1 %~ pred)
+        ret l' r' = mconcat [ l', pretty str, r' ]
+
+    case fixity of
+      Infix  -> ret <$> prettyTm l         <*> prettyTm r
+      Infixl -> ret <$> assoc (prettyTm l) <*> prettyTm r
+      Infixr -> ret <$> prettyTm l         <*> assoc (prettyTm r)
+  _ -> error "expected two subterms for infix directive"
 
 data VarBindingF f
   = BindingF ![Text] !f
@@ -311,6 +431,7 @@ varBindingP p = prism' rtl ltr where
     Fix (Var name)         -> Just $ VarF name
     _                      -> Nothing
 
+-- TODO: generalize this to PatternF
 data PatVarF f = PatVarF !(Maybe Text)
   deriving (Functor, Foldable, Traversable)
 
@@ -535,7 +656,7 @@ pattern a :-> b = (a, b)
 (<->) :: a -> b -> (a, b)
 a <-> b = (a, b)
 
-newtype Subst a = Subst { _assignments :: (Map Text (Term a)) }
+newtype Subst a = Subst { _assignments :: Map Text (Term a) }
   deriving (Eq, Show, Semigroup, Monoid)
 
 data IsRedudant = IsRedudant | IsntRedundant
@@ -565,10 +686,7 @@ applySubst :: Show a => Subst a -> Term a -> Term a
 applySubst subst@(Subst assignments) (Fix tm) = case tm of
   Term name subtms    -> Fix $ Term name (applySubst subst <$> subtms)
   Binding names subtm -> Fix $ Binding names (applySubst subst subtm)
-  Var name            -> fromMaybe (Fix tm) $ do
-    error "TODO"
-    -- name' <- fst <$> find (\(_patName, tmName) -> name == tmName) correspondences
-    -- assignments ^? ix name'
+  Var name            -> fromMaybe (Fix tm) $ assignments ^? ix name
   _                   -> Fix tm
 
 -- | Match any instance of this operator

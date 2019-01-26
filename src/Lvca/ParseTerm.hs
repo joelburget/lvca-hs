@@ -10,6 +10,7 @@ module Lvca.ParseTerm
   , parseSort
   , externalStyle
   , standardParser
+  , concreteParser
   , makeExternalParsers
   , noExternalParsers
   ) where
@@ -65,24 +66,13 @@ makeLenses ''ParseEnv
 
 type Parser a b = ReaderT (ParseEnv a) (Parsec Err Text) b
 
--- | Generates a parser for any language parsing a standard syntax. Example
---
--- @
---     Add(
---       Times(1; 2);
---       Ap(
---         Lam(x. Times(x; x));
---         3
---       )
---     )
--- @
-standardParser :: forall a. Parser a (Term a)
-standardParser = do
+-- | Look through the entire syntax description to verify we have all required
+-- primParsers.
+checkPrimParsers :: Parser a ()
+checkPrimParsers = do
   SyntaxChart syntax <- view parseChart
   primParsers        <- view externalParsers
 
-  -- Look through the entire syntax description to verify we have all required
-  -- primParsers.
   --
   -- Example:
   --
@@ -111,6 +101,24 @@ standardParser = do
         \particular, we're missing a parser for (at least) " <> unpack name <>
         "). Please specify all parsers (hint: use `noParse` for cases where \
         \the external should not be parsed at all)"
+
+-- | Generates a parser for any language parsing a standard syntax. Example
+--
+-- @
+--     Add(
+--       Times(1; 2);
+--       Ap(
+--         Lam(x. Times(x; x));
+--         3
+--       )
+--     )
+-- @
+standardParser :: forall a. Parser a (Term a)
+standardParser = do
+  SyntaxChart syntax <- view parseChart
+  primParsers        <- view externalParsers
+
+  checkPrimParsers
 
   let sortParsers :: Map SortName (Map Text Sort -> Parser a (Term a))
       sortParsers = syntax <@&> \sortName (SortDef _vars ops) concreteSorts ->
@@ -202,3 +210,18 @@ noExternalParsers = Map.empty
 
 makeExternalParsers :: [(SortName, ExternalParser a)] -> ExternalParsers a
 makeExternalParsers = Map.fromList
+
+
+concreteParser :: forall a. ConcreteSyntax -> Parser a (Term a)
+concreteParser (ConcreteSyntax directives) = do
+  -- TODO: how do precedence levels affect how we parse?
+  asum $ directives <&> \precedenceLevel ->
+    asum $ precedenceLevel <&> \(opName, directive) -> case directive of
+      GeneralDirective directive' -> parsePppDirective directive'
+      InfixDirective str fixity   -> parseInfix str fixity
+
+parsePppDirective :: PppDirective -> Parser a (Term a)
+parsePppDirective = undefined
+
+parseInfix :: Text -> Fixity -> Parser a (Term a)
+parseInfix = undefined

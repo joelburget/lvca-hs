@@ -31,10 +31,10 @@ prop_parse_pretty chart sort aGen aParsers = property $ do
   annotate $ unpack $ pretty' tm
   parse' (pretty' tm) === Just tm
 
-parseTest
+standardParseTermTest
   :: (Eq a, Show a)
   => ParseEnv a -> Text -> Term a -> Test ()
-parseTest env str tm =
+standardParseTermTest env str tm =
   case runParser (runReaderT standardParser env) "(test)" str of
     Left err       -> fail $ errorBundlePretty err
     Right parsedTm -> expectEq parsedTm tm

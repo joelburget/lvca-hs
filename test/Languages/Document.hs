@@ -315,7 +315,7 @@ documentTests = tests
        Just doc' <- pure $ doc          ^? foldTerm
        expectEq textDocument doc'
 
-  , scope "parse" $ parseTest
+  , scope "parse" $ standardParseTermTest
       (ParseEnv (forceRight syntax) "Document" UntaggedExternals
         externalParsers)
       "Document(Cons(a; a))" $
