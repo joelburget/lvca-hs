@@ -1,3 +1,6 @@
 [submodule "easytest"]
 	path = easytest
 	url = git@github.com:joelburget/easytest.git
+[submodule "tuple-morph"]
+	path = tuple-morph
+	url = git@github.com:joelburget/tuple-morph.git

@@ -14,6 +14,7 @@ extra-source-files:  ChangeLog.md
 
 common core-deps
   build-depends:
+    Earley >= 0.13,
     base >=4.11 && <4.12,
     bifunctors,
     brick >= 0.41,
@@ -42,6 +43,10 @@ common core-deps
     vty >= 5.25,
     writer-cps-mtl,
     zippers,
+    semi-iso,
+    syntax,
+    attoparsec,
+    syntax-attoparsec,
 
 common extra-deps
   build-depends:
@@ -78,6 +83,7 @@ common library-modules
 library
   import: extensions, core-deps
   exposed-modules:
+    Data.Syntax.Earley
     Lvca
     Lvca.Brick
     Lvca.FunctorUtil

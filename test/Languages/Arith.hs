@@ -60,7 +60,7 @@ mkSyntaxInstances ''Arith
 concreteArith :: ConcreteSyntax
 concreteArith = mkConcreteSyntax
   [ [ "Z"   :-> "Z" ]
-  , [ "S"   :-> directiveFromList [ "S " , PprTerm [0] ] ]
+  , [ "S"   :-> directiveFromList [ "S " , MixfixTerm [0] ] ]
   , [ "Mul" :-> InfixDirective " * " Infixl ]
   , [ "Add" :-> InfixDirective " + " Infixl
     , "Sub" :-> InfixDirective " - " Infixl

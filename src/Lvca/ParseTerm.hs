@@ -24,6 +24,7 @@ import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
 import           Data.String          (IsString)
 import           Data.Text            (Text, unpack)
+import           Data.Traversable     (for)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Data.Void            (Void)
@@ -33,6 +34,12 @@ import           Lvca.ParseUtil
 import           Lvca.Types
 import           Lvca.Util
 
+import Control.SIArrow
+import qualified Data.Syntax as S
+import qualified Data.Syntax.Attoparsec.Text.Lazy as S
+import Data.Syntax.Char (SyntaxChar, SyntaxText)
+import qualified Data.Syntax.Char as S
+import qualified Data.Syntax.Combinator as S
 
 -- TODO: we're not actually using Err.
 -- TODO: nice error messages
@@ -212,16 +219,51 @@ makeExternalParsers :: [(SortName, ExternalParser a)] -> ExternalParsers a
 makeExternalParsers = Map.fromList
 
 
-concreteParser :: forall a. ConcreteSyntax -> Parser a (Term a)
-concreteParser (ConcreteSyntax directives) = do
+concreteParser
+  :: SyntaxText syn
+  => ConcreteSyntax
+  -> syn () (Term Void)
+concreteParser (ConcreteSyntax directives) =
   -- TODO: how do precedence levels affect how we parse?
-  asum $ directives <&> \precedenceLevel ->
-    asum $ precedenceLevel <&> \(opName, directive) -> case directive of
-      GeneralDirective directive' -> parsePppDirective directive'
-      InfixDirective str fixity   -> parseInfix str fixity
+  let allProds = toList directives <&> \precedenceLevel ->
+        precedenceLevel <&> \(opName, directive) -> case directive of
+          GeneralDirective directive' -> parseMixfixDirective result directive'
+          InfixDirective str fixity   -> parseInfix result str fixity
+      result = S.choice $ S.choice <$> allProds
+  in result
 
-parsePppDirective :: PppDirective -> Parser a (Term a)
-parsePppDirective = undefined
+parseMixfixDirective
+  :: SyntaxText syn
+  => syn () (Term Void)
+  -> MixfixDirective
+  -> syn () (Term Void)
+parseMixfixDirective p directive = go directive where
 
-parseInfix :: Text -> Fixity -> Parser a (Term a)
-parseInfix = undefined
+-- = \case
+--   Literal text     -> rule $ undefined <$ E.namedToken text
+--   PprTerm path     -> undefined
+--   Sequence d1 d2   -> rule $ undefined
+--     <$ parseMixfixDirective p d1
+--     <* parseMixfixDirective p d2
+--   Line             -> rule $ undefined <$ E.token "\n" -- XXX
+--   Nest _ directive -> parseMixfixDirective p directive
+--   Group directive  -> parseMixfixDirective p directive
+--   d1 :<+ d2        -> (<|>)
+--     <$> parseMixfixDirective p d1
+--     <*> parseMixfixDirective p d2
+
+biTermPrism :: Text -> Prism' (Term Void) (Term Void, Term Void)
+biTermPrism name = prism'
+  (\(x, y) -> Fix (Term name [x, y]))
+  (\case
+    Fix (Term name' [x, y])
+      | name' == name -> Just (x, y)
+    _ -> Nothing)
+
+parseInfix
+  :: SyntaxText syn
+  => syn () (Term Void)
+  -> Text
+  -> Fixity
+  -> syn () (Term Void)
+parseInfix p name _TODO = biTermPrism name /$~ p /*/ S.string name /*/ p

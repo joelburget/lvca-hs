@@ -40,7 +40,7 @@ module Lvca.Types
   , valenceSorts
 
   -- | Concrete syntax charts
-  , PppDirective(..)
+  , MixfixDirective(..)
   , OperatorDirective(..)
   , Fixity(..)
   , directiveFromList
@@ -119,16 +119,20 @@ module Lvca.Types
   , (.--)
 
   -- * Languages
+  , Domain(..)
+  , domainAbstractSyntax
+  , domainConcreteSyntax
+  , domainStatics
   , Language(..)
-  , abstractSyntax
-  , concreteSyntax
-  , denotationChart
-  , statics
+  , languageAbstractSyntax
+  , languageConcreteSyntax
+  , languageDenotationChart
+  , languageStatics
   , Language'(..)
-  , abstractSyntax'
-  , concreteSyntax'
-  , denotationChart'
-  , statics'
+  , language'AbstractSyntax
+  , language'ConcreteSyntax
+  , language'DenotationChart
+  , language'Statics
 
   -- * Other
   , prismSum
@@ -167,6 +171,17 @@ import           Text.Show.Deriving
 
 import           Lvca.FunctorUtil
 import           Lvca.Util                 as Util
+
+import           Control.Category.Structures
+import           Control.Lens.Cons
+import           Control.Lens.SemiIso
+import           Control.Lens.TH
+import           Control.SIArrow
+import           Data.Char
+import qualified Data.Syntax as S
+import           Data.Syntax.Char (SyntaxChar, SyntaxText)
+import qualified Data.Syntax.Char as S
+import qualified Data.Syntax.Combinator as S
 
 -- syntax charts
 
@@ -275,19 +290,33 @@ instance IsString Valence where
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
+-- | A variable name.
+name :: SyntaxText syn => syn () Text
+name = _Cons /$/ S.satisfy isAlpha /*/ S.takeWhile isAlphaNum
+
+-- | A quoted string.
+quoted :: SyntaxChar syn => syn () (S.Seq syn)
+quoted = S.char '"' */ S.takeTill (=='"') /* S.char '"'
+
+-- | Encloses a symbol in parentheses.
+parens' :: SyntaxChar syn => syn () a -> syn () a
+parens' m = S.char '(' */ S.spaces_ */ m /* S.spaces_ /* S.char ')'
+
 type TermNumber = Int
 
 -- | Parsing / pretty-printing directive
-data PppDirective
+data MixfixDirective
   = Literal !Text
-  | PprTerm ![TermNumber]
-  | Sequence !PppDirective !PppDirective
+  | MixfixTerm ![TermNumber]
+  | Sequence !MixfixDirective !MixfixDirective
   | Line
-  | Nest !Int !PppDirective
-  | Group !PppDirective
-  | !PppDirective :<+ !PppDirective
+  | Nest !Int !MixfixDirective
+  | Group !MixfixDirective
+  | !MixfixDirective :<+ !MixfixDirective
 
-instance IsString PppDirective where
+type MixfixParsingDirective a = Text -> Either String a
+
+instance IsString MixfixDirective where
   fromString = Literal . fromString
 
 -- TODO:
@@ -299,7 +328,7 @@ data Fixity = Infixl | Infixr | Infix
 
 data OperatorDirective
   = InfixDirective !Text !Fixity
-  | GeneralDirective !PppDirective
+  | GeneralDirective !MixfixDirective
 
 instance IsString OperatorDirective where
   fromString = GeneralDirective . fromString
@@ -312,7 +341,7 @@ instance IsString OperatorDirective where
 -- @
 -- ConcreteSyntax
 --   [ [ "Z"   :-> "Z" ]
---   , [ "S"   :-> directiveFromList [ "S " , PprTerm [0] ] ]
+--   , [ "S"   :-> directiveFromList [ "S " , MixfixTerm [0] ] ]
 --   , [ "Mul" :-> InfixDirective " * " Infixl ]
 --   , [ "Add" :-> InfixDirective " + " Infixl
 --     , "Sub" :-> InfixDirective " - " Infixl
@@ -325,7 +354,7 @@ newtype ConcreteSyntax = ConcreteSyntax
 mkConcreteSyntax :: [[OperatorName :-> OperatorDirective]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
 
-directiveFromList :: [PppDirective] -> OperatorDirective
+directiveFromList :: [MixfixDirective] -> OperatorDirective
 directiveFromList = GeneralDirective . foldr1 Sequence
 
 type Printer a = Reader (Int, ConcreteSyntax) a
@@ -357,8 +386,8 @@ prettyTm (Fix tm) = do
       let opPrec = Seq.length directives - reverseOpPrec
 
           body = case directive of
-            GeneralDirective dir      -> doPppDirective subtms tm dir
-            InfixDirective str fixity -> printInfixDirective str fixity subtms
+            GeneralDirective dir      -> prettyMixfix subtms tm dir
+            InfixDirective str fixity -> prettyInfix str fixity subtms
 
       -- If the child has a lower precedence than the parent you must
       -- parenthesize it
@@ -368,15 +397,15 @@ prettyTm (Fix tm) = do
     Var name    -> pure $ pretty name
     PrimValue a -> pure $ pretty a
 
-doPppDirective
+prettyMixfix
   :: Pretty a
-  => [Term a] -> TermF a (Term a) -> PppDirective -> Printer (Doc ())
-doPppDirective subtms tm' directive = case directive of
+  => [Term a] -> TermF a (Term a) -> MixfixDirective -> Printer (Doc ())
+prettyMixfix subtms tm' directive = case directive of
   Literal str -> pure $ pretty str
-  PprTerm steps -> case steps of
+  MixfixTerm steps -> case steps of
     [] -> prettyTm $ Fix tm'
     step:steps' -> case subtms ^? ix step of
-      Just (Fix subtm) -> go subtm $ PprTerm steps'
+      Just (Fix subtm) -> go subtm $ MixfixTerm steps'
       Nothing -> error $
         "couldn't find subterm at location " ++ show steps
 
@@ -385,12 +414,12 @@ doPppDirective subtms tm' directive = case directive of
   Nest i a -> nest i <$> go tm' a
   Group a -> group <$> go tm' a
   a :<+ _ -> go tm' a
-  where go = doPppDirective subtms
+  where go = prettyMixfix subtms
 
-printInfixDirective
+prettyInfix
   :: Pretty a
   => Text -> Fixity -> [Term a] -> Printer (Doc ())
-printInfixDirective str fixity subtms = case subtms of
+prettyInfix str fixity subtms = case subtms of
   [l, r] -> do
     -- For infix operators, we call `pred` on the side that *should not* show a
     -- paren in the case of an operator of the same precedence.
@@ -928,18 +957,34 @@ instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
+-- | An abstract domain has abstract syntax but no concrete syntax or
+-- interpretation.
+data AbstractDomain = AbstractDomain
+  { _abstractDomainAbstractSyntax  :: !SyntaxChart
+  , _abstractDomainStatics         :: !JudgementRules
+  }
+
+-- | A domain has (abstract and concrete) syntax but no interpretation.
+data Domain = Domain
+  { _domainAbstractSyntax  :: !SyntaxChart
+  , _domainConcreteSyntax  :: !ConcreteSyntax
+  , _domainStatics         :: !JudgementRules
+  }
+
+-- | A language has syntax and a denotation (an interpretation to another
+-- domain).
 data Language a b = Language
-  { _abstractSyntax  :: !SyntaxChart
-  , _concreteSyntax  :: !ConcreteSyntax
-  , _denotationChart :: !(DenotationChart a b)
-  , _statics         :: !JudgementRules
+  { _languageAbstractSyntax  :: !SyntaxChart
+  , _languageConcreteSyntax  :: !ConcreteSyntax
+  , _languageDenotationChart :: !(DenotationChart a b)
+  , _languageStatics         :: !JudgementRules
   }
 
 data Language' f g = Language'
-  { _abstractSyntax'  :: !SyntaxChart
-  , _concreteSyntax'  :: !ConcreteSyntax
-  , _denotationChart' :: !(DenotationChart f g)
-  , _statics'         :: !JudgementRules
+  { _language'AbstractSyntax  :: !SyntaxChart
+  , _language'ConcreteSyntax  :: !ConcreteSyntax
+  , _language'DenotationChart :: !(DenotationChart f g)
+  , _language'Statics         :: !JudgementRules
   }
 
 makeLenses ''SyntaxChart
@@ -958,6 +1003,8 @@ deriveBifoldable ''TermF
 deriveBitraversable ''TermF
 deriveBimatchable ''TermF
 makeLenses ''PatternCheckResult
+makeLenses ''AbstractDomain
+makeLenses ''Domain
 makeLenses ''Language
 makeLenses ''Language'
 
@@ -984,3 +1031,9 @@ meaningOfP textP = prism' rtl ltr where
 data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'
   [(Fix (PatVarF :+: f), Fix (VarBindingF :+: MeaningOfF :+: g))]
   deriving Show
+
+class HasAbstractSyntax d where
+  abstractSyntax :: Lens' d SyntaxChart
+
+instance HasAbstractSyntax AbstractDomain where
+  abstractSyntax = abstractDomainAbstractSyntax
