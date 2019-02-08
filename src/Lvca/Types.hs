@@ -92,9 +92,13 @@ module Lvca.Types
   -- * Patterns
   -- ** Pattern
   , Pattern(..)
+  , _PatternTm
+  , _PatternVar
   , _PatternPrimVal
+  , _PatternUnion
   -- ** PatternCheckResult
   , PatternCheckResult(..)
+  , IsRedudant(..)
   , overlapping
   , uncovered
   , isComplete
@@ -645,10 +649,11 @@ instance Pretty a => Pretty (Pattern a) where
 -- | A pattern matches a term.
 --
 -- In fact, patterns and terms have almost exactly the same form. Differences:
--- * Patterns add unions so that multiple things can match for the same
---   right-hand side
--- * In addition to variables, patterns can match wildcards, which don't bind
---   any variable.
+--
+--   * Patterns add unions so that multiple things can match for the same
+--     right-hand side
+--   * In addition to variables, patterns can match wildcards, which don't bind
+--     any variable.
 data Pattern a
   -- | Matches the head of a term and any subpatterns
   = PatternTm !Text ![Pattern a]
@@ -670,6 +675,8 @@ deriveShow1 ''TermF
 deriveEq1   ''TermF
 deriveShow2 ''TermF
 deriveEq2   ''TermF
+deriveShow1 ''Pattern
+deriveEq1   ''Pattern
 
 -- | Denotation charts
 --
@@ -840,6 +847,7 @@ minus x@(PatternPrimVal a) (PatternPrimVal b)
 minus x@PatternPrimVal{} _           = pure x
 minus x@PatternTm{} PatternPrimVal{} = pure x
 
+-- | Check a chart for uncovered and overlapping patterns.
 patternCheck
   :: forall a b.
      Eq a
