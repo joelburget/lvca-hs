@@ -15,6 +15,7 @@ extra-source-files:  ChangeLog.md
 common core-deps
   build-depends:
     Earley >= 0.13,
+    aeson,
     base >=4.11 && <4.12,
     bifunctors,
     brick >= 0.41,
@@ -40,6 +41,7 @@ common core-deps
     template-haskell >= 2.4 && < 2.15,
     text,
     transformers >= 0.5.5,
+    vector,
     vty >= 5.25,
     writer-cps-mtl,
     zippers,

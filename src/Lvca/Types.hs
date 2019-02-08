@@ -72,11 +72,13 @@ module Lvca.Types
   , meaningOfP
   , TermF(..)
   , Term
+  -- ** Term patterns
   , pattern Term
   , pattern Binding
   , pattern Var
   , pattern PrimValue
   , pattern BinaryTerm
+  -- ** Term prisms / traversals
   , _TermF
   , _BindingF
   , _VarF
@@ -84,6 +86,7 @@ module Lvca.Types
   , subterms
   , termName
   , identify
+  -- ** TermRepresentable / PatternRepresentable
   , TermRepresentable(..)
   , PatternRepresentable(..)
   , patAdaptor
@@ -156,6 +159,8 @@ import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
 import           Control.Lens              hiding (mapping, op, prism)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
+import           Data.Aeson                (ToJSON(..), FromJSON(..),
+                                            Value(..), withArray)
 import           Data.Bifunctor.TH         hiding (Options)
 import           Data.ByteString           (ByteString)
 import           Data.Data                 (Data)
@@ -174,6 +179,7 @@ import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import           Data.Text.Prettyprint.Doc hiding ((<+>), space)
 import qualified Data.Text.Prettyprint.Doc as PP
+import qualified Data.Vector               as Vector
 import           Data.Void                 (Void)
 import           GHC.Exts                  (IsList (..))
 import           GHC.Generics (Generic)
@@ -487,6 +493,25 @@ data TermF a term
   | VarF !Text
   | PrimValueF !a
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+
+arr :: [Value] -> Value
+arr = Array . Vector.fromList
+
+instance ToJSON a => ToJSON (Term a) where
+  toJSON = \case
+    Term name subtms   -> arr [String "t", toJSON name, toJSON subtms]
+    Binding vars subtm -> arr [String "b", toJSON vars, toJSON subtm]
+    Var name           -> arr [String "v", toJSON name]
+    PrimValue a        -> arr [String "p", toJSON a]
+
+instance FromJSON a => FromJSON (Term a) where
+  parseJSON = withArray "Term" $ \v -> case Vector.toList v of
+    [String "t", a, b] -> Term      <$> parseJSON a <*> parseJSON b
+    [String "b", a, b] -> Binding   <$> parseJSON a <*> parseJSON b
+    [String "v", a   ] -> Var       <$> parseJSON a
+    [String "p", a   ] -> PrimValue <$> parseJSON a
+    -- TODO: better message
+    _ -> fail "unexpected JSON format for TermF"
 
 type Term a = Fix (TermF a)
 
