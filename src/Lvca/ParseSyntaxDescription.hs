@@ -22,6 +22,13 @@ parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
 parseSyntaxDescription
   = SyntaxChart . Map.fromList <$> some parseSortDef <* eof
 
+-- | Parse a sort definition, eg:
+--
+-- @
+-- Foo ::=
+--   Bar
+--   Baz
+-- @
 parseSortDef :: SyntaxDescriptionParser (SortName, SortDef)
 parseSortDef = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
@@ -49,10 +56,13 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
     --     parseOperator `sepBy1` symbol "|"
     ]
 
+-- | Parse an operator.
+--
 -- The first two cases are sugar so you can write:
--- - `{Num}` instead of
--- - `Num{Num}` instead of
--- - `Num({Num})`
+--
+--   - @{Num}@ instead of
+--   - @Num{Num}@ instead of
+--   - @Num({Num})@.
 parseOperator :: SyntaxDescriptionParser Operator
 parseOperator = asum
   [ do -- sugar for `{Num}`
@@ -72,16 +82,47 @@ parseOperator = asum
          ]
   ]
 
+-- | Parse an arity, which is a list of valences separated by @;@, eg:
+--
+-- @
+-- A; B; C
+-- A. B. C
+-- A. B. F A B
+-- A. B; C
+-- A
+-- {External}
+-- {External}; A
+-- {External}. A
+-- A. {External}
+-- @
 parseArity :: SyntaxDescriptionParser Arity
 parseArity = fmap Arity $ option [] $
   parens $ option [] $ parseValence `sepBy1` symbol ";"
 
+-- | Parse a valence, which is a list of sorts separated by @.@, eg any of:
+--
+-- @
+-- A. B. C
+-- A. B. F A B
+-- A
+-- {External}
+-- {External}. A
+-- A. {External}
+-- @
 parseValence :: SyntaxDescriptionParser Valence
 parseValence = do
   names <- parseSort `sepBy1` symbol "."
   let Just (sorts, result) = unsnoc names
   pure $ Valence sorts result
 
+-- | Parse a sort, which is a regular sort name or an external sort name in
+-- braces, eg any of:
+--
+-- @
+-- A
+-- F A B
+-- {External}
+-- @
 parseSort :: SyntaxDescriptionParser Sort
 parseSort = asum
   [ braces $ External <$> parseName

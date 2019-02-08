@@ -56,6 +56,7 @@ module Lvca.Types
   -- | Denotational semantics definition.
   , DenotationChart(..)
   , DenotationChart'(..)
+  , (:->)
   , pattern (:->)
   , (<->)
   , pattern PatternAny
@@ -266,7 +267,7 @@ instance IsList Arity where
   fromList         = Arity
   toList (Arity l) = l
 
--- | The arity of an operator holding only an external
+-- | The arity of an operator holding only an external.
 pattern ExternalArity :: SortName -> Arity
 pattern ExternalArity name = Arity [ Valence [] (External name) ]
 
@@ -331,9 +332,9 @@ type a :-> b = (a, b)
 
 -- | Whether a binary operator is left-, right-, or non-associative
 data Fixity
-  = Infixl -- ^ An operator associating to the left
+  = Infixl -- ^ An operator associating to the left:
            -- (@x + y + z ~~ (x + y) + z@)
-  | Infixr -- ^ An operator associating to the right
+  | Infixr -- ^ An operator associating to the right:
            -- (@x $ y $ z ~~ x $ (y $ z)@)
   | Infix  -- ^ A non-associative operator
 
@@ -346,16 +347,14 @@ data OperatorDirective where
 -- Each level of the chart corresponds to a precendence level, starting with
 -- the highest precendence and droping to the lowest. Example:
 --
--- @
--- ConcreteSyntax
---   [ [ "Z"   :-> "Z" ]
---   , [ "S"   :-> directiveFromList [ "S " , MixfixTerm [0] ] ]
---   , [ "Mul" :-> InfixDirective " * " Infixl ]
---   , [ "Add" :-> InfixDirective " + " Infixl
---     , "Sub" :-> InfixDirective " - " Infixl
---     ]
---   ]
--- @
+-- > ConcreteSyntax
+-- >   [ [ "Z"   :-> "Z" ]
+-- >   , [ "S"   :-> "S" :>> space :>> Arith ]
+-- >   , [ "Mul" :-> InfixDirective "*" Infixl ]
+-- >   , [ "Add" :-> InfixDirective "+" Infixl
+-- >     , "Sub" :-> InfixDirective "-" Infixl
+-- >     ]
+-- >   ]
 newtype ConcreteSyntax = ConcreteSyntax
   (Seq [OperatorName :-> OperatorDirective])
 
@@ -582,6 +581,8 @@ patAdaptor p = prism' rtl ltr where
     PatternPrimVal Nothing  -> pure $ PatternPrimVal Nothing
     PatternPrimVal (Just a) -> PatternPrimVal . Just <$> preview p a
     PatternUnion subpats    -> PatternUnion <$> traverse ltr subpats
+
+-- TODO: do we still want prismSum*?
 
 prismSum ::
   ( HasPrism a (f1 (Fix (f1 :+: f2)))
@@ -1035,6 +1036,8 @@ data Language a b = Language
   , _languageStatics         :: !JudgementRules
   }
 
+-- | A language has syntax and a denotation (an interpretation to another
+-- domain).
 data Language' f g = Language'
   { _language'AbstractSyntax  :: !SyntaxChart
   , _language'ConcreteSyntax  :: !ConcreteSyntax

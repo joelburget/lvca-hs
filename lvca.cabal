@@ -87,6 +87,7 @@ library
     Lvca.FunctorUtil
     Lvca.Languages.Edits
     Lvca.Languages.MachineModel
+    Lvca.ParseConcreteSyntaxDescription
     Lvca.ParseDenotationChart
     Lvca.ParseTerm
     Lvca.ParseSyntaxDescription

@@ -57,11 +57,15 @@ mkSyntaxInstances ''Arith
 
 concreteArith :: ConcreteSyntax
 concreteArith = mkConcreteSyntax
-  [ [ let p :: Iso' (Term Void) ()
+  [ [ -- in parsing: () -> Term "Z" []
+      -- in pretty-printing: Term "Z" [] -> ()
+      let p :: Iso' (Term Void) ()
           p = iso (const ()) (const $ Term "Z" [])
       in "Z"   :-> MixfixDirective (PrismD p "Z") ]
 
-  , [ let p :: Prism' (Term Void) ((), ((), Term Void))
+  , [ -- in parsing: ((), ((), tm)) -> Term "S" [tm]
+      -- in pretty-printing: Term "S" [tm] -> ((), ((), tm))
+      let p :: Prism' (Term Void) ((), ((), Term Void))
           p = prism'
             (\((), ((), tm)) -> Term "S" [tm])  -- rtl
             (\case                              -- ltr

@@ -6,6 +6,7 @@ module Lvca
   , module Lvca.ParseDenotationChart
   , module Lvca.ParseTerm
   , module Lvca.ParseSyntaxDescription
+  , module Lvca.ParseConcreteSyntaxDescription
   , module Lvca.ParseUtil
   , module Lvca.Proceed
   , module Lvca.SyntaxComponents
@@ -23,6 +24,7 @@ import Lvca.ParseDenotationChart
 import Lvca.ParseTerm
 import Lvca.ParseSyntaxDescription
   (SyntaxDescriptionParser, parseSyntaxDescription)
+import Lvca.ParseConcreteSyntaxDescription
 import Lvca.ParseUtil hiding (re)
 import Lvca.Proceed hiding (findMatch, matches)
 import Lvca.SyntaxComponents
