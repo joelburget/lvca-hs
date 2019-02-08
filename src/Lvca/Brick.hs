@@ -125,7 +125,7 @@ drawFocus = \case
   Ascending  tm -> drawTm' tm
 
 showTermSlot :: TmShow a => Term a -> Widget ()
-showTermSlot (Fix tm) = case tm of
+showTermSlot tm = case tm of
   Term name _ -> txt $ "[" <> name <> "]"
   Var name    -> txt name
   Binding _ _ -> txt "TODO: binding"

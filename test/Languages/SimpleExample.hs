@@ -60,7 +60,7 @@ instance IsString E where
   fromString = E . Right . fromString
 
 pattern PrimValue' :: Text -> Either Int Text -> Term E
-pattern PrimValue' name x = Fix (Term name [ Fix (PrimValue (E x)) ])
+pattern PrimValue' name x = Term name [ PrimValue (E x) ]
 
 pattern TI :: Int -> Term E
 pattern TI x = PrimValue' "Num" (Left x)
@@ -117,25 +117,25 @@ mkTypes (Options Nothing $ Map.fromList
 mkSyntaxInstances ''Val
 
 tm1, tm2, tm3 :: Term E
-tm1 = Fix $ Term "Annotation"
+tm1 = Term "Annotation"
   [ TS "annotation"
-  , Fix $ Term "Let"
+  , Term "Let"
     [ TI 1
-    , Fix $ Binding ["x"] $
-      Fix $ Term "Plus"
-        [ Fix $ Var "x"
+    , Binding ["x"] $
+      Term "Plus"
+        [ Var "x"
         , TI 2
         ]
     ]
   ]
 
-tm2 = Fix $ Term "Cat"
+tm2 = Term "Cat"
   [ TS "foo"
   , TS "bar"
   ]
 
-tm3 = Fix $ Term "Times"
-  [ Fix $ Term "Len"
+tm3 = Term "Times"
+  [ Term "Len"
     [ TS "hippo"
     ]
   , TI 3
@@ -260,7 +260,7 @@ dynamicTests :: Test ()
 dynamicTests =
   let
       lenStr :: Term E
-      lenStr      = Fix $ Term "Len" [ TS "str" ]
+      lenStr      = Term "Len" [ TS "str" ]
       x           = PatternVar (Just "x")
       env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
   in tests
@@ -278,7 +278,7 @@ dynamicTests =
        , expectJust $
          let pat :: Pattern E
              pat = PatternVar (Just "n_1")
-             tm  = Fix $ Var "x"
+             tm  = Var "x"
          in flip runReaderT env $ matches pat tm
        , expectJust $
          let pat = PatternVar (Just "n_2")
@@ -289,7 +289,7 @@ dynamicTests =
                [ PatternVar (Just "n_1")
                , PatternVar (Just "n_2")
                ]
-             tm = Fix $ Term "Plus" [Fix $ Var "x", TI 2]
+             tm = Term "Plus" [Var "x", TI 2]
          in flip runReaderT env $ matches pat tm
 
        ]
@@ -412,7 +412,7 @@ prettyStaticTests = tests
 matchesTests :: Test ()
 matchesTests = scope "matches" $
   let foo :: Term ()
-      foo = Fix $ Term "foo" []
+      foo = Term "foo" []
 
       -- We intentionally include these `undefined`s to check that we don't
       -- depend on the syntax / sort.
@@ -428,7 +428,7 @@ matchesTests = scope "matches" $
        , expect $
          (runMatches syntax "Typ" $ matches
            PatternAny
-           (Fix $ Binding ["x"] $ Fix $ Term "num" []))
+           (Binding ["x"] $ Term "num" []))
          ==
          (Just mempty :: Maybe (Subst ()))
        ]
@@ -458,10 +458,10 @@ parseTests =
   in scope "parse" $ tests
   [ expectParse UntaggedExternals
       "Plus(1; 2)"
-      (Fix $ Term "Plus" [TI 1, TI 2])
+      (Term "Plus" [TI 1, TI 2])
   , expectParse UntaggedExternals
       "Cat(\"abc\"; \"def\")"
-      (Fix $ Term "Cat" [TS "abc", TS "def"])
+      (Term "Cat" [TS "abc", TS "def"])
   , expectParse UntaggedExternals
       "\"\\\"quoted text\\\"\""
       (TS "\\\"quoted text\\\"")
@@ -472,22 +472,22 @@ parseTests =
   -- Note this doesn't check but it should still parse
   , expectParse UntaggedExternals
       "Cat(\"abc\"; 1)"
-      (Fix $ Term "Cat" [TS "abc", TI 1])
+      (Term "Cat" [TS "abc", TI 1])
   , expectNoParse UntaggedExternals
       "Cat(Str{\"abc\"}; Num{1})"
   , expectParse TaggedExternals
       "Cat(Str{\"abc\"}; Num{1})"
-      (Fix $ Term "Cat" [TS "abc", TI 1])
+      (Term "Cat" [TS "abc", TI 1])
   , expectNoParse TaggedExternals
       "Cat(\"abc\"; 1)"
 
   , expectParse UntaggedExternals
      "Let(1; x. Plus(x; 2))"
-     (Fix $ Term "Let"
+     (Term "Let"
        [ TI 1
-       , Fix $ Binding ["x"] $
-         Fix $ Term "Plus"
-           [ Fix $ Var "x"
+       , Binding ["x"] $
+         Term "Plus"
+           [ Var "x"
            , TI 2
            ]
        ])
@@ -502,8 +502,8 @@ propTests =
         "Str" -> Just $ E . Right <$> genText
         _     -> Nothing
   in tests
-       [ scope "prop_parse_pretty" $ testProperty $
-         prop_parse_pretty syntax "Exp" aGen primParsers
+       [ scope "prop_parse_abstract_pretty" $ testProperty $
+         prop_parse_abstract_pretty syntax "Exp" aGen primParsers
 
        , scope "prop_serialise_identity" $ testProperty $
          prop_serialise_identity syntax "Exp" aGen
@@ -528,8 +528,8 @@ primEval
   :: Fix (VarBindingF :+: Exp E)
   -> Either String (Fix (Val E))
 primEval (Fix tm) = case tm of
-  InL (VarF v) -> Left $ "unexpected free variable: " ++ show v
-  InL BindingF{} -> Left "unexpectely hit a an abstraction in evaluation"
+  InL (VarF' v) -> Left $ "unexpected free variable: " ++ show v
+  InL BindingF'{} -> Left "unexpectely hit a an abstraction in evaluation"
   InR tm' -> case tm' of
     Plus a b -> do
       ValNum a' <- primEval a
@@ -548,7 +548,7 @@ primEval (Fix tm) = case tm of
       case a' of
         ValStr str -> Right $ ValNum $ Text.length str
         _          -> Left "bad argument to len"
-    Let a (Fix (InL (BindingF [name] b))) -> primEval $ subst name a b
+    Let a (Fix (InL (BindingF' [name] b))) -> primEval $ subst name a b
     Annotation _annot tm'' -> primEval tm''
     NumLit a -> pure $ Fix $ NumV a
     StrLit a -> pure $ Fix $ StrV a
@@ -591,20 +591,20 @@ explicitPatP = prism' rtl ltr where
 
 --   valP' = prism' rtl' ltr' where
 --     rtl' = \case
---       NumV i      -> Fix $ Term "NumV" [ Fix $ PrimValue $ Right i ]
---       StrV s      -> Fix $ Term "StrV" [ Fix $ PrimValue $ Right s ]
---     ltr' (Fix tm) = case tm of
---       Term "NumV" [ Fix (PrimValue (Right i)) ] -> Just $ NumV i
---       Term "StrV" [ Fix (PrimValue (Right s)) ] -> Just $ StrV s
---       _                       -> Nothing
+--       NumV i      -> Term "NumV" [ PrimValue $ Right i ]
+--       StrV s      -> Term "StrV" [ PrimValue $ Right s ]
+--     ltr' tm = case tm of
+--       Term "NumV" [ PrimValue (Right i) ] -> Just $ NumV i
+--       Term "StrV" [ PrimValue (Right s) ] -> Just $ StrV s
+--       _                                   -> Nothing
 
 tm1F, tm2F, tm3F :: Fix (VarBindingF :+: Exp E)
 
 tm1F = Fix $ InR $ Annotation (E $ Right "annotation") $
   Fix $ InR $ Let
     (Fix $ InR $ NumLit $ E $ Left 1)
-    (Fix $ InL $ BindingF ["x"] $ Fix $ InR $ Plus
-      (Fix $ InL $ VarF "x")
+    (Fix $ InL $ BindingF' ["x"] $ Fix $ InR $ Plus
+      (Fix $ InL $ VarF' "x")
       (Fix $ InR $ NumLit $ E $ Left 2)
       )
 

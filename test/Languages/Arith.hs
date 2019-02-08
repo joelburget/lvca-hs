@@ -3,15 +3,13 @@
 {-# language TypeFamilies     #-}
 module Languages.Arith where
 
-import Debug.Trace
-
 import           Control.Applicative                ((<$))
 import           Control.Arrow                      ((>>>))
 import           Control.Monad.Reader               (runReaderT, runReader)
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
 import           Control.Lens
-  (_Right, _Wrapped, preview, review, Prism', prism', _Left, from)
+  (_Right, _Wrapped, preview, review, Prism', prism', _Left, from, Iso', iso)
 import           Control.Lens.TH
 import           Data.Bifunctor                     (bimap, second)
 import           Data.Bitraversable
@@ -27,9 +25,9 @@ import           Text.Megaparsec
 import           NeatInterpolation
 
 import Lvca
-
-import Test.ParseTerm
-import Test.Types
+import Test.Types     (prop_serialise_identity)
+import Test.ParseTerm (earleyConcreteParseTermTest, standardParseTermTest,
+                       prop_parse_abstract_pretty) -- , prop_parse_concrete_pretty)
 
 newtype E = E { unE :: Either Int Text }
   deriving (Eq, Show)
@@ -59,11 +57,24 @@ mkSyntaxInstances ''Arith
 
 concreteArith :: ConcreteSyntax
 concreteArith = mkConcreteSyntax
-  [ [ "Z"   :-> "Z" ]
-  , [ "S"   :-> directiveFromList [ "S " , MixfixTerm [0] ] ]
-  , [ "Mul" :-> InfixDirective " * " Infixl ]
-  , [ "Add" :-> InfixDirective " + " Infixl
-    , "Sub" :-> InfixDirective " - " Infixl
+  [ [ let p :: Iso' (Term Void) ()
+          p = iso (const ()) (const $ Term "Z" [])
+      in "Z"   :-> MixfixDirective (PrismD p "Z") ]
+
+  , [ let p :: Prism' (Term Void) ((), ((), Term Void))
+          p = prism'
+            (\((), ((), tm)) -> Term "S" [tm])  -- rtl
+            (\case                              -- ltr
+              Term "S" [subtm] -> Just ((), ((), subtm))
+              _                -> Nothing)
+
+      in "S"   :-> MixfixDirective
+        (PrismD p ("S" :>> space :>> SubTerm "Arith"))
+    ]
+
+  , [ "Mul" :-> InfixDirective "*" Infixl ]
+  , [ "Add" :-> InfixDirective "+" Infixl
+    , "Sub" :-> InfixDirective "-" Infixl
     ]
   ]
 
@@ -164,23 +175,23 @@ peanoDynamics = runParser (parseDenotationChart noParse noParse)
 pattern S' :: Term a -> Term a
 pattern Z' ::           Term a
 
-pattern S' x = Fix (Term "S" [ x ])
-pattern Z'   = Fix (Term "Z" [   ])
+pattern S' x = Term "S" [ x ]
+pattern Z'   = Term "Z" [   ]
 
 addOneOne :: Term Void
-addOneOne = Fix $ Term "Add" [ S' Z', S' Z' ]
+addOneOne = Term "Add" [ S' Z', S' Z' ]
 
 addAssoc :: Term Void
-addAssoc = Fix $ Term "Add"
-  [ Fix $ Term "Add" [ Z', Z' ]
-  , Fix $ Term "Add" [ Z', Z' ]
+addAssoc = Term "Add"
+  [ Term "Add" [ Z', Z' ]
+  , Term "Add" [ Z', Z' ]
   ]
 
 example :: Term Void
-example = Fix $ Term "Add"
-  [ Fix $ Term "Mul"
+example = Term "Add"
+  [ Term "Mul"
     [ S' Z'
-    , Fix $ Term "Sub"
+    , Term "Sub"
       [ S' (S' Z')
       , S' Z'
       ]
@@ -189,7 +200,7 @@ example = Fix $ Term "Add"
   ]
 
 pattern PrimInt :: Int -> Term E
-pattern PrimInt i = Fix (Term "Int" [ Fix (PrimValue (E (Left i))) ])
+pattern PrimInt i = Term "Int" [ PrimValue (E (Left i)) ]
 
 upcast :: forall sub sup. Prism' sup sub -> Prism' (Term sup) (Term sub)
 upcast p = prism' rtl ltr where
@@ -225,7 +236,6 @@ peanoProceed tm = case preview termP1 tm of
       Just chart -> case runWriter (runMaybeT (translate chart tm')) of
         (Nothing, _logs) -> Left "couldn't translate term"
         (Just tm'', _logs) -> do
-          traceM $ "translated: " ++ show tm''
           let results :: [StateStep RecInt Void]
               results = runReader (runProceedM (proceed tm''))
                 (EvalEnv Map.empty, [])
@@ -244,32 +254,44 @@ domainTermP
        (Term (Either Text a))
        -- XXX not sure type should be Text
        (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: f Text))
-domainTermP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValue)
+domainTermP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValueF)
 
 termP3 :: TermRepresentable f => Prism' (Term a) (Fix (f a))
 termP3 = mkTermP termP3 . from _Fix
 
 arithTests :: Test ()
 arithTests = tests
-  [ scope "prop_parse_pretty" $
-    testProperty $ prop_parse_pretty syntax "Arith"
+  [ scope "prop_parse_abstract_pretty" $
+    testProperty $ prop_parse_abstract_pretty syntax "Arith"
       (const Nothing) primParsers
+
+--   TODO: this fails because the syntax can't parse variables
+--   , scope "prop_parse_concrete_pretty" $
+--     testProperty $ prop_parse_concrete_pretty syntax "Arith" concreteArith
+
   , scope "prop_serialise_identity" $ testProperty $
     prop_serialise_identity @() syntax "Arith" (const Nothing)
   , scope "standard parsing" $ standardParseTermTest
       (ParseEnv syntax "Arith" UntaggedExternals primParsers)
       "Za"
-      (Fix (Var "Za"))
+      (Var "Za")
   , scope "pretty-printing" $
-    let expectEq' tm str = show (prettyTm (-1) concreteArith tm) `expectEq` str
+    let expectEq' tm str = do
+          let result = show $ runReader (prettyTm tm) (-1, concreteArith)
+          result `expectEq` str
     in tests
          [ addOneOne `expectEq'` "S Z + S Z"
-         , addAssoc `expectEq'` "Z + Z + (Z + Z)"
-         , example `expectEq'` "S Z * (S (S Z) - S Z) + S (S (S Z))"
-         -- , example2 `expectEq'` "S (Z) + S (Z)"
+         , addAssoc  `expectEq'` "Z + Z + (Z + Z)"
+         , example   `expectEq'` "S Z * (S (S Z) - S Z) + S (S (S Z))"
          ]
 
-  , scope "concrete parsing" $ parseTest
+  , scope "concrete parsing with earley" $
+    let expectEq' str tm = earleyConcreteParseTermTest concreteArith str tm
+    in tests
+         [ "S Z + S Z"                           `expectEq'` addOneOne
+         , "Z + Z + (Z + Z)"                     `expectEq'` addAssoc
+         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq'` example
+         ]
   ]
   where
 

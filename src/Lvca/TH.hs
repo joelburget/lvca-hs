@@ -24,7 +24,7 @@ import           Text.Megaparsec                 (runParser)
 import           Text.Show.Deriving
 import           Language.Haskell.TH.Syntax      (lift, dataToExpQ)
 
-import           Lvca.FunctorUtil            (Fix(Fix), _Fix)
+import           Lvca.FunctorUtil            (_Fix)
 import           Lvca.ParseSyntaxDescription
 import           Lvca.SyntaxComponents
 import           Lvca.Types                  hiding (valences)
@@ -230,12 +230,12 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
                       (mkName' name)
                       (varTyVar <$> varNameGen valences))
                     (normalB [|
-                      Fix (Term
+                      Term
                       $(litE $ StringL $ unpack name)
                       $(listE $ varNameGen valences <&> \case
                         SortVar     v -> [| review termP' $(varE v) |]
                         ExternalVar v -> [| review p      $(varE v) |])
-                      ) |])
+                      |])
                     []
           ) [] ]
         , funD (mkName "ltr") [ clause [] (normalB $ lamCaseE $
@@ -243,10 +243,10 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
               chartContents ^.. traverse <&> \(SortDef _vars operators) ->
                 operators <&> \(Operator name (Arity valences) _desc) ->
                   match
-                    [p| Fix (Term
+                    [p| Term
                       $(litP $ StringL $ unpack name)
                       $(listP $ varTyVar <$> varNameGen valences)
-                    ) |]
+                    |]
                     (normalB $ foldl
                       (\con -> \case
                         SortVar     v -> [| $con <*> preview termP' $(varE v) |]
@@ -261,14 +261,14 @@ mkTermHelpers chart@(SyntaxChart chartContents) fName vars = do
   -- we only declare p when it's used, ie there are externals
   let mkTermPDecls' =
         [ sigD (mkName "p") [t| forall a. Prism' (Term a) a |]
-        , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValue |]) []
+        , valD (varP (mkName "p")) (normalB [| _Fix . _PrimValueF |]) []
         ]
 
   -- for each sort:
   --   for each operator:
   --     emit a line like:
-  --       ltr: `Plus a b -> Fix (Term "Plus" [ review termP' a, review termP' b ])`
-  --       rtl: `Fix (Term "Plus" [ a, b ])
+  --       ltr: `Plus a b -> Term "Plus" [ review termP' a, review termP' b ]`
+  --       rtl: `Term "Plus" [ a, b ]
   --         -> pure Plus <*> preview termP' a <*> preview termP' b`
   termPDec <- funD (mkName' "mkTermP")
     [ clause [varP (mkName termP'Name)] (normalB [| prism' rtl ltr |]) $

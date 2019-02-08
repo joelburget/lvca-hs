@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE TemplateHaskell            #-}
 module Lvca.ParseTerm
   ( Parser
@@ -10,12 +9,11 @@ module Lvca.ParseTerm
   , parseSort
   , externalStyle
   , standardParser
-  , concreteParser
   , makeExternalParsers
   , noExternalParsers
   ) where
 
-import           Control.Lens
+import           Control.Lens         hiding (prism)
 import           Control.Lens.Extras  (is)
 import           Control.Monad.Reader
 import           Data.Foldable        (asum, toList, for_)
@@ -24,22 +22,13 @@ import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
 import           Data.String          (IsString)
 import           Data.Text            (Text, unpack)
-import           Data.Traversable     (for)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Data.Void            (Void)
 
-import           Lvca.FunctorUtil
 import           Lvca.ParseUtil
 import           Lvca.Types
 import           Lvca.Util
-
-import Control.SIArrow
-import qualified Data.Syntax as S
-import qualified Data.Syntax.Attoparsec.Text.Lazy as S
-import Data.Syntax.Char (SyntaxChar, SyntaxText)
-import qualified Data.Syntax.Char as S
-import qualified Data.Syntax.Combinator as S
 
 -- TODO: we're not actually using Err.
 -- TODO: nice error messages
@@ -146,13 +135,13 @@ standardParser = do
                       let parsePrim' = ReaderT (const parsePrim)
                       in case externalStyle' of
                            UntaggedExternals ->
-                             Fix . Term name . (:[]) . Fix . PrimValue
+                             Term name . (:[]) . PrimValue
                                <$> parsePrim'
                            TaggedExternals   -> do
                              _    <- string name
                              prim <- braces parsePrim'
                                  <|> parens (braces parsePrim')
-                             pure $ Fix $ Term name [ Fix $ PrimValue prim ]
+                             pure $ Term name [ PrimValue prim ]
 
               Operator name (Arity valences') _ -> label (unpack name) $ do
                 _ <- try $ do
@@ -172,7 +161,7 @@ standardParser = do
                     (Seq.singleton <$> parseValence parseTerm v)
                     vs
                 -- TODO: convert Term to just use Sequence
-                pure $ Fix $ Term name $ toList subTms
+                pure $ Term name $ toList subTms
 
         in asum opParsers <?> unpack sortName ++ " operator"
 
@@ -184,7 +173,7 @@ standardParser = do
 
         case sortParsers ^? ix sortHead of
           Just sortOpParsers
-            -> sortOpParsers sortVarVals <|> fmap (Fix . Var) parseName
+            -> sortOpParsers sortVarVals <|> fmap Var parseName
           Nothing -> fail $
             "unable to find sort " <> unpack sortHead <> " among " <>
             show (Map.keys sortParsers)
@@ -200,15 +189,14 @@ parseValence parseTerm valence@(Valence sorts bodySort) = do
           let Just parsePrim = primParsers ^? ix name
               parsePrim' = ReaderT (const parsePrim)
           case externalStyle' of
-            TaggedExternals   -> Fix . PrimValue <$> braces parsePrim'
-            UntaggedExternals -> Fix . PrimValue <$> parsePrim'
+            TaggedExternals   -> PrimValue <$> braces parsePrim'
+            UntaggedExternals -> PrimValue <$> parsePrim'
         SortAp _ _ -> local (parseSort .~ bodySort) parseTerm
-
 
   label ("valence " <> show valence) $
     if null sorts
     then parseTerm'
-    else (fmap Fix . Binding)
+    else Binding
       <$> countSepBy (length sorts) parseName (symbol ".")
       <*> parseTerm'
 
@@ -217,53 +205,3 @@ noExternalParsers = Map.empty
 
 makeExternalParsers :: [(SortName, ExternalParser a)] -> ExternalParsers a
 makeExternalParsers = Map.fromList
-
-
-concreteParser
-  :: SyntaxText syn
-  => ConcreteSyntax
-  -> syn () (Term Void)
-concreteParser (ConcreteSyntax directives) =
-  -- TODO: how do precedence levels affect how we parse?
-  let allProds = toList directives <&> \precedenceLevel ->
-        precedenceLevel <&> \(opName, directive) -> case directive of
-          GeneralDirective directive' -> parseMixfixDirective result directive'
-          InfixDirective str fixity   -> parseInfix result str fixity
-      result = S.choice $ S.choice <$> allProds
-  in result
-
-parseMixfixDirective
-  :: SyntaxText syn
-  => syn () (Term Void)
-  -> MixfixDirective
-  -> syn () (Term Void)
-parseMixfixDirective p directive = go directive where
-
--- = \case
---   Literal text     -> rule $ undefined <$ E.namedToken text
---   PprTerm path     -> undefined
---   Sequence d1 d2   -> rule $ undefined
---     <$ parseMixfixDirective p d1
---     <* parseMixfixDirective p d2
---   Line             -> rule $ undefined <$ E.token "\n" -- XXX
---   Nest _ directive -> parseMixfixDirective p directive
---   Group directive  -> parseMixfixDirective p directive
---   d1 :<+ d2        -> (<|>)
---     <$> parseMixfixDirective p d1
---     <*> parseMixfixDirective p d2
-
-biTermPrism :: Text -> Prism' (Term Void) (Term Void, Term Void)
-biTermPrism name = prism'
-  (\(x, y) -> Fix (Term name [x, y]))
-  (\case
-    Fix (Term name' [x, y])
-      | name' == name -> Just (x, y)
-    _ -> Nothing)
-
-parseInfix
-  :: SyntaxText syn
-  => syn () (Term Void)
-  -> Text
-  -> Fixity
-  -> syn () (Term Void)
-parseInfix p name _TODO = biTermPrism name /$~ p /*/ S.string name /*/ p

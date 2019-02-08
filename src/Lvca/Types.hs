@@ -1,6 +1,7 @@
-{-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE TemplateHaskell     #-}
-{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE Rank2Types             #-}
+{-# LANGUAGE TemplateHaskell        #-}
+{-# LANGUAGE TypeFamilies           #-}
 -----------------------------------------------------------------------------
 -- |
 -- Copyright   :  (C) 2018 Joel Burget
@@ -41,9 +42,12 @@ module Lvca.Types
 
   -- | Concrete syntax charts
   , MixfixDirective(..)
+  , pattern (:>>)
+  , nil
+  , space
   , OperatorDirective(..)
   , Fixity(..)
-  , directiveFromList
+  -- , directiveFromList
   , ConcreteSyntax(..)
   , mkConcreteSyntax
   , prettyTm
@@ -68,10 +72,15 @@ module Lvca.Types
   , meaningOfP
   , TermF(..)
   , Term
-  , _Term
-  , _Binding
-  , _Var
-  , _PrimValue
+  , pattern Term
+  , pattern Binding
+  , pattern Var
+  , pattern PrimValue
+  , pattern BinaryTerm
+  , _TermF
+  , _BindingF
+  , _VarF
+  , _PrimValueF
   , subterms
   , termName
   , identify
@@ -119,20 +128,15 @@ module Lvca.Types
   , (.--)
 
   -- * Languages
+  , AbstractDomain(..)
   , Domain(..)
-  , domainAbstractSyntax
-  , domainConcreteSyntax
-  , domainStatics
   , Language(..)
-  , languageAbstractSyntax
-  , languageConcreteSyntax
-  , languageDenotationChart
-  , languageStatics
   , Language'(..)
-  , language'AbstractSyntax
-  , language'ConcreteSyntax
-  , language'DenotationChart
-  , language'Statics
+  , HasAbstractSyntax(..)
+  , HasStatics(..)
+  , HasConcreteSyntax(..)
+  , HasDenotationChart(..)
+  , HasDenotationChart'(..)
 
   -- * Other
   , prismSum
@@ -140,6 +144,7 @@ module Lvca.Types
   , prismSum4
   ) where
 
+import Data.Maybe (fromJust)
 
 import           Codec.Serialise
 import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
@@ -147,9 +152,9 @@ import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
 import           Control.Lens              hiding (mapping, op, prism)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
-import           Data.Bifunctor.TH               hiding (Options)
+import           Data.Bifunctor.TH         hiding (Options)
 import           Data.ByteString           (ByteString)
-import           Data.Data (Data)
+import           Data.Data                 (Data)
 import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
 import           Data.List                 (find, intersperse)
@@ -163,25 +168,15 @@ import qualified Data.Sequence             as Seq
 import           Data.String               (IsString (fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
-import           Data.Text.Prettyprint.Doc hiding ((<+>))
+import           Data.Text.Prettyprint.Doc hiding ((<+>), space)
 import qualified Data.Text.Prettyprint.Doc as PP
+import           Data.Void                 (Void)
 import           GHC.Exts                  (IsList (..))
 import           GHC.Generics (Generic)
 import           Text.Show.Deriving
 
 import           Lvca.FunctorUtil
 import           Lvca.Util                 as Util
-
-import           Control.Category.Structures
-import           Control.Lens.Cons
-import           Control.Lens.SemiIso
-import           Control.Lens.TH
-import           Control.SIArrow
-import           Data.Char
-import qualified Data.Syntax as S
-import           Data.Syntax.Char (SyntaxChar, SyntaxText)
-import qualified Data.Syntax.Char as S
-import qualified Data.Syntax.Combinator as S
 
 -- syntax charts
 
@@ -290,33 +285,33 @@ instance IsString Valence where
 exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
--- | A variable name.
-name :: SyntaxText syn => syn () Text
-name = _Cons /$/ S.satisfy isAlpha /*/ S.takeWhile isAlphaNum
-
--- | A quoted string.
-quoted :: SyntaxChar syn => syn () (S.Seq syn)
-quoted = S.char '"' */ S.takeTill (=='"') /* S.char '"'
-
--- | Encloses a symbol in parentheses.
-parens' :: SyntaxChar syn => syn () a -> syn () a
-parens' m = S.char '(' */ S.spaces_ */ m /* S.spaces_ /* S.char ')'
-
-type TermNumber = Int
-
 -- | Parsing / pretty-printing directive
-data MixfixDirective
-  = Literal !Text
-  | MixfixTerm ![TermNumber]
-  | Sequence !MixfixDirective !MixfixDirective
-  | Line
-  | Nest !Int !MixfixDirective
-  | Group !MixfixDirective
-  | !MixfixDirective :<+ !MixfixDirective
+data MixfixDirective a where
+  Literal  ::                                        !Text -> MixfixDirective ()
+  Sequence :: !(MixfixDirective a) -> !(MixfixDirective b) -> MixfixDirective (a, b)
+  Line     ::                                                 MixfixDirective ()
+  Nest     ::                 !Int -> !(MixfixDirective a) -> MixfixDirective a
+  Group    ::                         !(MixfixDirective a) -> MixfixDirective a
+  (:<+)    :: !(MixfixDirective a) -> !(MixfixDirective a) -> MixfixDirective a
+  PrismD   ::        !(Prism' b a) -> !(MixfixDirective a) -> MixfixDirective b
+  SubTerm  ::                                    !SortName -> MixfixDirective (Term Void)
 
-type MixfixParsingDirective a = Text -> Either String a
+infixr 5 :>>
 
-instance IsString MixfixDirective where
+pattern (:>>)
+  :: MixfixDirective a -> MixfixDirective b -> MixfixDirective (a, b)
+pattern a :>> b = Sequence a b
+
+nil, space :: MixfixDirective ()
+nil   = Literal "" :<+ space
+
+space = Literal " " :<+ Literal "\n" -- line instead of \n?
+
+-- space = PrismD p $ Sequence (Literal " " :<+ Literal "\n") nil -- line instead of \n?
+--   where p :: Iso' () ((), ())
+--         p = iso (const ((), ())) (const ())
+
+instance IsString (MixfixDirective ()) where
   fromString = Literal . fromString
 
 -- TODO:
@@ -324,14 +319,17 @@ instance IsString MixfixDirective where
 
 type a :-> b = (a, b)
 
-data Fixity = Infixl | Infixr | Infix
+-- | Whether a binary operator is left-, right-, or non-associative
+data Fixity
+  = Infixl -- ^ An operator associating to the left
+           -- (@x + y + z ~~ (x + y) + z@)
+  | Infixr -- ^ An operator associating to the right
+           -- (@x $ y $ z ~~ x $ (y $ z)@)
+  | Infix  -- ^ A non-associative operator
 
-data OperatorDirective
-  = InfixDirective !Text !Fixity
-  | GeneralDirective !MixfixDirective
-
-instance IsString OperatorDirective where
-  fromString = GeneralDirective . fromString
+data OperatorDirective where
+  InfixDirective  ::               !Text -> !Fixity -> OperatorDirective
+  MixfixDirective :: !(MixfixDirective (Term Void)) -> OperatorDirective
 
 -- | A concrete syntax chart specifies how to parse and pretty-print a language
 --
@@ -354,14 +352,11 @@ newtype ConcreteSyntax = ConcreteSyntax
 mkConcreteSyntax :: [[OperatorName :-> OperatorDirective]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
 
-directiveFromList :: [MixfixDirective] -> OperatorDirective
-directiveFromList = GeneralDirective . foldr1 Sequence
-
 type Printer a = Reader (Int, ConcreteSyntax) a
 
 -- | Pretty-print a term given its conrete syntax chart.
-prettyTm :: Pretty a => Term a -> Printer (Doc ())
-prettyTm (Fix tm) = do
+prettyTm :: Term Void -> Printer (Doc ())
+prettyTm tm = do
   (envPrec, ConcreteSyntax directives) <- ask
   case tm of
     Term name subtms -> fromMaybe
@@ -385,8 +380,8 @@ prettyTm (Fix tm) = do
       -- precedence to [n..0].
       let opPrec = Seq.length directives - reverseOpPrec
 
-          body = case directive of
-            GeneralDirective dir      -> prettyMixfix subtms tm dir
+          body = local (_1 .~ opPrec) $ case directive of
+            MixfixDirective dir       -> prettyMixfix $ Some dir tm
             InfixDirective str fixity -> prettyInfix str fixity subtms
 
       -- If the child has a lower precedence than the parent you must
@@ -397,34 +392,29 @@ prettyTm (Fix tm) = do
     Var name    -> pure $ pretty name
     PrimValue a -> pure $ pretty a
 
-prettyMixfix
-  :: Pretty a
-  => [Term a] -> TermF a (Term a) -> MixfixDirective -> Printer (Doc ())
-prettyMixfix subtms tm' directive = case directive of
-  Literal str -> pure $ pretty str
-  MixfixTerm steps -> case steps of
-    [] -> prettyTm $ Fix tm'
-    step:steps' -> case subtms ^? ix step of
-      Just (Fix subtm) -> go subtm $ MixfixTerm steps'
-      Nothing -> error $
-        "couldn't find subterm at location " ++ show steps
+data Existential where
+  Some :: !(MixfixDirective a) -> !a -> Existential
 
-  Sequence a b -> (<>) <$> go tm' a <*> go tm' b
-  Line -> pure line
-  Nest i a -> nest i <$> go tm' a
-  Group a -> group <$> go tm' a
-  a :<+ _ -> go tm' a
-  where go = prettyMixfix subtms
+prettyMixfix :: Existential -> Printer (Doc ())
+prettyMixfix = \case
+  Some (Literal str)  ()       -> pure $ pretty str
+  Some (Sequence a b) (a', b') -> (<>)
+    <$> prettyMixfix (Some a a')
+    <*> prettyMixfix (Some b b')
+  Some Line         () -> pure line
+  Some (Nest i a)   a' -> nest i <$> prettyMixfix (Some a a')
+  Some (Group a)    a' -> group <$> prettyMixfix (Some a a')
+  Some (a :<+ _)    a' -> prettyMixfix $ Some a a'
+  Some (PrismD p b) b' -> prettyMixfix $ Some b $ fromJust $ preview p b' -- XXX
+  Some (SubTerm _)  tm -> prettyTm tm
 
-prettyInfix
-  :: Pretty a
-  => Text -> Fixity -> [Term a] -> Printer (Doc ())
+prettyInfix :: Text -> Fixity -> [Term Void] -> Printer (Doc ())
 prettyInfix str fixity subtms = case subtms of
   [l, r] -> do
     -- For infix operators, we call `pred` on the side that *should not* show a
     -- paren in the case of an operator of the same precedence.
     let assoc = local (_1 %~ pred)
-        ret l' r' = mconcat [ l', pretty str, r' ]
+        ret l' r' = mconcat [ l', " ", pretty str, " ", r' ]
 
     case fixity of
       Infix  -> ret <$> prettyTm l         <*> prettyTm r
@@ -433,32 +423,32 @@ prettyInfix str fixity subtms = case subtms of
   _ -> error "expected two subterms for infix directive"
 
 data VarBindingF f
-  = BindingF ![Text] !f
-  | VarF     !Text
+  = BindingF' ![Text] !f
+  | VarF'     !Text
   deriving (Eq, Show, Functor, Foldable, Traversable)
 
 instance Show1 VarBindingF where
   liftShowsPrec showsf _ p tm = showParen (p > 10) $ case tm of
-    BindingF nms f -> ss "BindingF " . showList nms . ss " " . showsf 11 f
-    VarF mname     -> ss "VarF "  . showsPrec 11 mname
+    BindingF' nms f -> ss "BindingF' " . showList nms . ss " " . showsf 11 f
+    VarF' mname     -> ss "VarF' "  . showsPrec 11 mname
     where ss = showString
 
 instance Eq1 VarBindingF where
-  liftEq eq (BindingF n1 x) (BindingF n2 y) = n1 == n2 && eq x y
-  liftEq _  (VarF x)        (VarF y)        = x == y
-  liftEq _  _               _               = False
+  liftEq eq (BindingF' n1 x) (BindingF' n2 y) = n1 == n2 && eq x y
+  liftEq _  (VarF' x)        (VarF' y)        = x == y
+  liftEq _  _                _                = False
 
 varBindingP
   :: Prism' (Term a)              (Fix f)
   -> Prism' (Term a) (VarBindingF (Fix f))
 varBindingP p = prism' rtl ltr where
   rtl = \case
-    BindingF names f -> Fix $ Binding names $ review p f
-    VarF name        -> Fix $ Var name
+    BindingF' names f -> Binding names $ review p f
+    VarF' name        -> Var name
   ltr = \case
-    Fix (Binding names tm) -> BindingF names <$> preview p tm
-    Fix (Var name)         -> Just $ VarF name
-    _                      -> Nothing
+    Binding names tm -> BindingF' names <$> preview p tm
+    Var name         -> Just $ VarF' name
+    _                -> Nothing
 
 -- TODO: generalize this to PatternF
 data PatVarF f = PatVarF !(Maybe Text)
@@ -483,18 +473,35 @@ instance Eq1 PatVarF where
 
 -- | An evaluated or unevaluated term
 data TermF a term
-  = Term
+  = TermF
     { _termName :: !Text   -- ^ name of this term
     , _subterms :: ![term] -- ^ subterms
     }
-  | Binding
+  | BindingF
     ![Text]
     !term
-  | Var !Text
-  | PrimValue !a
+  | VarF !Text
+  | PrimValueF !a
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
 
 type Term a = Fix (TermF a)
+
+pattern Term :: Text -> [Term a] -> Term a
+pattern Term name subtms = Fix (TermF name subtms)
+
+pattern Binding :: [Text] -> Term a -> Term a
+pattern Binding names body = Fix (BindingF names body)
+
+pattern Var :: Text -> Term a
+pattern Var name = Fix (VarF name)
+
+pattern PrimValue :: a -> Term a
+pattern PrimValue a = Fix (PrimValueF a)
+
+{-# COMPLETE Term, Binding, Var, PrimValue #-}
+
+pattern BinaryTerm :: Text -> Term a -> Term a -> Term a
+pattern BinaryTerm name x y = Term name [x, y]
 
 class TermRepresentable f where
   -- TODO: could we make both of these from one?
@@ -509,16 +516,16 @@ class PatternRepresentable f where
 
 instance TermRepresentable TermF where
   mkTermP p = prism' rtl ltr where
-    rtl = Fix . \case
-      Term name subtms -> Term name $ review p <$> subtms
-      Binding names tm -> Binding names $ review p tm
-      Var name         -> Var name
-      PrimValue a      -> PrimValue a
-    ltr (Fix tm) = case tm of
-      Term name subtms  -> Term name <$> traverse (preview p) subtms
-      Binding names tm' -> Binding names <$> preview p tm'
-      Var name          -> pure $ Var name
-      PrimValue a       -> pure $ PrimValue a
+    rtl = \case
+      TermF name subtms -> Term name $ review p <$> subtms
+      BindingF names tm -> Binding names $ review p tm
+      VarF name         -> Var name
+      PrimValueF a      -> PrimValue a
+    ltr tm = case tm of
+      Term name subtms  -> TermF name <$> traverse (preview p) subtms
+      Binding names tm' -> BindingF names <$> preview p tm'
+      Var name          -> pure $ VarF name
+      PrimValue a       -> pure $ PrimValueF a
 
 class HasPrism a b where
   prism :: Prism' a b
@@ -573,12 +580,12 @@ instance HasPrism a b => HasPrism (Term a) (Term b) where
 
 termAdaptor :: Prism' a b -> Prism' (Term a) (Term b)
 termAdaptor p = prism' rtl ltr where
-  rtl (Fix tm) = Fix $ case tm of
+  rtl tm = case tm of
     Term name subtms -> Term name $ rtl <$> subtms
     Binding name tm' -> Binding name $ rtl tm'
     Var v            -> Var v
     PrimValue a      -> PrimValue $ review p a
-  ltr (Fix tm) = fmap Fix $ case tm of
+  ltr tm = case tm of
     Term name subtms -> Term name <$> traverse ltr subtms
     Binding name tm' -> Binding name <$> ltr tm'
     Var v            -> Just $ Var v
@@ -587,20 +594,20 @@ termAdaptor p = prism' rtl ltr where
 instance (Serialise a, Serialise term) => Serialise (TermF a term) where
   encode tm =
     let (tag, content) = case tm of
-          Term      name  subtms -> (0, encode name  <> encode subtms)
-          Binding   names body   -> (1, encode names <> encode body  )
-          Var       name         -> (2, encode name                  )
-          PrimValue a            -> (3, encode a                     )
+          TermF      name  subtms -> (0, encode name  <> encode subtms)
+          BindingF   names body   -> (1, encode names <> encode body  )
+          VarF       name         -> (2, encode name                  )
+          PrimValueF a            -> (3, encode a                     )
     in encodeListLen 2 <> encodeWord tag <> content
 
   decode = do
     decodeListLenOf 2
     tag <- decodeWord
     case tag of
-      0 -> Term      <$> decode <*> decode
-      1 -> Binding   <$> decode <*> decode
-      2 -> Var       <$> decode
-      3 -> PrimValue <$> decode
+      0 -> TermF      <$> decode <*> decode
+      1 -> BindingF   <$> decode <*> decode
+      2 -> VarF       <$> decode
+      3 -> PrimValueF <$> decode
       _ -> fail "invalid Term encoding"
 
 instance (Serialise a) => Serialise (Term a) where
@@ -614,7 +621,7 @@ identify :: Serialise a => Term a -> Sha256
 identify = Sha256 . SHA256.hashlazy . serialise
 
 instance Pretty a => Pretty (Term a) where
-  pretty (Fix tm) = case tm of
+  pretty = \case
     Term name subtms ->
       pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
     Binding names tm' ->
@@ -679,6 +686,21 @@ instance (Pretty a, Pretty b) => Pretty (DenotationChart a b) where
   pretty (DenotationChart rows) = vsep $ rows <&> \(pat, tm) ->
     "[[ " <> pretty pat <> " ]] = " <> pretty tm
 
+data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'
+  [(Fix (PatVarF :+: f), Fix (VarBindingF :+: MeaningOfF :+: g))]
+  deriving Show
+
+data MeaningOfF a
+  = MeaningOf !Text
+  deriving (Show, Eq, Functor, Foldable, Traversable)
+
+instance Show1 MeaningOfF where
+  liftShowsPrec _ _ p (MeaningOf name) = showParen (p > 10) $
+    showString "MeaningOf " . showsPrec 11 name
+
+instance Eq1 MeaningOfF where
+  liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
+
 pattern (:->) :: a -> b -> (a, b)
 pattern a :-> b = (a, b)
 
@@ -700,8 +722,8 @@ type instance Index   (Term a) = Int
 type instance IxValue (Term a) = Term a
 instance Ixed (Term a) where
   ix k f tm = case tm of
-    Fix (Term name tms) -> Fix . Term name <$> ix k f tms
-    _                   -> pure tm
+    Term name tms -> Term name <$> ix k f tms
+    _             -> pure tm
 
 -- TODO: do we have to normalize here?
 isComplete :: Eq a => PatternCheckResult a -> Bool
@@ -712,11 +734,11 @@ hasRedundantPat (PatternCheckResult _ overlaps)
   = any ((== IsRedudant) . snd) overlaps
 
 applySubst :: Show a => Subst a -> Term a -> Term a
-applySubst subst@(Subst assignments) (Fix tm) = case tm of
-  Term name subtms    -> Fix $ Term name (applySubst subst <$> subtms)
-  Binding names subtm -> Fix $ Binding names (applySubst subst subtm)
-  Var name            -> fromMaybe (Fix tm) $ assignments ^? ix name
-  _                   -> Fix tm
+applySubst subst@(Subst assignments) tm = case tm of
+  Term name subtms    -> Term name (applySubst subst <$> subtms)
+  Binding names subtm -> Binding names (applySubst subst subtm)
+  Var name            -> fromMaybe tm $ assignments ^? ix name
+  _                   -> tm
 
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern a
@@ -747,13 +769,13 @@ matches (PatternVar (Just name)) tm
   = pure $ Subst $ Map.singleton name tm
 matches (PatternVar Nothing)     _  = emptyMatch
 
-matches pat (Fix (Var name)) = do
+matches pat (Var name) = do
   mTermVal <- view $ envVars . at name
   case mTermVal of
     Just termVal -> matches pat termVal
     Nothing      -> noMatch
 
-matches (PatternTm name1 subpatterns) (Fix (Term name2 subterms))
+matches (PatternTm name1 subpatterns) (Term name2 subterms)
   | name1 /= name2
   = noMatch
   | otherwise = do
@@ -762,7 +784,7 @@ matches (PatternTm name1 subpatterns) (Fix (Term name2 subterms))
     mconcat <$> lift mMatches
 
 -- TODO: write context of var names?
-matches (PatternPrimVal pVal) (Fix (PrimValue val))
+matches (PatternPrimVal pVal) (PrimValue val)
   | pVal == Nothing
   = emptyMatch
   | pVal == Just val
@@ -983,7 +1005,7 @@ data Language a b = Language
 data Language' f g = Language'
   { _language'AbstractSyntax  :: !SyntaxChart
   , _language'ConcreteSyntax  :: !ConcreteSyntax
-  , _language'DenotationChart :: !(DenotationChart f g)
+  , _language'DenotationChart :: !(DenotationChart' f g)
   , _language'Statics         :: !JudgementRules
   }
 
@@ -1008,32 +1030,64 @@ makeLenses ''Domain
 makeLenses ''Language
 makeLenses ''Language'
 
-data MeaningOfF a
-  = MeaningOf !Text
-  deriving (Show, Eq, Functor, Foldable, Traversable)
-
-instance Show1 MeaningOfF where
-  liftShowsPrec _ _ p (MeaningOf name) = showParen (p > 10) $
-    showString "MeaningOf " . showsPrec 11 name
-
-instance Eq1 MeaningOfF where
-  liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
-
 meaningOfP :: Prism' (Term a) Text -> Prism' (Term a) (MeaningOfF (Fix f))
 meaningOfP textP = prism' rtl ltr where
   rtl (MeaningOf name)
-    = Fix $ Term "MeaningOf" [ review textP name ]
+    = Term "MeaningOf" [ review textP name ]
   ltr = \case
-    Fix (Term "MeaningOf" [name])
-      -> MeaningOf <$> preview textP name
-    _ -> Nothing
-
-data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'
-  [(Fix (PatVarF :+: f), Fix (VarBindingF :+: MeaningOfF :+: g))]
-  deriving Show
+    Term "MeaningOf" [name] -> MeaningOf <$> preview textP name
+    _                       -> Nothing
 
 class HasAbstractSyntax d where
   abstractSyntax :: Lens' d SyntaxChart
 
 instance HasAbstractSyntax AbstractDomain where
   abstractSyntax = abstractDomainAbstractSyntax
+
+instance HasAbstractSyntax Domain where
+  abstractSyntax = domainAbstractSyntax
+
+instance HasAbstractSyntax (Language a b) where
+  abstractSyntax = languageAbstractSyntax
+
+instance HasAbstractSyntax (Language' f g) where
+  abstractSyntax = language'AbstractSyntax
+
+class HasStatics d where
+  statics :: Lens' d JudgementRules
+
+instance HasStatics AbstractDomain where
+  statics = abstractDomainStatics
+
+instance HasStatics Domain where
+  statics = domainStatics
+
+instance HasStatics (Language a b) where
+  statics = languageStatics
+
+instance HasStatics (Language' f g) where
+  statics = language'Statics
+
+class HasConcreteSyntax d where
+  concreteSyntax :: Lens' d ConcreteSyntax
+
+instance HasConcreteSyntax Domain where
+  concreteSyntax = domainConcreteSyntax
+
+instance HasConcreteSyntax (Language a b) where
+  concreteSyntax = languageConcreteSyntax
+
+instance HasConcreteSyntax (Language' f g) where
+  concreteSyntax = language'ConcreteSyntax
+
+class HasDenotationChart d a b where
+  denotationChart :: Lens' (d a b) (DenotationChart a b)
+
+instance HasDenotationChart Language a b where
+  denotationChart = languageDenotationChart
+
+class HasDenotationChart' d (f :: * -> *) (g :: * -> *) where
+  denotationChart' :: Lens' (d f g) (DenotationChart' f g)
+
+instance HasDenotationChart' Language' f g where
+  denotationChart' = language'DenotationChart

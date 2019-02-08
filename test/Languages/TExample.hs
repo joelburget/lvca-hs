@@ -160,27 +160,27 @@ customPatP = prism' rtl ltr where
 
 valP :: Prism' (Term (Either Text Void))
                (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val Text))
-valP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValue)
+valP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValueF)
 
 dynamics :: DenotationChart T (Either Text Void)
 dynamics = mkDenotationChart customPatP valP dynamics'
 
 z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
-z = Fix $ Term "Z" []
-sz = Fix $ Term "S" [z]
-ssz = Fix $ Term "S" [sz]
-pos = Fix $ Term "Rec" [sz, z, sz]
-succ = Fix $ Term "Lam"
-  [ Fix $ Term "Nat" []
-  , Fix $ Binding ["x"] $ Fix $ Term "S" [Fix $ Var "x"]
+z = Term "Z" []
+sz = Term "S" [z]
+ssz = Term "S" [sz]
+pos = Term "Rec" [sz, z, sz]
+succ = Term "Lam"
+  [ Term "Nat" []
+  , Binding ["x"] $ Term "S" [Var "x"]
   ]
-lamapp = Fix $ Term "Ap" [succ, z]
-lamapp2 = Fix $ Term "Ap" [succ, lamapp]
+lamapp = Term "Ap" [succ, z]
+lamapp2 = Term "Ap" [succ, lamapp]
 
 zv, szv, sszv :: Term Void
-zv = Fix $ Term "Zv" []
-szv = Fix $ Term "Sv" [zv]
-sszv = Fix $ Term "Sv" [szv]
+zv = Term "Zv" []
+szv = Term "Sv" [zv]
+sszv = Term "Sv" [szv]
 
 -- eval' :: Term T -> Either String (Term Void)
 -- eval' = eval $ mkEvalEnv "Exp" expSyntax dynamics

@@ -11,15 +11,15 @@ Provides a Syntax instance for Attoparsec.Text.Parser.
 -}
 module Data.Syntax.Earley where
 
-import           Control.Arrow (Kleisli(..))
+-- import           Control.Arrow (Kleisli(..))
 import           Control.Category
 import           Control.Category.Structures
 import           Control.Lens.SemiIso
-import           Control.Monad
+-- import           Control.Monad
 import           Control.SIArrow
 -- import           Data.Scientific
 import           Data.Syntax
-import           Data.Syntax.Char
+-- import           Data.Syntax.Char
 import           Data.Text (Text)
 -- import qualified Data.Vector as V
 -- import qualified Data.Vector.Unboxed as VU
@@ -62,6 +62,7 @@ instance SIArrow ParserDesc where
 
 instance Syntax ParserDesc where
   type Seq ParserDesc = Text
+  anyChar = error "TODO"
 --     anyChar = wrap AP.anyChar
 --     char = wrap . void . AP.char
 --     notChar = wrap . AP.notChar

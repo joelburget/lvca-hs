@@ -43,10 +43,6 @@ common core-deps
     vty >= 5.25,
     writer-cps-mtl,
     zippers,
-    semi-iso,
-    syntax,
-    attoparsec,
-    syntax-attoparsec,
 
 common extra-deps
   build-depends:
@@ -83,9 +79,9 @@ common library-modules
 library
   import: extensions, core-deps
   exposed-modules:
-    Data.Syntax.Earley
     Lvca
     Lvca.Brick
+    Lvca.EarleyParseTerm
     Lvca.FunctorUtil
     Lvca.Languages.Edits
     Lvca.Languages.MachineModel

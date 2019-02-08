@@ -11,9 +11,9 @@ import           Data.Void                          (Void, absurd)
 import           Text.Megaparsec                    (ParseErrorBundle, runParser)
 import           Data.Text.Prettyprint.Doc          (Pretty(..))
 import           NeatInterpolation
-import EasyTest
+import           EasyTest
 
-import Lvca
+import           Lvca                               hiding (nil)
 
 import           Test.Types
 import           Test.ParseTerm
@@ -100,9 +100,9 @@ model :: Prism' (Term' a b) (Document a b)
 model = prism' bwd fwd where
 
   bwd = \case
-    Document blocks -> Fix $ Term "Document" [review (listP blockP) blocks]
+    Document blocks -> Term "Document" [review (listP blockP) blocks]
 
-  fwd (Fix tm) = case tm of
+  fwd tm = case tm of
     Term "Document" [blockList]
       -> Document <$> preview (listP blockP) blockList
     _ -> Nothing
@@ -111,10 +111,10 @@ maybeP :: Prism' (Term b) a -> Prism' (Term b) (Maybe a)
 maybeP p = prism' bwd fwd where
 
   bwd = \case
-    Nothing -> Fix $ Term "Nothing" []
-    Just x  -> Fix $ Term "Just" [review p x]
+    Nothing -> Term "Nothing" []
+    Just x  -> Term "Just" [review p x]
 
-  fwd (Fix tm) = case tm of
+  fwd = \case
     Term "Nothing" [] -> Just Nothing
     Term "Just" [x]   -> Just <$> preview p x
     _                 -> Nothing
@@ -123,10 +123,10 @@ listP :: Prism' (Term b) a -> Prism' (Term b) [a]
 listP p = prism' bwd fwd where
 
   bwd = \case
-    []   -> Fix $ Term "Nil" []
-    x:xs -> Fix $ Term "Cons" [review p x, bwd xs]
+    []   -> Term "Nil" []
+    x:xs -> Term "Cons" [review p x, bwd xs]
 
-  fwd (Fix tm) = case tm of
+  fwd = \case
     Term "Nil" []       -> Just []
     Term "Cons" [x, xs] -> (:) <$> preview p x <*> fwd xs
     _                   -> Nothing
@@ -134,23 +134,23 @@ listP p = prism' bwd fwd where
 blockP :: Prism' (Term' a b) (Block a b)
 blockP = prism' bwd fwd where
 
-  fwd (Fix tm) = case tm of
-    Term "Header" [level, Fix (PrimValue (Embed val))] -> Header
+  fwd = \case
+    Term "Header" [level, PrimValue (Embed val)] -> Header
       <$> preview headerLevelP level
       <*> trialN' @2 val
     Term "Paragraph" [inline]  -> Paragraph <$> preview inlineP inline
-    Term "BlockEmbed" [ Fix (PrimValue (Embed val)) ]
+    Term "BlockEmbed" [ PrimValue (Embed val) ]
       -> BlockEmbed <$> trialN' @0 val
     _ -> Nothing
 
   bwd = \case
-    Header level t -> Fix $ Term "Header"
+    Header level t -> Term "Header"
       [ (review headerLevelP) level
-      , Fix $ PrimValue $ Embed $ pickN @2 t
+      , PrimValue $ Embed $ pickN @2 t
       ]
-    Paragraph inline -> Fix $ Term "Paragraph" [review inlineP inline]
-    BlockEmbed embed -> Fix $ Term "BlockEmbed"
-      [ Fix $ PrimValue $ Embed $ pickN @0 embed ]
+    Paragraph inline -> Term "Paragraph" [review inlineP inline]
+    BlockEmbed embed -> Term "BlockEmbed"
+      [ PrimValue $ Embed $ pickN @0 embed ]
 
 headerLevelP :: Prism' (Term x) HeaderLevel
 headerLevelP = prism' bwd fwd where
@@ -160,10 +160,10 @@ headerLevelP = prism' bwd fwd where
           H1 -> "H1"
           H2 -> "H2"
           H3 -> "H3"
-    in Fix $ Term h' []
+    in Term h' []
 
   fwd = \case
-    Fix (Term h []) -> case h of
+    Term h [] -> case h of
       "H1" -> Just H1
       "H2" -> Just H2
       "H3" -> Just H3
@@ -174,29 +174,29 @@ inlineP :: Prism' (Term' a b) (Inline b)
 inlineP = prism' bwd fwd where
 
   bwd (Inline inlines)
-    = Fix $ Term "Inline" [review (listP inlineAtomP) inlines]
+    = Term "Inline" [review (listP inlineAtomP) inlines]
 
   fwd = \case
-    Fix (Term "Inline" [atoms]) -> Inline <$> preview (listP inlineAtomP) atoms
-    _                           -> Nothing
+    Term "Inline" [atoms] -> Inline <$> preview (listP inlineAtomP) atoms
+    _                     -> Nothing
 
 inlineAtomP :: Prism' (Term' a b) (InlineAtom b)
 inlineAtomP = prism' bwd fwd where
 
   bwd :: InlineAtom b -> Term' a b
   bwd = \case
-    InlineAtom attrs t -> Fix $ Term "InlineAtom"
+    InlineAtom attrs t -> Term "InlineAtom"
       [ review (maybeP attributeP) attrs
-      , Fix $ PrimValue $ Embed $ pickN @2 t
+      , PrimValue $ Embed $ pickN @2 t
       ]
-    InlineEmbed embed -> Fix $ Term "InlineEmbed"
-      [ Fix $ PrimValue $ Embed $ pickN @1 embed ]
+    InlineEmbed embed -> Term "InlineEmbed"
+      [ PrimValue $ Embed $ pickN @1 embed ]
 
-  fwd (Fix tm) = case tm of
-    Term "InlineAtom" [attrs, Fix (PrimValue (Embed val))] -> InlineAtom
+  fwd = \case
+    Term "InlineAtom" [attrs, PrimValue (Embed val)] -> InlineAtom
       <$> preview (maybeP attributeP) attrs
       <*> trialN' @2 val
-    Term "InlineEmbed" [Fix (PrimValue (Embed val))] ->
+    Term "InlineEmbed" [PrimValue (Embed val)] ->
       InlineEmbed <$> trialN' @1 val
     _ -> Nothing
 
@@ -207,10 +207,10 @@ attributeP = prism' bwd fwd where
     let attr' = case attr of
           Bold   -> "Bold"
           Italic -> "Italic"
-    in Fix $ Term attr' []
+    in Term attr' []
 
   fwd = \case
-    Fix (Term attr []) -> case attr of
+    Term attr [] -> case attr of
       "Bold"   -> Just Bold
       "Italic" -> Just Italic
       _        -> Nothing
@@ -319,11 +319,11 @@ documentTests = tests
       (ParseEnv (forceRight syntax) "Document" UntaggedExternals
         externalParsers)
       "Document(Cons(a; a))" $
-      Fix $ Term "Document"
-        [ Fix $ Term "Cons" [ Fix $ Var "a", Fix $ Var "a" ] ]
+      Term "Document"
+        [ Term "Cons" [ Var "a", Var "a" ] ]
 
-  , scope "prop_parse_pretty" $ testProperty $
-    prop_parse_pretty (forceRight syntax) "Document"
+  , scope "prop_parse_abstract_pretty" $ testProperty $
+    prop_parse_abstract_pretty (forceRight syntax) "Document"
       (const Nothing) externalParsers
 
   , scope "prop_serialise_identity" $ testProperty $

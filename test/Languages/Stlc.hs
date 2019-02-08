@@ -61,14 +61,14 @@ stlcChart = SyntaxChart $ Map.fromList
 
 
 stlcTm1, stlcTm2 :: Term Void
-stlcTm1 = Fix $ Term "lam"
-  [ Fix $ Var "ty"
-  , Fix $ Binding ["x"] $ Fix $ Term "ap"
-    [ Fix $ Var "x"
-    , Fix $ Var "x"
+stlcTm1 = Term "lam"
+  [ Var "ty"
+  , Binding ["x"] $ Term "ap"
+    [ Var "x"
+    , Var "x"
     ]
   ]
-stlcTm2 = Fix $ Term "ap" [stlcTm1, stlcTm1]
+stlcTm2 = Term "ap" [stlcTm1, stlcTm1]
 
 stlcTests :: Test ()
 stlcTests = tests
@@ -106,7 +106,8 @@ stlcTests = tests
          Left err     -> crash $ errorBundlePretty err
          Right parsed -> expectEq parsed stlcChart
 
-  , scope "prop_parse_pretty" $ testProperty $ prop_parse_pretty stlcChart "Exp"
+  , scope "prop_parse_abstract_pretty" $ testProperty $
+    prop_parse_abstract_pretty stlcChart "Exp"
     (const Nothing) noExternalParsers
 
    , scope "prop_serialise_identity" $ testProperty $
@@ -124,9 +125,9 @@ stlcTests = tests
              |]
              stlcTm2
          , expectParse "lam(nat(); a. a)" $
-           Fix $ Term "lam"
-             [ Fix $ Term "nat" []
-             , Fix $ Binding [ "a" ] $ Fix $ Var "a"
+           Term "lam"
+             [ Term "nat" []
+             , Binding [ "a" ] $ Var "a"
              ]
          ]
   ]

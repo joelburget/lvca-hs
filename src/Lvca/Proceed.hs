@@ -138,9 +138,9 @@ translate
   -> Fix (VarBindingF :+: f a)
   -> MaybeT m (Fix (VarBindingF :+: LambdaF :+: g (Either Text a)))
 translate chart tm = case unfix tm of
-  InL (BindingF names subtm)
-    -> Fix . InL . BindingF names <$> translate chart subtm
-  InL (VarF name) -> pure $ Fix $ InL $ VarF name
+  InL (BindingF' names subtm)
+    -> Fix . InL . BindingF' names <$> translate chart subtm
+  InL (VarF' name) -> pure $ Fix $ InL $ VarF' name
   InR _ -> do
     tell1 $ "finding match for " <> tShow tm
     (MatchResult primVarBindings varBindings, rhs)
@@ -194,10 +194,10 @@ subst
   -> Fix (VarBindingF :+: f)
   -> Fix (VarBindingF :+: f)
 subst name arg (Fix body) = case body of
-  InL (VarF name')
-    -> if name == name' then arg else Fix $ InL $ VarF name'
-  InL (BindingF names body')
-    -> Fix . InL . BindingF names $ subst name arg body'
+  InL (VarF' name')
+    -> if name == name' then arg else Fix $ InL $ VarF' name'
+  InL (BindingF' names body')
+    -> Fix . InL . BindingF' names $ subst name arg body'
   InR f
     -> Fix . InR $ subst name arg <$> f
 
@@ -225,15 +225,15 @@ proceed
 proceed (Fix f) = do
   traceM $ "f: " ++ show1 f
   case f of
-    InL BindingF{}  -> do
+    InL BindingF'{}  -> do
       errored $ "bare binding: " ++ show1 f
-    InL (VarF name) -> do
+    InL (VarF' name) -> do
       x <- view $ _1 . evalVarVals . at name
       case x of
         Nothing -> errored $ "couldn't look up variable " ++ show name
         Just y  -> pure [ Done y ] -- XXX: Ascending
 
-    InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
+    InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF' [name] body))))))) arg)) -> do
       body' <- subst' name arg body
       frames <- view _2
       let step = StateStep frames (Descending body')
@@ -251,11 +251,11 @@ eval'
   => Fix (VarBindingF :+: LambdaF :+: f (Either Text a))
   -> EvalM (f a) (Fix (f a))
 eval' (Fix f) = case f of
-  InL BindingF{}  -> throwError $ "bare binding: " ++ show1 f
-  InL (VarF name) -> view (evalVarVals . at name)
+  InL BindingF'{}  -> throwError $ "bare binding: " ++ show1 f
+  InL (VarF' name) -> view (evalVarVals . at name)
     ??? "couldn't look up variable " ++ show name
 
-  InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF [name] body))))))) arg)) -> do
+  InR (InL (App (Fix (InR (InL (Lam (Fix (InL (BindingF' [name] body))))))) arg)) -> do
     let ret = subst name arg body
     eval' ret
   InR (InL App{}) -> throwError $ "invalid app: " ++ show1 f

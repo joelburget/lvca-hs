@@ -1,26 +1,25 @@
 module Main where
 
-import           Brick
-import           Control.Lens
+-- import           Brick
+-- import           Control.Lens
 import           Control.Monad.Reader
-import           Control.Zipper
-import           Data.Text                 (Text)
-import qualified Data.Text                 as Text
-import           Data.Void                 (Void, absurd)
-import           Data.Text.Prettyprint.Doc
+-- import           Control.Zipper
+-- import           Data.Text                 (Text)
+-- import qualified Data.Text                 as Text
+-- import           Data.Void                 (Void, absurd)
+-- import           Data.Text.Prettyprint.Doc
 
-import           Lvca.Brick
-import           Lvca.Proceed (proceed, translate)
+-- import           Lvca.Brick
+-- import           Lvca.Proceed (proceed, translate)
 import           Lvca.Types
-import           Lvca.Util (forceRight)
+-- import           Lvca.Util (forceRight)
 
 import qualified Languages.Arith         as Arith
-import           Lvca.Languages.MachineModel
+-- import           Lvca.Languages.MachineModel
 
-import           Control.Monad.Reader               (runReaderT, runReader)
-import           Control.Monad.Trans.Maybe
-import           Control.Monad.Writer.CPS
-import Debug.Trace
+-- import           Control.Monad.Reader               (runReaderT, runReader)
+-- import           Control.Monad.Trans.Maybe
+-- import           Control.Monad.Writer.CPS
 
 natJudgement :: JudgementForm
 natJudgement = JudgementForm "nat" [(JIn, "a")]
@@ -37,10 +36,10 @@ natJudgements = JudgementRules
 
 --
 
-instance Pretty (Either Text Void) where
-  pretty = \case
-    Left t  -> pretty $ Text.unpack t
-    Right v -> absurd v
+-- instance Pretty (Either Text Void) where
+--   pretty = \case
+--     Left t  -> pretty $ Text.unpack t
+--     Right v -> absurd v
 
 main :: IO ()
 main = do

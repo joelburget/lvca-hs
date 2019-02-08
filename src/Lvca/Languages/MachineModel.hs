@@ -64,21 +64,21 @@ instance Eq1 LambdaF where
 
 lambdaP
   :: forall f a.
-     Prism' (Term a)           (Fix f)
+     Prism' (Term a)          (Fix f)
   -> Prism' (Term a) (LambdaF (Fix f))
 lambdaP p = prism' rtl ltr where
   rtl :: LambdaF (Fix f) -> Term a
   rtl = \case
-    Lam body -> Fix $ Term "Lam"
+    Lam body -> Term "Lam"
       [ review p body
       ]
-    App body arg -> Fix $ Term "App"
+    App body arg -> Term "App"
       [ review p body
       , review p arg
       ]
 
   ltr :: Term a -> Maybe (LambdaF (Fix f))
-  ltr (Fix tm) = case tm of
+  ltr tm = case tm of
     Term "Lam" [body] -> Lam
       <$> preview p body
     Term "App" [body, arg] -> App

@@ -1,7 +1,6 @@
 module Lvca.ParseDenotationChart where
 
 import           Data.Foldable                 (asum)
-import           Data.Functor.Foldable         (Fix(Fix))
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
@@ -70,22 +69,22 @@ parseDenotationRhs
   :: DenotationChartParser b
   -> DenotationChartParser (Term (Either Text b))
 parseDenotationRhs parseB = asum
-  [ Fix . PrimValue . Right <$> braces parseB
+  [ PrimValue . Right <$> braces parseB
   , do name <- parseName
-       option (Fix $ Var name) $ asum
+       option (Var name) $ asum
          [ -- sugar for e.g. `Int{0}`
            do b <- braces parseB
-              pure $ Fix $ Term name [ Fix $ PrimValue $ Right b ]
+              pure $ Term name [ PrimValue $ Right b ]
          , parens $ do
            let boundTerm = do
                  binders <- parseBinders
                  tm      <- parseDenotationRhs parseB
                  pure $ case binders of
                    [] -> tm
-                   _  -> Fix $ Binding binders tm
-           Fix . Term name <$> boundTerm `sepBy` symbol ";"
+                   _  -> Binding binders tm
+           Term name <$> boundTerm `sepBy` symbol ";"
          ]
   , oxfordBrackets $ do
       name <- parseName
-      pure $ Fix $ Term "MeaningOf" [ Fix $ PrimValue $ Left name ]
+      pure $ Term "MeaningOf" [ PrimValue $ Left name ]
   ] <?> "non-union pattern"

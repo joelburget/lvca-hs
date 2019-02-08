@@ -18,7 +18,6 @@ import           Hedgehog                  (MonadGen, GenT, Property,
 import qualified Hedgehog.Gen              as Gen
 import qualified Hedgehog.Range            as Range
 
-import Lvca.FunctorUtil
 import Lvca.Types hiding (valences)
 
 toPatternTests :: Test ()
@@ -51,7 +50,7 @@ genTerm
   -> m (Term a)
 genTerm _chart (External name) genPrim = case genPrim name of
   Nothing  -> Gen.discard
-  Just gen -> Fix . PrimValue <$> gen
+  Just gen -> PrimValue <$> gen
 genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
     let SortDef vars operators = chart' ^?! ix sortHead
         sortVarVals = Map.fromList $ zip vars sortArgs
@@ -63,7 +62,7 @@ genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
                name <- genName
                if name `elem` opNames
                  then Gen.discard
-                 else pure $ Fix $ Var name
+                 else pure $ Var name
           ]
 
         genArity :: [Valence] -> m [Term a]
@@ -76,12 +75,12 @@ genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
                 [] -> pure $ tm : valences'
                 _  -> do
                   names <- Gen.list (Range.singleton (length binders)) genName
-                  pure $ Fix (Binding names tm) : valences'
+                  pure $ Binding names tm : valences'
           )
           []
 
         genTerm' :: Text -> [Valence] -> m (Term a)
-        genTerm' name valences = Fix . Term name <$> genArity valences
+        genTerm' name valences = Term name <$> genArity valences
 
         rec = operators <&> \(Operator name (Arity valences) _desc) ->
           genTerm' name valences
