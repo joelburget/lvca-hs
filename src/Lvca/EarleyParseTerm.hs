@@ -3,15 +3,17 @@
 module Lvca.EarleyParseTerm (concreteParser) where
 
 import           Control.Applicative  ((<|>), many)
-import           Control.Lens         (review, ifor, (<&>), view, ALens')
+import           Control.Lens         (ifor, (<&>), ALens', view, (^?!), ix)
 import           Control.Lens.TH      (makeLenses)
 import           Control.Monad.Fix
 import           Control.Monad.Reader
 import           Data.Char            (isSpace)
 import           Data.Foldable        (asum, toList)
+import           Data.Map             (Map)
+import qualified Data.Map             as Map
 import           Data.Text            (Text)
-import           Data.Void            (Void)
 import qualified Data.Text            as Text
+import           Data.Void            (Void)
 import           Text.Earley          (Prod, Grammar, rule, parser, (<?>),
                                        listLike, token, Parser, satisfy)
 
@@ -43,7 +45,7 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
 
   allProds <- mfix $ \prods ->
     ifor (toList directives) $ \precedence precedenceLevel -> do
-      let opNames = fst <$> precedenceLevel
+      let opNames = fst . fst <$> precedenceLevel
           prodTag = Text.intercalate " | " opNames
 
           -- parsers for every operator sharing this precedence (note the
@@ -58,11 +60,20 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
             then parens (last prods)
             else prods !! pred precedence
 
-          thisLevelProds = precedenceLevel <&> \(opName, directive) ->
+          thisLevelProds = precedenceLevel <&> \((opName, subTmNames), directive) ->
             let parser' = case directive of
                   InfixDirective str fixity  -> parseInfix opName str fixity
-                  MixfixDirective directive' -> parseMixfixDirective $
-                    Some directive' id
+                  MixfixDirective directive' -> do
+                    prodMap <- parseMixfixDirective directive'
+
+                    -- convert @Map Text (Term Void)@ to @[Term Void]@ by order
+                    -- names appear in @subTmNames@ (which is the order they
+                    -- occur in on the lhs of the concrete parser spec)
+                    let prodList = prodMap <&> \m ->
+                          subTmNames <&> \name ->
+                            m ^?! ix name
+
+                    pure $ Term opName <$> prodList
             in runReader parser' $ Parsers whitespace higherPrecP samePrecP
 
       --  parse any expression with this, or higher, precedence
@@ -76,26 +87,22 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
 parens :: Prod r e Char a -> Prod r e Char a
 parens p = token '(' *> p <* token ')'
 
-data SomeDirective b where
-  Some :: MixfixDirective a -> (a -> b) -> SomeDirective b
-
 parseMixfixDirective
-  :: SomeDirective a -> Reader (Parsers r) (Prod r Text Char a)
+  :: MixfixDirective -> Reader (Parsers r) (Prod r Text Char (Map Text (Term Void)))
 parseMixfixDirective = \case
-  Some (Literal text) f -> pure $ f () <$ listLike text
-  Some (Sequence d1 d2) f -> do
-    d1' <- parseMixfixDirective $ Some d1 id
-    d2' <- parseMixfixDirective $ Some d2 id
-    pure $ fmap f $ (,) <$> d1' <*> d2'
-  Some Line               f -> pure $ f () <$ token '\n' -- TODO
-  Some (Nest _ directive) f -> parseMixfixDirective $ Some directive f
-  Some (Group  directive) f -> parseMixfixDirective $ Some directive f
-  Some (d1 :<+ d2) f -> do
-    d1' <- parseMixfixDirective $ Some d1 f
-    d2' <- parseMixfixDirective $ Some d2 f
+  Literal text -> pure $ Map.empty <$ listLike text
+  Sequence d1 d2 -> do
+    d1' <- parseMixfixDirective d1
+    d2' <- parseMixfixDirective d2
+    pure $ Map.union <$> d1' <*> d2'
+  Line             -> pure $ Map.empty <$ token '\n'
+  Nest _ directive -> parseMixfixDirective directive
+  Group  directive -> parseMixfixDirective directive
+  d1 :<+ d2 -> do
+    d1' <- parseMixfixDirective d1
+    d2' <- parseMixfixDirective d2
     pure $ d1' <|> d2'
-  Some (PrismD p' d) f -> parseMixfixDirective $ Some d $ f . review p'
-  Some (SubTerm _sortName) f -> fmap f <$> view higherPrecParser
+  SubTerm name -> fmap (Map.singleton name) <$> view higherPrecParser
 
 -- | Parse an infix operator
 parseInfix

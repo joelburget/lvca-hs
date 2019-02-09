@@ -9,6 +9,7 @@ module Lvca.ParseTerm
   , parseSort
   , externalStyle
   , standardParser
+  , standardParser'
   , makeExternalParsers
   , noExternalParsers
   ) where
@@ -20,7 +21,6 @@ import           Data.Foldable        (asum, toList, for_)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
-import           Data.String          (IsString)
 import           Data.Text            (Text, unpack)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
@@ -32,11 +32,11 @@ import           Lvca.Util
 
 -- TODO: we're not actually using Err.
 -- TODO: nice error messages
-newtype Err = Err String
-  deriving (Eq, Ord, IsString)
+-- newtype Err = Err String
+--   deriving (Eq, Ord, IsString)
 
-instance ShowErrorComponent Err where
-  showErrorComponent (Err str) = str
+-- instance ShowErrorComponent Err where
+--   showErrorComponent (Err str) = str
 
 -- | There are two ways to parse externals:
 --
@@ -49,7 +49,7 @@ data ExternalStyle
   = TaggedExternals
   | UntaggedExternals
 
-type ExternalParser  a = Parsec Err Text a
+type ExternalParser  a = Parsec Void Text a
 type ExternalParsers a = Map SortName (ExternalParser a)
 
 data ParseEnv a = ParseEnv
@@ -60,7 +60,7 @@ data ParseEnv a = ParseEnv
   }
 makeLenses ''ParseEnv
 
-type Parser a b = ReaderT (ParseEnv a) (Parsec Err Text) b
+type Parser a b = ReaderT (ParseEnv a) (Parsec Void Text) b
 
 -- | Look through the entire syntax description to verify we have all required
 -- primParsers.
@@ -98,19 +98,20 @@ checkPrimParsers = do
         "). Please specify all parsers (hint: use `noParse` for cases where \
         \the external should not be parsed at all)"
 
--- | Generates a parser for any language parsing a standard syntax. Example
---
--- @
---     Add(
---       Times(1; 2);
---       Ap(
---         Lam(x. Times(x; x));
---         3
---       )
---     )
--- @
 standardParser :: forall a. Parser a (Term a)
-standardParser = do
+standardParser = standardParser' <* eof
+
+-- | Generates a parser for any language parsing a standard syntax. Example:
+--
+-- > Add(
+-- >   Times(1; 2);
+-- >   Ap(
+-- >     Lam(x. Times(x; x));
+-- >     3
+-- >   )
+-- > )
+standardParser' :: forall a. Parser a (Term a)
+standardParser' = do
   SyntaxChart syntax <- view parseChart
   primParsers        <- view externalParsers
 
@@ -178,7 +179,7 @@ standardParser = do
             "unable to find sort " <> unpack sortHead <> " among " <>
             show (Map.keys sortParsers)
 
-  parseTerm <* eof
+  parseTerm
 
 parseValence :: Parser a (Term a) -> Valence -> Parser a (Term a)
 parseValence parseTerm valence@(Valence sorts bodySort) = do

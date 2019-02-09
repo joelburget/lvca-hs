@@ -1,4 +1,6 @@
+{-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE Rank2Types             #-}
 {-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeFamilies           #-}
@@ -42,7 +44,7 @@ module Lvca.Types
 
   -- | Concrete syntax charts
   , MixfixDirective(..)
-  , pattern (:>>)
+  , (>>:)
   , nil
   , space
   , OperatorDirective(..)
@@ -152,12 +154,10 @@ module Lvca.Types
   , prismSum4
   ) where
 
-import Data.Maybe (fromJust)
-
 import           Codec.Serialise
 import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
-import           Control.Lens              hiding (mapping, op, prism)
+import           Control.Lens              hiding (mapping, op, prism, Empty)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
 import           Data.Aeson                (ToJSON(..), FromJSON(..),
@@ -183,11 +183,18 @@ import qualified Data.Text.Prettyprint.Doc as PP
 import qualified Data.Vector               as Vector
 import           Data.Void                 (Void)
 import           GHC.Exts                  (IsList (..))
-import           GHC.Generics (Generic)
+import           GHC.Generics              (Generic)
+import           Prelude                   hiding (lookup)
 import           Text.Show.Deriving
 
 import           Lvca.FunctorUtil
 import           Lvca.Util                 as Util
+
+pattern (:->) :: a -> b -> (a, b)
+pattern a :-> b = (a, b)
+
+(<->) :: a -> b -> (a, b)
+a <-> b = (a, b)
 
 -- syntax charts
 
@@ -297,23 +304,31 @@ exampleArity :: Arity
 exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
 
 -- | Parsing / pretty-printing directive
-data MixfixDirective a where
-  Literal  ::                                        !Text -> MixfixDirective ()
-  Sequence :: !(MixfixDirective a) -> !(MixfixDirective b) -> MixfixDirective (a, b)
-  Line     ::                                                 MixfixDirective ()
-  Nest     ::                 !Int -> !(MixfixDirective a) -> MixfixDirective a
-  Group    ::                         !(MixfixDirective a) -> MixfixDirective a
-  (:<+)    :: !(MixfixDirective a) -> !(MixfixDirective a) -> MixfixDirective a
-  PrismD   ::        !(Prism' b a) -> !(MixfixDirective a) -> MixfixDirective b
-  SubTerm  ::                                    !SortName -> MixfixDirective (Term Void)
+data MixfixDirective
+  = Literal !Text
+  | Sequence !MixfixDirective !MixfixDirective
+  | Line
+  | Nest !Int !MixfixDirective
+  | Group !MixfixDirective
+  | (:<+) !MixfixDirective !MixfixDirective
+  | SubTerm !Text
+  deriving (Eq, Show)
 
-infixr 5 :>>
+instance Pretty MixfixDirective where
+  pretty = \case
+    Literal str -> dquotes $ pretty str
+    Sequence a b -> hsep [pretty a, pretty b]
+    Line -> hardline
+    Nest _ _ -> "TODO Nest"
+    Group d -> "group(" <> pretty d <> ")"
+    _ :<+ _ -> "TODO :<+"
+    SubTerm name -> pretty name
 
-pattern (:>>)
-  :: MixfixDirective a -> MixfixDirective b -> MixfixDirective (a, b)
-pattern a :>> b = Sequence a b
+infixr 5 >>:
+(>>:) :: MixfixDirective -> MixfixDirective -> MixfixDirective
+a >>: b = Sequence a b
 
-nil, space :: MixfixDirective ()
+nil, space :: MixfixDirective
 nil   = Literal "" :<+ space
 
 space = Literal " " :<+ Literal "\n" -- line instead of \n?
@@ -322,7 +337,7 @@ space = Literal " " :<+ Literal "\n" -- line instead of \n?
 --   where p :: Iso' () ((), ())
 --         p = iso (const ((), ())) (const ())
 
-instance IsString (MixfixDirective ()) where
+instance IsString MixfixDirective where
   fromString = Literal . fromString
 
 -- TODO:
@@ -337,10 +352,24 @@ data Fixity
   | Infixr -- ^ An operator associating to the right:
            -- (@x $ y $ z ~~ x $ (y $ z)@)
   | Infix  -- ^ A non-associative operator
+  deriving (Eq, Show)
 
-data OperatorDirective where
-  InfixDirective  ::               !Text -> !Fixity -> OperatorDirective
-  MixfixDirective :: !(MixfixDirective (Term Void)) -> OperatorDirective
+instance Pretty Fixity where
+  pretty = \case
+    Infixl -> "infixl"
+    Infixr -> "infixr"
+    Infix  -> "infix"
+
+data OperatorDirective
+  = InfixDirective  !Text !Fixity
+  | MixfixDirective !MixfixDirective
+  deriving (Eq, Show)
+
+instance Pretty OperatorDirective where
+  pretty = \case
+    InfixDirective name fixity ->
+      hsep [pretty fixity, "x", dquotes (pretty name), "y"]
+    MixfixDirective dir -> pretty dir
 
 -- | A concrete syntax chart specifies how to parse and pretty-print a language
 --
@@ -349,22 +378,36 @@ data OperatorDirective where
 --
 -- > ConcreteSyntax
 -- >   [ [ "Z"   :-> "Z" ]
--- >   , [ "S"   :-> "S" :>> space :>> Arith ]
+-- >   , [ "S"   :-> "S" >>: space >>: Arith ]
 -- >   , [ "Mul" :-> InfixDirective "*" Infixl ]
 -- >   , [ "Add" :-> InfixDirective "+" Infixl
 -- >     , "Sub" :-> InfixDirective "-" Infixl
 -- >     ]
 -- >   ]
 newtype ConcreteSyntax = ConcreteSyntax
-  (Seq [OperatorName :-> OperatorDirective])
+  (Seq [(OperatorName, [Text]) :-> OperatorDirective])
+  deriving (Eq, Show)
+-- TODO: randomly generate syntax descriptions and test that they round-trip
+-- parsing and pretty-printing
 
-mkConcreteSyntax :: [[OperatorName :-> OperatorDirective]] -> ConcreteSyntax
+instance Pretty ConcreteSyntax where
+  pretty (ConcreteSyntax precLevels) = vsep $ "concrete syntax:" : prettyLevels
+    where prettyLevels = toList precLevels <&> \decls -> indent 2 $
+            ("-" PP.<+>) $ align $ vsep $ decls <&>
+              \((op, vars) :-> directive) -> hsep
+                [ pretty op <> encloseSep "(" ")" "; " (map pretty vars)
+                , "~"
+                , pretty directive
+                ]
+
+mkConcreteSyntax
+  :: [[(OperatorName, [Text]) :-> OperatorDirective]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
 
-type Printer a = Reader (Int, ConcreteSyntax) a
+type Printer = Reader (Int, ConcreteSyntax) (Doc ())
 
 -- | Pretty-print a term given its conrete syntax chart.
-prettyTm :: Term Void -> Printer (Doc ())
+prettyTm :: Term Void -> Printer
 prettyTm tm = do
   (envPrec, ConcreteSyntax directives) <- ask
   case tm of
@@ -377,9 +420,10 @@ prettyTm tm = do
       $ do
 
       -- Does this name, directive pair have the name we're looking for?
-      let sameName (name', _) = name' == name
+      let sameName ((name', _), _) = name' == name
 
-      (_, directive) <- findOf (traverse . traverse) sameName directives
+      ((_, subTmNames), directive)
+        <- findOf (traverse . traverse) sameName directives
 
       -- Find the precedence (determined by index) of the operator
       reverseOpPrec <- Seq.findIndexL (isJust . find sameName) directives
@@ -390,7 +434,8 @@ prettyTm tm = do
       let opPrec = Seq.length directives - reverseOpPrec
 
           body = local (_1 .~ opPrec) $ case directive of
-            MixfixDirective dir       -> prettyMixfix $ Some dir tm
+            MixfixDirective directive' -> prettyMixfix $ PrintInfo directive' $
+              Map.fromList $ zip subTmNames subtms
             InfixDirective str fixity -> prettyInfix str fixity subtms
 
       -- If the child has a lower precedence than the parent you must
@@ -401,23 +446,25 @@ prettyTm tm = do
     Var name    -> pure $ pretty name
     PrimValue a -> pure $ pretty a
 
-data Existential where
-  Some :: !(MixfixDirective a) -> !a -> Existential
+data PrintInfo = PrintInfo
+  !MixfixDirective
+  !(Map Text (Term Void))
 
-prettyMixfix :: Existential -> Printer (Doc ())
+prettyMixfix :: PrintInfo -> Printer
 prettyMixfix = \case
-  Some (Literal str)  ()       -> pure $ pretty str
-  Some (Sequence a b) (a', b') -> (<>)
-    <$> prettyMixfix (Some a a')
-    <*> prettyMixfix (Some b b')
-  Some Line         () -> pure line
-  Some (Nest i a)   a' -> nest i <$> prettyMixfix (Some a a')
-  Some (Group a)    a' -> group <$> prettyMixfix (Some a a')
-  Some (a :<+ _)    a' -> prettyMixfix $ Some a a'
-  Some (PrismD p b) b' -> prettyMixfix $ Some b $ fromJust $ preview p b' -- XXX
-  Some (SubTerm _)  tm -> prettyTm tm
+  PrintInfo (Literal str)  _      -> pure $ pretty str
 
-prettyInfix :: Text -> Fixity -> [Term Void] -> Printer (Doc ())
+  PrintInfo (Sequence a b) m -> (<>)
+    <$> prettyMixfix (PrintInfo a m)
+    <*> prettyMixfix (PrintInfo b m)
+
+  PrintInfo Line         _  -> pure line
+  PrintInfo (Nest i a)   m  -> nest i <$> prettyMixfix (PrintInfo a m)
+  PrintInfo (Group a)    m  -> group <$> prettyMixfix (PrintInfo a m)
+  PrintInfo (a :<+ _)    m  -> prettyMixfix $ PrintInfo a m
+  PrintInfo (SubTerm sym) m -> prettyTm $ m ^?! ix sym
+
+prettyInfix :: Text -> Fixity -> [Term Void] -> Printer
 prettyInfix str fixity subtms = case subtms of
   [l, r] -> do
     -- For infix operators, we call `pred` on the side that *should not* show a
@@ -733,12 +780,6 @@ instance Show1 MeaningOfF where
 
 instance Eq1 MeaningOfF where
   liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
-
-pattern (:->) :: a -> b -> (a, b)
-pattern a :-> b = (a, b)
-
-(<->) :: a -> b -> (a, b)
-a <-> b = (a, b)
 
 newtype Subst a = Subst { _assignments :: Map Text (Term a) }
   deriving (Eq, Show, Semigroup, Monoid)

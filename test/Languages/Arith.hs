@@ -9,7 +9,7 @@ import           Control.Monad.Reader               (runReaderT, runReader)
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
 import           Control.Lens
-  (_Right, _Wrapped, preview, review, Prism', prism', _Left, from, Iso', iso)
+  (_Right, _Wrapped, preview, review, Prism', prism', _Left, from)
 import           Control.Lens.TH
 import           Data.Bifunctor                     (bimap, second)
 import           Data.Bitraversable
@@ -21,7 +21,7 @@ import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
 import           Data.Void                          (Void) -- , absurd)
 import           EasyTest
 import           Text.Megaparsec
-  (ParseErrorBundle, runParser, choice, errorBundlePretty)
+  (ParseErrorBundle, runParser, choice, errorBundlePretty, parseTest)
 import           NeatInterpolation
 
 import Lvca
@@ -55,32 +55,46 @@ mkTypes (Options (Just "syntax") Map.empty)
   |]
 mkSyntaxInstances ''Arith
 
+-- | Manually specified concrete syntax
 concreteArith :: ConcreteSyntax
 concreteArith = mkConcreteSyntax
-  [ [ -- in parsing: () -> Term "Z" []
-      -- in pretty-printing: Term "Z" [] -> ()
-      let p :: Iso' (Term Void) ()
-          p = iso (const ()) (const $ Term "Z" [])
-      in "Z"   :-> MixfixDirective (PrismD p "Z") ]
+  [ [ ("Z", []) :-> MixfixDirective "Z" ]
 
-  , [ -- in parsing: ((), ((), tm)) -> Term "S" [tm]
-      -- in pretty-printing: Term "S" [tm] -> ((), ((), tm))
-      let p :: Prism' (Term Void) ((), ((), Term Void))
-          p = prism'
-            (\((), ((), tm)) -> Term "S" [tm])  -- rtl
-            (\case                              -- ltr
-              Term "S" [subtm] -> Just ((), ((), subtm))
-              _                -> Nothing)
-
-      in "S"   :-> MixfixDirective
-        (PrismD p ("S" :>> space :>> SubTerm "Arith"))
+  , [ ("S", ["x"]) :-> MixfixDirective ("S" >>: space >>: SubTerm "x")
     ]
 
-  , [ "Mul" :-> InfixDirective "*" Infixl ]
-  , [ "Add" :-> InfixDirective "+" Infixl
-    , "Sub" :-> InfixDirective "-" Infixl
+  , [ ("Mul", []) :-> InfixDirective "*" Infixl ]
+  , [ ("Add", []) :-> InfixDirective "+" Infixl
+    , ("Sub", []) :-> InfixDirective "-" Infixl
     ]
   ]
+
+-- | This should be the same as the manually specified concrete syntax
+concreteArith2 :: Either (ParseErrorBundle Text Void) ConcreteSyntax
+concreteArith2 = runParser
+  (parseConcreteSyntaxDescription
+    (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
+  "(concreteArith2)" [text|
+  concrete syntax:
+    - Z()       ~ "Z";
+    - S(x)      ~ "S " x;
+    - Mul(x; y) ~ infixl x "*" y;
+    - Add(x; y) ~ infixl x "+" y;
+      Sub(x; y) ~ infixl x "-" y;
+  |]
+
+pt :: IO ()
+pt = parseTest
+  (fmap pretty $ parseConcreteSyntaxDescription
+    (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
+  [text|
+  concrete syntax:
+    - Z()       ~ "Z";
+    - S(x)      ~ "S" x;
+    - Mul(x; y) ~ infixl x "*" y;
+    - Add(x; y) ~ infixl x "+" y;
+      Sub(x; y) ~ infixl x "-" y;
+  |]
 
 mkTypes defOptions
   [text|
@@ -280,21 +294,31 @@ arithTests = tests
       "Za"
       (Var "Za")
   , scope "pretty-printing" $
-    let expectEq' tm str = do
+    let expectEq1 tm str = do
           let result = show $ runReader (prettyTm tm) (-1, concreteArith)
           result `expectEq` str
+        expectEq2 tm str = do
+          let result = show $ runReader (prettyTm tm) (-1, forceRight concreteArith2)
+          result `expectEq` str
     in tests
-         [ addOneOne `expectEq'` "S Z + S Z"
-         , addAssoc  `expectEq'` "Z + Z + (Z + Z)"
-         , example   `expectEq'` "S Z * (S (S Z) - S Z) + S (S (S Z))"
+         [ addOneOne `expectEq1` "S Z + S Z"
+         , addAssoc  `expectEq1` "Z + Z + (Z + Z)"
+         , example   `expectEq1` "S Z * (S (S Z) - S Z) + S (S (S Z))"
+         , addOneOne `expectEq2` "S Z + S Z"
+         , addAssoc  `expectEq2` "Z + Z + (Z + Z)"
+         , example   `expectEq2` "S Z * (S (S Z) - S Z) + S (S (S Z))"
          ]
 
   , scope "concrete parsing with earley" $
-    let expectEq' str tm = earleyConcreteParseTermTest concreteArith str tm
+    let expectEq1 str tm = earleyConcreteParseTermTest concreteArith str tm
+        expectEq2 str tm = earleyConcreteParseTermTest (forceRight concreteArith2) str tm
     in tests
-         [ "S Z + S Z"                           `expectEq'` addOneOne
-         , "Z + Z + (Z + Z)"                     `expectEq'` addAssoc
-         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq'` example
+         [ "S Z + S Z"                           `expectEq1` addOneOne
+         , "Z + Z + (Z + Z)"                     `expectEq1` addAssoc
+         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq1` example
+         , "S Z + S Z"                           `expectEq2` addOneOne
+         , "Z + Z + (Z + Z)"                     `expectEq2` addAssoc
+         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq2` example
          ]
   ]
   where
