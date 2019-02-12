@@ -1,0 +1,60 @@
+# stylish-haskell configuration file
+# ==================================
+
+# The stylish-haskell tool is mainly configured by specifying steps. These steps
+# are a list, so they have an order, and one specific step may appear more than
+# once (if needed). Each file is processed by these steps in the given order.
+steps:
+
+  # Align the right hand side of some elements.  This is quite conservative
+  # and only applies to statements where each element occupies a single
+  # line.
+  - simple_align:
+      cases: true
+      top_level_patterns: true
+      records: true
+
+  # Import cleanup
+  - imports:
+      align: global
+      # list_align: new_line
+      pad_module_names: true
+      long_list_align: new_line
+      empty_list_align: inherit
+      list_padding: 2
+      separate_lists: false
+      space_surround: false
+
+  # Language pragmas
+  - language_pragmas:
+      style: vertical
+      align: true
+      remove_redundant: true
+
+  # Remove trailing whitespace
+  - trailing_whitespace: {}
+
+columns: 80
+newline: native
+
+language_extensions:
+  - DeriveFoldable
+  - DeriveFunctor
+  - DeriveTraversable
+  - DeriveGeneric
+  - DeriveDataTypeable
+  - FlexibleContexts
+  - FlexibleInstances
+  - GADTs
+  - GeneralizedNewtypeDeriving
+  - LambdaCase
+  - MultiParamTypeClasses
+  - MultiWayIf
+  - OverloadedStrings
+  - PatternSynonyms
+  - Rank2Types
+  - ScopedTypeVariables
+  - TupleSections
+  - TypeApplications
+  - TypeOperators
+  - TypeSynonymInstances
