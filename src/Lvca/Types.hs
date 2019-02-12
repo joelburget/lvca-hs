@@ -16,10 +16,9 @@
 -- Tools for defining the syntax and semantics of languages.
 
 module Lvca.Types
-  ( -- * Abstract syntax charts
+  ( module Lvca.Judgements
+    -- * Abstract syntax charts
     -- | Syntax definition.
-    SortName
-  , OperatorName
   , Sort(..)
   , externalName
   , _SortAp
@@ -123,19 +122,6 @@ module Lvca.Types
   , patternCheck
   , findMatch
 
-  -- * Judgements
-  , InOut(..)
-  , JudgementForm(..)
-  , OperatorApplication(..)
-  , SaturatedTerm(..)
-  , JudgementClause(..)
-  , JudgementRule(..)
-  , JudgementRules(..)
-  , (@@)
-  , (@@@)
-  , (%%%)
-  , (.--)
-
   -- * Languages
   , AbstractDomain(..)
   , Domain(..)
@@ -166,7 +152,7 @@ import           Data.ByteString           (ByteString)
 import           Data.Data                 (Data)
 import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
-import           Data.List                 (find, intersperse)
+import           Data.List                 (find)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Matchable.TH
@@ -187,6 +173,7 @@ import           Prelude                   hiding (lookup)
 import           Text.Show.Deriving
 
 import           Lvca.FunctorUtil
+import           Lvca.Judgements
 import           Lvca.Util                 as Util
 
 pattern (:->) :: a -> b -> (a, b)
@@ -196,9 +183,6 @@ pattern a :-> b = (a, b)
 a <-> b = (a, b)
 
 -- syntax charts
-
-type SortName = Text
-type OperatorName = Text
 
 data Sort
   = SortAp !SortName ![Sort]
@@ -952,78 +936,6 @@ findMatch (DenotationChart pats) tm = do
         runReaderT (matches pat tm) env & _Just %~ (, rhs)
 
   lift $ getFirst $ fold $ fmap First results
-
--- judgements
-
-data InOut = JIn | JOut
-
-data JudgementForm = JudgementForm
-  { _judgementName  :: !Text                -- ^ name of the judgement
-  , _judgementSlots :: ![(InOut, SortName)] -- ^ mode and sort of all slots
-  }
-
-data OperatorApplication = OperatorApplication
-  { _operatorApName :: !Text            -- ^ operator name
-  , _applicands     :: ![SaturatedTerm] -- ^ applicands
-  }
-
-data SaturatedTerm
-  = JVariable Text
-  | Op OperatorApplication
-
-instance IsString SaturatedTerm where
-  fromString = JVariable . fromString
-
-infix 2 @@
-(@@) :: Text -> [SaturatedTerm] -> SaturatedTerm
-(@@) a b = Op (OperatorApplication a b)
-
-data JudgementClause = JudgementClause
-  { _judgementHead       :: !Text            -- ^ head (name of judgement)
-  , _judgementApplicands :: ![SaturatedTerm] -- ^ applicands
-  }
-
-infix 2 @@@
-(@@@) :: Text -> [SaturatedTerm] -> JudgementClause
-(@@@) = JudgementClause
-
-infix 2 %%%
-(%%%) :: [SaturatedTerm] -> Text -> JudgementClause
-(%%%) = flip JudgementClause
-
-data JudgementRule = JudgementRule
-  { _assumptions :: ![JudgementClause] -- ^ assumptions
-  , _conclusion  :: !JudgementClause   -- ^ conclusion
-  }
-
-infix 0 .--
-(.--) :: [JudgementClause] -> JudgementClause -> JudgementRule
-(.--) = JudgementRule
-
-newtype JudgementRules = JudgementRules [JudgementRule]
-
-instance Pretty OperatorApplication where
-  pretty (OperatorApplication hd applicands)
-    = pretty hd PP.<+> hsep (fmap pretty applicands)
-
-instance Pretty SaturatedTerm where
-  pretty = \case
-    JVariable name -> pretty name
-    Op opAp        -> parens $ pretty opAp
-
-instance Pretty JudgementClause where
-  pretty (JudgementClause hd applicands)
-    = pretty hd PP.<+> hsep (fmap pretty applicands)
-
-instance Pretty JudgementRule where
-  pretty (JudgementRule assumptions conclusion) = vsep
-    [ hsep $ punctuate comma $ fmap pretty assumptions
-    , "------"
-    , pretty conclusion
-    ]
-
-instance Pretty JudgementRules where
-  pretty (JudgementRules rules) = vsep $ intersperse "" $ fmap pretty rules
 
 instance Pretty SyntaxChart where
   pretty (SyntaxChart sorts) =

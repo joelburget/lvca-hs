@@ -27,11 +27,11 @@ natJudgement = JudgementForm "nat" [(JIn, "a")]
 natJudgements :: JudgementRules
 natJudgements = JudgementRules
   [ []
-    .--
-    ["zero"] %%% "nat"
-  , [["a"] %%% "nat"]
-    .--
-    ["succ" @@ ["a"]] %%% "nat"
+    :--
+    ["zero"] :%%% "nat"
+  , [["a"] :%%% "nat"]
+    :--
+    ["succ" :@@ ["a"]] :%%% "nat"
   ]
 
 --
