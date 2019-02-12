@@ -2,21 +2,21 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Languages.Document where
 
-import qualified CMark                              as MD
-import qualified CMark.Patterns                     as MD
+import qualified CMark                     as MD
+import qualified CMark.Patterns            as MD
 import           Control.Lens
 import           Data.Diverse
-import           Data.Text                          (Text)
-import           Data.Void                          (Void, absurd)
-import           Text.Megaparsec                    (ParseErrorBundle, runParser)
-import           Data.Text.Prettyprint.Doc          (Pretty(..))
-import           NeatInterpolation
+import           Data.Text                 (Text)
+import           Data.Text.Prettyprint.Doc (Pretty(..))
+import           Data.Void                 (Void, absurd)
 import           EasyTest
+import           NeatInterpolation
+import           Text.Megaparsec           (ParseErrorBundle, runParser)
 
-import           Lvca                               hiding (nil)
+import           Lvca                      hiding (nil)
 
-import           Test.Types
 import           Test.ParseTerm
+import           Test.Types
 
 data InlineEmbed
 

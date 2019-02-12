@@ -1,5 +1,5 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeFamilies               #-}
 {- |
 Module      :  Data.Syntax.Earley
 Description :  Syntax instance for Earley.Parser.
@@ -20,10 +20,10 @@ import           Control.SIArrow
 -- import           Data.Scientific
 import           Data.Syntax
 -- import           Data.Syntax.Char
-import           Data.Text (Text)
+import           Data.Text                   (Text)
 -- import qualified Data.Vector as V
 -- import qualified Data.Vector.Unboxed as VU
-import           Prelude hiding (id, (.))
+import           Prelude                     hiding (id, (.))
 
 -- import           Text.Earley
 

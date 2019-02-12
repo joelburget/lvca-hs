@@ -1,15 +1,16 @@
 module Lvca.Util where
 
-import           Control.Lens          (FunctorWithIndex, imap, Prism', prism', review, preview)
-import           Control.Monad.Except  (MonadError, throwError)
-import           Control.Monad.State   (StateT (..))
-import           Data.Foldable         (asum)
+import           Control.Lens
+  (FunctorWithIndex, Prism', imap, preview, prism', review)
+import           Control.Monad.Except (MonadError, throwError)
+import           Control.Monad.State  (StateT(..))
+import           Data.Foldable        (asum)
 import           Data.Matchable
+import           Data.Text            (Text)
+import qualified Data.Text            as Text
 import           GHC.Stack
-import           Data.Text             (Text)
-import qualified Data.Text             as Text
 
-import           Lvca.FunctorUtil -- (Fix)
+import           Lvca.FunctorUtil
 
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]

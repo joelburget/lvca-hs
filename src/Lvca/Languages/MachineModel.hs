@@ -21,14 +21,14 @@ module Lvca.Languages.MachineModel
   , Extended'
   ) where
 
-import           Data.Traversable          (for)
 import           Control.Lens
-  (Prism', _1, _2, (%~), preview, review, prism', (&))
-import           Data.Text                 (Text)
+  (Prism', preview, prism', review, (%~), (&), _1, _2)
+import           Data.Text        (Text)
+import           Data.Traversable (for)
 
-import Lvca.FunctorUtil
-import Lvca.Types
-import Lvca.Util
+import           Lvca.FunctorUtil
+import           Lvca.Types
+import           Lvca.Util
 
 -- mkTypes (Options Nothing $ Map.empty)
 --   [text|

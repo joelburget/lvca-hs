@@ -1,5 +1,5 @@
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE CPP          #-}
+{-# LANGUAGE TypeFamilies #-}
 module Text.Megaparsec.Char.LexerAlt where
 
 import           Control.Applicative

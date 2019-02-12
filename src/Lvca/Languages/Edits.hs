@@ -1,10 +1,10 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Lvca.Languages.Edits where
 
-import           Data.Text                       (Text)
-import           Data.Void                       (Void)
+import           Data.Text                   (Text)
+import           Data.Void                   (Void)
 import           NeatInterpolation
-import           Text.Megaparsec                 (ParseErrorBundle, runParser)
+import           Text.Megaparsec             (ParseErrorBundle, runParser)
 
 import           Lvca.ParseSyntaxDescription
 import           Lvca.Types                  (SyntaxChart)

@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Lvca.SyntaxComponents
   (
@@ -12,13 +12,13 @@ module Lvca.SyntaxComponents
   , findChartComponents
   ) where
 
-import           Control.Lens              hiding (mapping, op, prism)
-import           Data.Graph                (stronglyConnCompR, SCC(..))
-import           Data.Map.Strict           (Map)
-import qualified Data.Map.Strict           as Map
-import           Data.Text                 (Text)
+import           Control.Lens    hiding (mapping, op, prism)
+import           Data.Graph      (SCC(..), stronglyConnCompR)
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import           Data.Text       (Text)
 
-import           Lvca.Types                hiding (valences)
+import           Lvca.Types      hiding (valences)
 import           Lvca.Util
 
 data SyntaxComponent = SyntaxComponent

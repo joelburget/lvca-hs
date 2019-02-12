@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Lvca.ParseTerm
   ( Parser
   , ParseEnv(..)
@@ -17,14 +17,14 @@ module Lvca.ParseTerm
 import           Control.Lens         hiding (prism)
 import           Control.Lens.Extras  (is)
 import           Control.Monad.Reader
-import           Data.Foldable        (asum, toList, for_)
+import           Data.Foldable        (asum, for_, toList)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
 import           Data.Text            (Text, unpack)
+import           Data.Void            (Void)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import           Data.Void            (Void)
 
 import           Lvca.ParseUtil
 import           Lvca.Types

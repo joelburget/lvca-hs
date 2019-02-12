@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 import           EasyTest
 
@@ -11,7 +11,7 @@ import qualified Languages.Stlc          as Stlc
 import           Languages.TExample      ()
 
 -- import Test.Inspection
-import Test.Types
+import           Test.Types
 
 main :: IO ()
 main = run allTests

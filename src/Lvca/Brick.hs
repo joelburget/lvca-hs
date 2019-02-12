@@ -1,21 +1,21 @@
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Lvca.Brick where
 
-import           Brick                      as B
-import qualified Brick.Widgets.Border       as B
-import qualified Brick.Widgets.Border.Style as BS
-import           Brick.Widgets.Center       (center)
+import           Brick                       as B
+import qualified Brick.Widgets.Border        as B
+import qualified Brick.Widgets.Border.Style  as BS
+import           Brick.Widgets.Center        (center)
 import           Control.Lens
 import           Control.Zipper
-import           Data.Text                  (Text)
-import           Data.Void                 (Void, absurd)
-import qualified Graphics.Vty               as V
+import           Data.Text                   (Text)
+import           Data.Void                   (Void, absurd)
+import qualified Graphics.Vty                as V
 import           NeatInterpolation
 
 import           Lvca.FunctorUtil
-import           Lvca.Types
 import           Lvca.Languages.MachineModel
+import           Lvca.Types
 
 
 class TmShow a where

@@ -1,30 +1,30 @@
-{-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE KindSignatures      #-}
-{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE KindSignatures  #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Lvca.Proceed where
 
-import           Control.Lens              hiding (from, to, (??))
+import           Control.Lens                hiding (from, to, (??))
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
 import           Data.Bifoldable
 import           Data.Bitraversable
-import           Data.Foldable             (foldrM)
-import           Data.Map.Strict           (Map)
-import qualified Data.Map.Strict           as Map
-import           Data.Monoid               (First (First, getFirst))
-import           Data.Sequence             (Seq)
-import qualified Data.Sequence             as Seq
-import           Data.Text                 (Text)
-import qualified Data.Text                 as Text
+import           Data.Foldable               (foldrM)
+import           Data.Map.Strict             (Map)
+import qualified Data.Map.Strict             as Map
+import           Data.Monoid                 (First(First, getFirst))
+import           Data.Sequence               (Seq)
+import qualified Data.Sequence               as Seq
+import           Data.Text                   (Text)
+import qualified Data.Text                   as Text
 
-import           Lvca.Languages.MachineModel
-import           Lvca.Types            hiding (findMatch, matches)
-import           Lvca.Util             ((???), tShow, show1)
 import           Lvca.FunctorUtil
+import           Lvca.Languages.MachineModel
+import           Lvca.Types                  hiding (findMatch, matches)
+import           Lvca.Util                   (show1, tShow, (???))
 
-import Debug.Trace
+import           Debug.Trace
 
 data TranslateEnv f g a = TranslateEnv
   { _dChart          :: DenotationChart' (f Text) (LambdaF :+: g Text)
@@ -175,7 +175,7 @@ translate' (Fix tm) = case tm of
     (\name -> do
       TranslateEnv _ primVarBindings _ <- ask
       case Map.lookup name primVarBindings of
-        Nothing -> MaybeT $ pure Nothing
+        Nothing  -> MaybeT $ pure Nothing
         Just val -> pure $ Right val)
     translate'
     tm'

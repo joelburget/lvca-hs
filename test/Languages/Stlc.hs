@@ -1,18 +1,18 @@
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE QuasiQuotes  #-}
+{-# LANGUAGE TypeFamilies #-}
 module Languages.Stlc where
 
-import qualified Data.Map.Strict                 as Map
-import           Data.Void                       (Void)
+import qualified Data.Map.Strict   as Map
+import           Data.Void         (Void)
 import           EasyTest
 import           NeatInterpolation
-import           Text.Megaparsec                 (errorBundlePretty, runParser)
+import           Text.Megaparsec   (errorBundlePretty, runParser)
 
-import Lvca
-import Lvca.Types (matches)
+import           Lvca
+import           Lvca.Types        (matches)
 
-import Test.Types
-import Test.ParseTerm
+import           Test.ParseTerm
+import           Test.Types
 
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart $ Map.fromList

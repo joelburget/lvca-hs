@@ -1,9 +1,9 @@
-{-# LANGUAGE RecursiveDo                #-}
-{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE RecursiveDo     #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Lvca.EarleyParseTerm (concreteParser) where
 
-import           Control.Applicative  ((<|>), many)
-import           Control.Lens         (ifor, (<&>), ALens', view, (^?!), ix)
+import           Control.Applicative  (many, (<|>))
+import           Control.Lens         (ALens', ifor, ix, view, (<&>), (^?!))
 import           Control.Lens.TH      (makeLenses)
 import           Control.Monad.Fix
 import           Control.Monad.Reader
@@ -14,8 +14,8 @@ import qualified Data.Map             as Map
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           Data.Void            (Void)
-import           Text.Earley          (Prod, Grammar, rule, parser, (<?>),
-                                       listLike, token, Parser, satisfy)
+import           Text.Earley
+  (Grammar, Parser, Prod, listLike, parser, rule, satisfy, token, (<?>))
 
 import           Lvca.Types           hiding (space)
 
@@ -25,12 +25,6 @@ data Parsers r = Parsers
   , _samePrecParser   :: !(Prod r Text Char (Term Void))
   }
 makeLenses ''Parsers
-
-_unused ::
-  ( ALens' (Parsers r) (Prod r Text Char String)
-  , ALens' (Parsers r) (Prod r Text Char (Term Void))
-  )
-_unused = (whitespaceParser, samePrecParser)
 
 -- | Parse 'Text' to a 'Term' for some 'ConcreteSyntax'
 concreteParser :: ConcreteSyntax -> Parser Text Text (Term Void)
@@ -124,3 +118,9 @@ parseInfix opName opRepr fixity
          <*  listLike opRepr
          <*  whitespace
          <*> subparser2
+
+_unused ::
+  ( ALens' (Parsers r) (Prod r Text Char String)
+  , ALens' (Parsers r) (Prod r Text Char (Term Void))
+  )
+_unused = (whitespaceParser, samePrecParser)

@@ -14,7 +14,7 @@ import           Control.Monad.Reader
 import           Lvca.Types
 -- import           Lvca.Util (forceRight)
 
-import qualified Languages.Arith         as Arith
+import qualified Languages.Arith      as Arith
 -- import           Lvca.Languages.MachineModel
 
 -- import           Control.Monad.Reader               (runReaderT, runReader)

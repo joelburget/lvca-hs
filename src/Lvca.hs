@@ -15,19 +15,19 @@ module Lvca
   , module Lvca.Util
   ) where
 
-import Lvca.Brick
-import Lvca.FunctorUtil
-import Lvca.Languages.Edits
-import Lvca.Languages.MachineModel
-import Lvca.ParseDenotationChart
+import           Lvca.Brick
+import           Lvca.FunctorUtil
+import           Lvca.Languages.Edits
+import           Lvca.Languages.MachineModel
+import           Lvca.ParseConcreteSyntaxDescription
+import           Lvca.ParseDenotationChart
   (DenotationChartParser, parseDenotationChart)
-import Lvca.ParseTerm
-import Lvca.ParseSyntaxDescription
+import           Lvca.ParseSyntaxDescription
   (SyntaxDescriptionParser, parseSyntaxDescription)
-import Lvca.ParseConcreteSyntaxDescription
-import Lvca.ParseUtil hiding (re)
-import Lvca.Proceed hiding (findMatch, matches)
-import Lvca.SyntaxComponents
-import Lvca.TH
-import Lvca.Types hiding (findMatch, matches)
-import Lvca.Util
+import           Lvca.ParseTerm
+import           Lvca.ParseUtil                      hiding (re)
+import           Lvca.Proceed                        hiding (findMatch, matches)
+import           Lvca.SyntaxComponents
+import           Lvca.TH
+import           Lvca.Types                          hiding (findMatch, matches)
+import           Lvca.Util

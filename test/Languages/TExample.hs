@@ -1,22 +1,23 @@
-{-# LANGUAGE EmptyCase        #-}
-{-# LANGUAGE KindSignatures   #-}
-{-# LANGUAGE OverloadedLists  #-}
-{-# LANGUAGE QuasiQuotes      #-}
-{-# LANGUAGE TemplateHaskell  #-}
+{-# LANGUAGE EmptyCase       #-}
+{-# LANGUAGE KindSignatures  #-}
+{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Languages.TExample where
 -- Godel's system t
 
-import           Control.Lens              (Prism, Prism', prism, prism', review, preview, _Left)
+import           Control.Lens
+  (Prism, Prism', preview, prism, prism', review, _Left)
 import           Data.Foldable             (asum)
 import qualified Data.Map.Strict           as Map
 import           Data.Sequence             (Seq)
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc (Pretty(pretty))
 import           Data.Void                 (Void)
-import           Prelude                   hiding (succ)
 import           NeatInterpolation         (text)
+import           Prelude                   hiding (succ)
 
-import Lvca hiding (Lam)
+import           Lvca                      hiding (Lam)
 
 data T
 
@@ -27,7 +28,7 @@ instance Pretty T where
   pretty = absurd
 
 absurd :: T -> a
-absurd = \case
+absurd = \case {}
 
 _T :: Prism s s a T
 _T = prism absurd Left

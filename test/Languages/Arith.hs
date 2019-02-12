@@ -1,33 +1,34 @@
-{-# language QuasiQuotes      #-}
-{-# language TemplateHaskell  #-}
-{-# language TypeFamilies     #-}
+{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies    #-}
 module Languages.Arith where
 
-import           Control.Applicative                ((<$))
-import           Control.Arrow                      ((>>>))
-import           Control.Monad.Reader               (runReaderT, runReader)
+import           Control.Applicative       ((<$))
+import           Control.Arrow             ((>>>))
+import           Control.Lens
+  (Prism', from, preview, prism', review, _Left, _Right, _Wrapped)
+import           Control.Lens.TH
+import           Control.Monad.Reader      (runReader, runReaderT)
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer.CPS
-import           Control.Lens
-  (_Right, _Wrapped, preview, review, Prism', prism', _Left, from)
-import           Control.Lens.TH
-import           Data.Bifunctor                     (bimap, second)
+import           Data.Bifunctor            (bimap, second)
 import           Data.Bitraversable
 import           Data.Diverse.Lens.Which
-import qualified Data.Map                           as Map
-import           Data.Sequence                      (Seq)
-import           Data.Text                          (Text)
-import           Data.Text.Prettyprint.Doc          (Pretty(pretty))
-import           Data.Void                          (Void) -- , absurd)
+import qualified Data.Map                  as Map
+import           Data.Sequence             (Seq)
+import           Data.Text                 (Text)
+import           Data.Text.Prettyprint.Doc (Pretty(pretty))
+import           Data.Void                 (Void)
 import           EasyTest
-import           Text.Megaparsec
-  (ParseErrorBundle, runParser, choice, errorBundlePretty, parseTest)
 import           NeatInterpolation
+import           Text.Megaparsec
+  (ParseErrorBundle, choice, errorBundlePretty, parseTest, runParser)
 
-import Lvca
-import Test.Types     (prop_serialise_identity)
-import Test.ParseTerm (earleyConcreteParseTermTest, standardParseTermTest,
-                       prop_parse_abstract_pretty) -- , prop_parse_concrete_pretty)
+import           Lvca
+import           Test.ParseTerm
+  (earleyConcreteParseTermTest, prop_parse_abstract_pretty,
+  standardParseTermTest)
+import           Test.Types                (prop_serialise_identity)
 
 newtype E = E { unE :: Either Int Text }
   deriving (Eq, Show)

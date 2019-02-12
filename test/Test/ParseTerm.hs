@@ -1,15 +1,17 @@
 module Test.ParseTerm where
 
 import           Control.Monad.Reader
-import           Data.Text            (Text, unpack)
-import           Data.Text.Prettyprint.Doc (defaultLayoutOptions,
-                                           layoutPretty, Pretty(pretty))
+import           Data.Text                             (Text, unpack)
+import           Data.Text.Prettyprint.Doc
+  (Pretty(pretty), defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
-import           Data.Void            (Void)
-import           EasyTest             (Test, expectEq)
-import           Hedgehog             hiding (Test, Var, concrete)
-import           Text.Earley          (fullParses)
-import           Text.Megaparsec      (parseMaybe, runParser, errorBundlePretty)
+import           Data.Void                             (Void)
+import           EasyTest                              (Test, expectEq)
+import           Hedgehog                              hiding
+  (Test, Var, concrete)
+import           Text.Earley                           (fullParses)
+import           Text.Megaparsec
+  (errorBundlePretty, parseMaybe, runParser)
 
 import           Lvca.EarleyParseTerm
 import           Lvca.ParseTerm
@@ -42,7 +44,7 @@ prop_parse_concrete_pretty chart sort concrete = property $ do
         runReader (prettyTm tm') (-1, concrete)
       parse' str = case fullParses (concreteParser concrete) str of
         ([parsed], _) -> Just parsed
-        _ -> Nothing
+        _             -> Nothing
 
   annotate $ unpack $ pretty' tm
   parse' (pretty' tm) === Just tm

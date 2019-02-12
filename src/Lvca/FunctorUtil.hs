@@ -1,7 +1,6 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE PolyKinds         #-}
 {-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE ViewPatterns      #-}
 
 module Lvca.FunctorUtil
   ( module Control.Monad.Free
@@ -11,29 +10,26 @@ module Lvca.FunctorUtil
   , module Data.Functor.Classes
   , module Data.Bimatchable
   , module Data.Matchable
-  , type (:.:)
+  , (:.:)
   , (:+:)(..)
   , _InL
   , _InR
   , _Fix
   , (:<:)(..)
-  , pattern In
-  , pattern FreeIn
-  , pattern FixIn
   , pattern FreeL
   , pattern FreeR
   , pattern FixL
   , pattern FixR
   ) where
 
-import Control.Lens          (Iso', Prism', iso, review, prism', preview)
-import Control.Monad.Free
-import Data.Functor.Classes
-import Data.Functor.Compose
-import Data.Functor.Const    (Const(..))
-import Data.Functor.Foldable (Fix(Fix), unfix)
-import Data.Bimatchable
-import Data.Matchable
+import           Control.Lens          (Iso', Prism', iso, prism')
+import           Control.Monad.Free
+import           Data.Bimatchable
+import           Data.Functor.Classes
+import           Data.Functor.Compose
+import           Data.Functor.Const    (Const(..))
+import           Data.Functor.Foldable (Fix(Fix), unfix)
+import           Data.Matchable
 
 type f :.: g = Compose f g
 
@@ -91,16 +87,6 @@ pattern FixL  x = Fix  (InL x)
 
 pattern FixR :: g (Fix (f :+: g)) -> Fix (f :+: g)
 pattern FixR  x = Fix  (InR x)
-
-pattern In :: sub :<: sup => sub a -> sup a
-pattern In a <- (preview subtype -> Just a) where
-  In a = review subtype a
-
-pattern FreeIn :: f :<: g => f (Free g a) -> Free g a
-pattern FreeIn x = Free (In x)
-
-pattern FixIn :: f :<: g => f (Fix g) -> Fix g
-pattern FixIn x = Fix (In x)
 
 -- | Subtyping relation from "Data types a la carte".
 --

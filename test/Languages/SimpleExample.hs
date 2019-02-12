@@ -1,6 +1,6 @@
-{-# LANGUAGE QuasiQuotes       #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE QuasiQuotes     #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies    #-}
 
 module Languages.SimpleExample
   ( dynamicTests
@@ -21,29 +21,30 @@ module Languages.SimpleExample
   ) where
 
 import           Codec.Serialise
-import           Control.Lens                          hiding (from, to, op)
+import           Control.Lens                          hiding (from, op, to)
 import           Control.Monad.Reader
+import qualified Data.Map.Strict                       as Map
 import           Data.String                           (IsString(fromString))
 import           Data.Text                             (Text)
-import           Data.Text.Prettyprint.Doc             (defaultLayoutOptions,
-                                                        layoutPretty, Pretty(pretty))
+import qualified Data.Text                             as Text
+import           Data.Text.Prettyprint.Doc
+  (Pretty(pretty), defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
 import           EasyTest
 import           GHC.Generics                          (Generic)
-import           Hedgehog                              (Property, property, (===), forAll, Gen)
-import           NeatInterpolation
-import           Text.Megaparsec
-import qualified Data.Map.Strict                       as Map
-import qualified Data.Text                             as Text
+import           Hedgehog
+  (Gen, Property, forAll, property, (===))
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
+import           NeatInterpolation
+import           Text.Megaparsec
 
-import Lvca       hiding (statics)
-import Lvca.Types (matches)
+import           Lvca                                  hiding (statics)
+import           Lvca.Types                            (matches)
 
-import Test.ParseTerm
-import Test.Types
+import           Test.ParseTerm
+import           Test.Types
 
 newtype E = E (Either Int Text)
   deriving (Eq, Show, Generic)

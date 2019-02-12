@@ -154,35 +154,35 @@ module Lvca.Types
   , prismSum4
   ) where
 
-import           Codec.Serialise
-import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
-import           Control.Lens              hiding (mapping, op, prism, Empty)
+import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
+import           Codec.Serialise
+import           Control.Lens              hiding (Empty, mapping, op, prism)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
-import           Data.Aeson                (ToJSON(..), FromJSON(..),
-                                            Value(..), withArray)
+import           Data.Aeson
+  (FromJSON(..), ToJSON(..), Value(..), withArray)
 import           Data.Bifunctor.TH         hiding (Options)
 import           Data.ByteString           (ByteString)
 import           Data.Data                 (Data)
 import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
 import           Data.List                 (find, intersperse)
-import           Data.Maybe                (fromMaybe, isJust)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Matchable.TH
-import           Data.Monoid               (First (First, getFirst))
+import           Data.Maybe                (fromMaybe, isJust)
+import           Data.Monoid               (First(First, getFirst))
 import           Data.Sequence             (Seq)
 import qualified Data.Sequence             as Seq
-import           Data.String               (IsString (fromString))
+import           Data.String               (IsString(fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
-import           Data.Text.Prettyprint.Doc hiding ((<+>), space)
+import           Data.Text.Prettyprint.Doc hiding (space, (<+>))
 import qualified Data.Text.Prettyprint.Doc as PP
 import qualified Data.Vector               as Vector
 import           Data.Void                 (Void)
-import           GHC.Exts                  (IsList (..))
+import           GHC.Exts                  (IsList(..))
 import           GHC.Generics              (Generic)
 import           Prelude                   hiding (lookup)
 import           Text.Show.Deriving
@@ -557,7 +557,7 @@ instance FromJSON a => FromJSON (Term a) where
     [String "v", a   ] -> Var       <$> parseJSON a
     [String "p", a   ] -> PrimValue <$> parseJSON a
     -- TODO: better message
-    _ -> fail "unexpected JSON format for TermF"
+    _                  -> fail "unexpected JSON format for TermF"
 
 type Term a = Fix (TermF a)
 
@@ -1057,15 +1057,15 @@ instance Pretty Valence where
 -- | An abstract domain has abstract syntax but no concrete syntax or
 -- interpretation.
 data AbstractDomain = AbstractDomain
-  { _abstractDomainAbstractSyntax  :: !SyntaxChart
-  , _abstractDomainStatics         :: !JudgementRules
+  { _abstractDomainAbstractSyntax :: !SyntaxChart
+  , _abstractDomainStatics        :: !JudgementRules
   }
 
 -- | A domain has (abstract and concrete) syntax but no interpretation.
 data Domain = Domain
-  { _domainAbstractSyntax  :: !SyntaxChart
-  , _domainConcreteSyntax  :: !ConcreteSyntax
-  , _domainStatics         :: !JudgementRules
+  { _domainAbstractSyntax :: !SyntaxChart
+  , _domainConcreteSyntax :: !ConcreteSyntax
+  , _domainStatics        :: !JudgementRules
   }
 
 -- | A language has syntax and a denotation (an interpretation to another

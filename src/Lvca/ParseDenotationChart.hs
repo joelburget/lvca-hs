@@ -1,8 +1,8 @@
 module Lvca.ParseDenotationChart where
 
-import           Data.Foldable                 (asum)
-import           Data.Text                     (Text)
-import           Data.Void                     (Void)
+import           Data.Foldable   (asum)
+import           Data.Text       (Text)
+import           Data.Void       (Void)
 import           Text.Megaparsec
 
 import           Lvca.ParseUtil

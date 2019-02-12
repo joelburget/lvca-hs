@@ -4,21 +4,21 @@ module Test.Types
   , prop_serialise_identity
   ) where
 
-import Control.Lens ((^?!), (<&>), ix)
 import           Codec.Serialise
-import           Data.Foldable             (foldrM)
-import Data.Functor.Identity
-import Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Map as Map
-import           Data.Void                 (Void)
+import           Control.Lens          (ix, (<&>), (^?!))
+import           Data.Foldable         (foldrM)
+import           Data.Functor.Identity
+import qualified Data.Map              as Map
+import           Data.Text             (Text)
+import qualified Data.Text             as Text
+import           Data.Void             (Void)
 import           EasyTest
-import           Hedgehog                  (MonadGen, GenT, Property,
-                                            property, forAll, (===))
-import qualified Hedgehog.Gen              as Gen
-import qualified Hedgehog.Range            as Range
+import           Hedgehog
+  (GenT, MonadGen, Property, forAll, property, (===))
+import qualified Hedgehog.Gen          as Gen
+import qualified Hedgehog.Range        as Range
 
-import Lvca.Types hiding (valences)
+import           Lvca.Types            hiding (valences)
 
 toPatternTests :: Test ()
 toPatternTests = scope "toPattern" $
