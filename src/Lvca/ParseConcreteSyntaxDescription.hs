@@ -52,14 +52,14 @@ parseConcreteSyntaxDescription' env = L.nonIndented scn $ indentBlock scn $ do
 -- > - Let(x; def; body) ~ "let" x "=" def "in" body;
 parsePrecedenceLevel
   :: ParseEnv Void
-  -> ConcreteSyntaxDescriptionParser [(OperatorName, [Text]) :-> OperatorDirective]
+  -> ConcreteSyntaxDescriptionParser [ConcreteSyntaxRule]
 parsePrecedenceLevel env = indentBlock scn $ do
   _ <- symbol "-"
   pure $ L.IndentSome (Just (mkPos 5)) pure $ parsePrecedenceLine env
 
 parsePrecedenceLine
   :: ParseEnv Void
-  -> ConcreteSyntaxDescriptionParser ((OperatorName, [Text]) :-> OperatorDirective)
+  -> ConcreteSyntaxDescriptionParser ConcreteSyntaxRule
 parsePrecedenceLine env = do
   tm <- runReaderT ParseTerm.standardParser' env
 
@@ -77,7 +77,7 @@ parsePrecedenceLine env = do
 
   _  <- symbol "~"
   d  <- parseDirective subtmNames <* char ';'
-  pure $ (name, subtmNames) :-> d
+  pure $ ConcreteSyntaxRule name subtmNames d
 
 -- | Parse an infix or mixfix directive
 parseDirective :: [Text] -> ConcreteSyntaxDescriptionParser OperatorDirective

@@ -8,12 +8,16 @@ import           Control.Lens.TH      (makeLenses)
 import           Control.Monad.Fix
 import           Control.Monad.Reader
 import           Data.Char            (isSpace)
-import           Data.Foldable        (asum, toList)
+import           Data.Foldable        (asum)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
+import           Data.Sequence        (Seq((:|>)))
+import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           Data.Void            (Void)
+import           GHC.Stack            (HasCallStack)
+import           Prelude              hiding ((!!))
 import           Text.Earley
   (Grammar, Parser, Prod, listLike, parser, rule, satisfy, token, (<?>))
 
@@ -26,6 +30,11 @@ data Parsers r = Parsers
   }
 makeLenses ''Parsers
 
+(!!) :: HasCallStack => Seq a -> Int -> a
+as !! i = case Seq.lookup i as of
+  Just a  -> a
+  Nothing -> error "Invariant violation: sequence too short"
+
 -- | Parse 'Text' to a 'Term' for some 'ConcreteSyntax'
 concreteParser :: ConcreteSyntax -> Parser Text Text (Term Void)
 concreteParser stx = parser (concreteParserGrammar stx)
@@ -37,37 +46,40 @@ concreteParserGrammar
 concreteParserGrammar (ConcreteSyntax directives) = mdo
   whitespace <- rule $ many $ satisfy isSpace
 
-  allProds <- mfix $ \prods ->
-    ifor (toList directives) $ \precedence precedenceLevel -> do
-      let opNames = fst . fst <$> precedenceLevel
+  _ :|> lowestPrecParser <- mfix $ \prods ->
+    ifor directives $ \precedence precedenceLevel -> do
+      let opNames = _csOperatorName <$> precedenceLevel
           prodTag = Text.intercalate " | " opNames
 
           -- parsers for every operator sharing this precedence (note the
           -- knot-tying)
           samePrecP = prods !! precedence
 
+          _ :|> lowestPrec = prods
+
           -- If this is the highest precedence level then we allow
           -- subexpressions of any precedence with parens, otherwise we allow
           -- (unparenthesized) subexpressions of higher precedence (which of
           -- course include parenthesized expressions)
           higherPrecP = if precedence == 0
-            then parens (last prods)
+            then parens lowestPrec
             else prods !! pred precedence
 
-          thisLevelProds = precedenceLevel <&> \((opName, subTmNames), directive) ->
-            let parser' = case directive of
-                  InfixDirective str fixity  -> parseInfix opName str fixity
-                  MixfixDirective directive' -> do
-                    prodMap <- parseMixfixDirective directive'
+          thisLevelProds = precedenceLevel <&>
+            \(ConcreteSyntaxRule opName subTmNames directive) ->
+              let parser' = case directive of
+                    InfixDirective str fixity  -> parseInfix opName str fixity
+                    MixfixDirective directive' -> do
+                      prodMap <- parseMixfixDirective directive'
 
-                    -- convert @Map Text (Term Void)@ to @[Term Void]@ by order
-                    -- names appear in @subTmNames@ (which is the order they
-                    -- occur in on the lhs of the concrete parser spec)
-                    let prodList = prodMap <&> \m ->
-                          subTmNames <&> \name ->
-                            m ^?! ix name
+                      -- convert @Map Text (Term Void)@ to @[Term Void]@ by
+                      -- order names appear in @subTmNames@ (which is the order
+                      -- they occur in on the lhs of the concrete parser spec)
+                      let prodList = prodMap <&> \m ->
+                            subTmNames <&> \name ->
+                              m ^?! ix name
 
-                    pure $ Term opName <$> prodList
+                      pure $ Term opName <$> prodList
             in runReader parser' $ Parsers whitespace higherPrecP samePrecP
 
       --  parse any expression with this, or higher, precedence
@@ -76,13 +88,14 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
         <?> prodTag
 
   -- enter the lowest precedence parser
-  pure $ last allProds
+  pure lowestPrecParser
 
 parens :: Prod r e Char a -> Prod r e Char a
 parens p = token '(' *> p <* token ')'
 
 parseMixfixDirective
-  :: MixfixDirective -> Reader (Parsers r) (Prod r Text Char (Map Text (Term Void)))
+  :: MixfixDirective
+  -> Reader (Parsers r) (Prod r Text Char (Map Text (Term Void)))
 parseMixfixDirective = \case
   Literal text -> pure $ Map.empty <$ listLike text
   Sequence d1 d2 -> do

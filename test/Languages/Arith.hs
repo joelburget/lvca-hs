@@ -59,14 +59,15 @@ mkSyntaxInstances ''Arith
 -- | Manually specified concrete syntax
 concreteArith :: ConcreteSyntax
 concreteArith = mkConcreteSyntax
-  [ [ ("Z", []) :-> MixfixDirective "Z" ]
+  [ [ ConcreteSyntaxRule "Z" [] (MixfixDirective "Z") ]
 
-  , [ ("S", ["x"]) :-> MixfixDirective ("S" >>: space >>: SubTerm "x")
+  , [ ConcreteSyntaxRule "S" ["x"] $
+        MixfixDirective $ "S" >>: space >>: SubTerm "x"
     ]
 
-  , [ ("Mul", []) :-> InfixDirective "*" Infixl ]
-  , [ ("Add", []) :-> InfixDirective "+" Infixl
-    , ("Sub", []) :-> InfixDirective "-" Infixl
+  , [ ConcreteSyntaxRule "Mul" [] (InfixDirective "*" Infixl) ]
+  , [ ConcreteSyntaxRule "Add" [] (InfixDirective "+" Infixl)
+    , ConcreteSyntaxRule "Sub" [] (InfixDirective "-" Infixl)
     ]
   ]
 

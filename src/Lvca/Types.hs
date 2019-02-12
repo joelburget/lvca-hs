@@ -48,8 +48,8 @@ module Lvca.Types
   , nil
   , space
   , OperatorDirective(..)
+  , ConcreteSyntaxRule(..)
   , Fixity(..)
-  -- , directiveFromList
   , ConcreteSyntax(..)
   , mkConcreteSyntax
   , prettyTm
@@ -58,7 +58,6 @@ module Lvca.Types
   -- | Denotational semantics definition.
   , DenotationChart(..)
   , DenotationChart'(..)
-  , (:->)
   , pattern (:->)
   , (<->)
   , pattern PatternAny
@@ -343,8 +342,6 @@ instance IsString MixfixDirective where
 -- TODO:
 -- + block model / smart spacing
 
-type a :-> b = (a, b)
-
 -- | Whether a binary operator is left-, right-, or non-associative
 data Fixity
   = Infixl -- ^ An operator associating to the left:
@@ -371,6 +368,12 @@ instance Pretty OperatorDirective where
       hsep [pretty fixity, "x", dquotes (pretty name), "y"]
     MixfixDirective dir -> pretty dir
 
+data ConcreteSyntaxRule = ConcreteSyntaxRule
+  { _csOperatorName    :: !OperatorName
+  , _boundVars         :: ![Text]
+  , _operatorDirective :: !OperatorDirective
+  } deriving (Eq, Show)
+
 -- | A concrete syntax chart specifies how to parse and pretty-print a language
 --
 -- Each level of the chart corresponds to a precendence level, starting with
@@ -384,8 +387,7 @@ instance Pretty OperatorDirective where
 -- >     , "Sub" :-> InfixDirective "-" Infixl
 -- >     ]
 -- >   ]
-newtype ConcreteSyntax = ConcreteSyntax
-  (Seq [(OperatorName, [Text]) :-> OperatorDirective])
+newtype ConcreteSyntax = ConcreteSyntax (Seq [ConcreteSyntaxRule])
   deriving (Eq, Show)
 -- TODO: randomly generate syntax descriptions and test that they round-trip
 -- parsing and pretty-printing
@@ -394,14 +396,13 @@ instance Pretty ConcreteSyntax where
   pretty (ConcreteSyntax precLevels) = vsep $ "concrete syntax:" : prettyLevels
     where prettyLevels = toList precLevels <&> \decls -> indent 2 $
             ("-" PP.<+>) $ align $ vsep $ decls <&>
-              \((op, vars) :-> directive) -> hsep
+              \(ConcreteSyntaxRule op vars directive) -> hsep
                 [ pretty op <> encloseSep "(" ")" "; " (map pretty vars)
                 , "~"
                 , pretty directive
                 ]
 
-mkConcreteSyntax
-  :: [[(OperatorName, [Text]) :-> OperatorDirective]] -> ConcreteSyntax
+mkConcreteSyntax :: [[ConcreteSyntaxRule]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
 
 type Printer = Reader (Int, ConcreteSyntax) (Doc ())
@@ -420,9 +421,9 @@ prettyTm tm = do
       $ do
 
       -- Does this name, directive pair have the name we're looking for?
-      let sameName ((name', _), _) = name' == name
+      let sameName (ConcreteSyntaxRule name' _ _) = name' == name
 
-      ((_, subTmNames), directive)
+      ConcreteSyntaxRule _ subTmNames directive
         <- findOf (traverse . traverse) sameName directives
 
       -- Find the precedence (determined by index) of the operator
