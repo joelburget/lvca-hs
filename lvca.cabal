@@ -105,7 +105,27 @@ library
 executable lvca
   import:         extensions, core-deps, extra-deps
   hs-source-dirs: src, test
-  other-modules:  Languages.Arith
+  other-modules:
+    Lvca
+    Lvca.Brick
+    Lvca.EarleyParseTerm
+    Lvca.FunctorUtil
+    Lvca.Languages.Edits
+    Lvca.Languages.MachineModel
+    Lvca.ParseConcreteSyntaxDescription
+    Lvca.ParseDenotationChart
+    Lvca.ParseSyntaxDescription
+    Lvca.ParseTerm
+    Lvca.ParseUtil
+    Lvca.Proceed
+    Lvca.SyntaxComponents
+    Lvca.TH
+    Lvca.Types
+    Lvca.Util
+    Test.ParseTerm
+    Test.Types
+    Text.Megaparsec.Char.LexerAlt
+    Languages.Arith
   main-is:        Main.hs
   build-depends:  lvca, easytest
 
