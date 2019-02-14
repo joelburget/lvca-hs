@@ -61,7 +61,7 @@ install:
   - grep -Ev -- '^\s*--' ${HOME}/.cabal/config | grep -Ev '^\s*$'
   - rm -f cabal.project
   - touch cabal.project
-  - "printf 'packages: \".\"\\n' >> cabal.project"
+  - "printf 'packages:\n  \".\"\\n  easytest\n' >> cabal.project"
   - "printf 'write-ghc-environment-files: always\\n' >> cabal.project"
   - touch cabal.project.local
   - "for pkg in $($HCPKG list --simple-output); do echo $pkg | sed 's/-[^-]*$//' | grep -vE -- '^(lvca)$' | sed 's/^/constraints: /' | sed 's/$/ installed/' >> cabal.project.local; done"
