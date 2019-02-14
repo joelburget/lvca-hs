@@ -42,6 +42,7 @@ matrix:
     - compiler: "ghc-8.6.1"
 
 before_install:
+  - git submodule update --init --recursive
   - HC=${CC}
   - HCPKG=${HC/ghc/ghc-pkg}
   - unset CC
