@@ -51,8 +51,7 @@ common extra-deps
   build-depends:
     cmark,
     cmark-patterns,
-    hedgehog,
-    sbv,
+    hedgehog
 
 common extensions
   default-extensions:
