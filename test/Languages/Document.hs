@@ -309,11 +309,12 @@ textDocument = [text|
 *this* is the important document you've heard about. **never** mention it to anyone
 |]
 
-documentTests :: Test ()
+documentTests :: Test
 documentTests = tests
-  [ do Just doc  <- pure $ textDocument ^? foldText
-       Just doc' <- pure $ doc          ^? foldTerm
-       expectEq textDocument doc'
+  [ example $ do
+      Just doc  <- pure $ textDocument ^? foldText
+      Just doc' <- pure $ doc          ^? foldTerm
+      textDocument === doc'
 
   , scope "parse" $ standardParseTermTest
       (ParseEnv (forceRight syntax) "Document" UntaggedExternals
@@ -322,10 +323,10 @@ documentTests = tests
       Term "Document"
         [ Term "Cons" [ Var "a", Var "a" ] ]
 
-  , scope "prop_parse_abstract_pretty" $ testProperty $
+  , scope "prop_parse_abstract_pretty" $
     prop_parse_abstract_pretty (forceRight syntax) "Document"
       (const Nothing) externalParsers
 
-  , scope "prop_serialise_identity" $ testProperty $
+  , scope "prop_serialise_identity" $
     prop_serialise_identity @() (forceRight syntax) "Document" (const Nothing)
   ]

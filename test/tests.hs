@@ -14,9 +14,9 @@ import           Languages.TExample      ()
 import           Test.Types
 
 main :: IO ()
-main = run allTests
+main = cabalTestSuite $ run allTests
 
-allTests :: Test ()
+allTests :: Test
 allTests = scope "all tests" $ tests
   [ scope "toPattern"              toPatternTests
   , scope "stlc"                   Stlc.stlcTests

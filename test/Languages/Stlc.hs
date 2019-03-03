@@ -2,9 +2,11 @@
 {-# LANGUAGE TypeFamilies #-}
 module Languages.Stlc where
 
+import           Control.Lens      (_Just)
 import qualified Data.Map.Strict   as Map
 import           Data.Void         (Void)
-import           EasyTest
+import           EasyTest          hiding (matches)
+import qualified EasyTest          as E
 import           NeatInterpolation
 import           Text.Megaparsec   (errorBundlePretty, runParser)
 
@@ -70,16 +72,16 @@ stlcTm1 = Term "lam"
   ]
 stlcTm2 = Term "ap" [stlcTm1, stlcTm1]
 
-stlcTests :: Test ()
+stlcTests :: Test
 stlcTests = tests
-  [ scope "match" $
-      expectJust $ runMatches stlcChart "Exp" $ matches
+  [ scope "match" $ example $
+      E.matches _Just $ runMatches stlcChart "Exp" $ matches
         (PatternTm "lam"
           [ PatternVar (Just "ty")
           , PatternVar (Just "body")
           ])
         stlcTm1
-  , scope "parsing chart" $
+  , scope "parsing chart" $ example $
     let result = runParser parseSyntaxDescription "(test)"
           [text|
             Typ ::= nat               "natural numbers"
@@ -89,8 +91,8 @@ stlcTests = tests
           |]
     in case result of
          Left err     -> crash $ errorBundlePretty err
-         Right parsed -> expectEq parsed stlcChart
-  , scope "different indentation" $
+         Right parsed -> parsed === stlcChart
+  , scope "different indentation" $ example $
     let result = runParser parseSyntaxDescription "(test)"
           [text|
             Typ ::= // testing comments
@@ -104,13 +106,13 @@ stlcTests = tests
           |]
     in case result of
          Left err     -> crash $ errorBundlePretty err
-         Right parsed -> expectEq parsed stlcChart
+         Right parsed -> parsed === stlcChart
 
-  , scope "prop_parse_abstract_pretty" $ testProperty $
+  , scope "prop_parse_abstract_pretty" $
     prop_parse_abstract_pretty stlcChart "Exp"
     (const Nothing) noExternalParsers
 
-   , scope "prop_serialise_identity" $ testProperty $
+   , scope "prop_serialise_identity" $
      prop_serialise_identity @() stlcChart "Exp" (const Nothing)
 
   , let expectParse = standardParseTermTest $

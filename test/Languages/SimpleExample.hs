@@ -31,10 +31,9 @@ import           Data.Text.Prettyprint.Doc
   (Pretty(pretty), defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
-import           EasyTest
+import           EasyTest                              hiding (matches)
 import           GHC.Generics                          (Generic)
-import           Hedgehog
-  (Gen, Property, forAll, property, (===))
+import           Hedgehog                              (Gen)
 import qualified Hedgehog.Gen                          as Gen
 import qualified Hedgehog.Range                        as Range
 import           NeatInterpolation
@@ -147,20 +146,20 @@ typingJudgement = JudgementForm "types" [(JIn, "Exp"), (JIn, "Typ")]
 
 statics :: JudgementRules
 statics =
-  let tm -: ty = [tm, ty] %%% "types"
+  let tm -: ty = [tm, ty] :%%% "types"
   in JudgementRules
   [ ["x" -: "num", "y" -: "num"]
-    .--
-    ("plus" @@ ["x", "y"]) -: "num"
+    :--
+    ("plus" :@@ ["x", "y"]) -: "num"
   , ["x" -: "num", "y" -: "num"]
-    .--
-    ("times" @@ ["x", "y"]) -: "num"
+    :--
+    ("times" :@@ ["x", "y"]) -: "num"
   , ["x" -: "str", "y" -: "str"]
-    .--
-    ("cat" @@ ["x", "y"]) -: "str"
+    :--
+    ("cat" :@@ ["x", "y"]) -: "str"
   , ["x" -: "str"]
-    .--
-    ("len" @@ ["x"]) -: "num"
+    :--
+    ("len" :@@ ["x"]) -: "num"
   -- TODO: how to do assumptions?
   -- , ["x" -: "a"]
   --   .--
@@ -223,12 +222,12 @@ genPat = Gen.recursive Gen.choice [
   , Gen.subterm  genPat        (     FixExp . Annotation (E (Right "annotation")))
   ]
 
-patP_round_trip_prop :: Property
+patP_round_trip_prop :: Test
 patP_round_trip_prop = property $ do
   x <- forAll genPat
   preview patVarP (review patVarP x) === Just x
 
--- valP_round_trip_prop :: Property
+-- valP_round_trip_prop :: Test
 -- valP_round_trip_prop = property $ do
 --   x <- forAll genVal
 --   let termP' :: Prism' (Term E) (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val E))
@@ -252,12 +251,17 @@ patP_round_trip_prop = property $ do
 --   , Gen.subterm  genVal        (\x   -> FixApp "len" [x   ])
 --   ]
 
--- matchingTermTests :: Test ()
+-- matchingTermTests :: Test
 -- matchingTermTests = tests
---   [ expectEq tm1F tm1
+--   [ example $ tm1F === tm1
 --   ]
 
-dynamicTests :: Test ()
+expectJust :: Maybe a -> Test
+expectJust  = unitTest . \case
+  Nothing -> crash "Expected Just, found Nothing"
+  Just _  -> success
+
+dynamicTests :: Test
 dynamicTests =
   let
       lenStr :: Term E
@@ -295,10 +299,10 @@ dynamicTests =
 
        ]
 
-expectEq' :: Maybe (Pattern Void) -> Maybe (Pattern Void) -> Test ()
-expectEq' = expectEq
+expectEq' :: Maybe (Pattern Void) -> Maybe (Pattern Void) -> Test
+expectEq' a b = unitTest $ a === b
 
-completePatternTests :: Test ()
+completePatternTests :: Test
 completePatternTests = scope "completePattern" $ tests
   [ expectEq'
       (runMatches syntax "Typ" completePattern)
@@ -317,7 +321,7 @@ completePatternTests = scope "completePattern" $ tests
         ]))
   ]
 
-minusTests :: Test ()
+minusTests :: Test
 minusTests = scope "minus" $
   let x = PatternVar (Just "x")
       y = PatternVar (Just "y")
@@ -363,11 +367,12 @@ minusTests = scope "minus" $
        --        Just PatternEmpty
        ]
 
-prettySyntaxChartTests :: Test ()
+prettySyntaxChartTests :: Test
 prettySyntaxChartTests = tests
-  [ expectEq
-    (renderStrict (layoutPretty defaultLayoutOptions (pretty syntax)))
-    (Text.init [text|
+  [ example $
+    renderStrict (layoutPretty defaultLayoutOptions (pretty syntax))
+    ===
+    Text.init [text|
       Exp ::=
         Num{Num}
         Str{Str}
@@ -383,14 +388,14 @@ prettySyntaxChartTests = tests
       Typ ::=
         Num
         Str
-    |])
+    |]
   ]
 
-prettyStaticTests :: Test ()
+prettyStaticTests :: Test
 prettyStaticTests = tests
-  [ expect $
+  [ example $
     renderStrict (layoutPretty defaultLayoutOptions (pretty statics))
-    ==
+    ===
     Text.intercalate "\n"
     [ "types x num, types y num"
     , "------"
@@ -410,7 +415,7 @@ prettyStaticTests = tests
     ]
   ]
 
-matchesTests :: Test ()
+matchesTests :: Test
 matchesTests = scope "matches" $
   let foo :: Term ()
       foo = Term "foo" []
@@ -426,36 +431,38 @@ matchesTests = scope "matches" $
          PatternAny foo
        , expectJust $ runMatches unforced unforced $ matches
          (PatternUnion [PatternAny, unforced]) foo
-       , expect $
+       , example $
          (runMatches syntax "Typ" $ matches
            PatternAny
            (Binding ["x"] $ Term "num" []))
-         ==
+         ===
          (Just mempty :: Maybe (Subst ()))
        ]
 
-evalTests :: Test ()
+evalTests :: Test
 evalTests =
-  let run' tm expected = case primEval tm of
-        Left err     -> fail err
-        Right result -> expectEq result expected
+  let run' tm expected = unitTest $ case primEval tm of
+        Left err     -> crash err
+        Right result -> result === expected
   in tests
        [ run' tm1F $ Fix $ NumV $ E $ Left 3
        , run' tm2F $ Fix $ StrV "foobar"
        , run' tm3F $ Fix $ NumV $ E $ Left 15
        ]
 
-parseTests :: Test ()
+parseTests :: Test
 parseTests =
   let runP sty str = runParser
         (runReaderT standardParser (ParseEnv syntax "Exp" sty primParsers))
         "(test)" str
-      expectParse sty str tm = scope (Text.unpack str) $ case runP sty str of
-        Left err       -> fail $ errorBundlePretty err
-        Right parsedTm -> expectEq parsedTm tm
-      expectNoParse sty str = scope (Text.unpack str) $ case runP sty str of
-        Left _   -> ok
-        Right tm -> fail $ "parsed " ++ show tm
+      expectParse sty str tm = scope (Text.unpack str) $ example $
+        case runP sty str of
+          Left err       -> crash $ errorBundlePretty err
+          Right parsedTm -> parsedTm === tm
+      expectNoParse sty str = scope (Text.unpack str) $ example $
+        case runP sty str of
+          Left _   -> success
+          Right tm -> crash $ "parsed " ++ show tm
   in scope "parse" $ tests
   [ expectParse UntaggedExternals
       "Plus(1; 2)"
@@ -496,23 +503,23 @@ parseTests =
   , expectParse UntaggedExternals "0" (TI 0)
   ]
 
-propTests :: Test ()
+propTests :: Test
 propTests =
   let aGen = \case
         "Num" -> Just $ E . Left  <$> Gen.int Range.exponentialBounded
         "Str" -> Just $ E . Right <$> genText
         _     -> Nothing
   in tests
-       [ scope "prop_parse_abstract_pretty" $ testProperty $
+       [ scope "prop_parse_abstract_pretty" $
          prop_parse_abstract_pretty syntax "Exp" aGen primParsers
 
-       , scope "prop_serialise_identity" $ testProperty $
+       , scope "prop_serialise_identity" $
          prop_serialise_identity syntax "Exp" aGen
 
-       , scope "patP_round_trip_prop" $ testProperty $
+       , scope "patP_round_trip_prop" $
          patP_round_trip_prop
 
-       -- , scope "valP_round_trip_prop" $ testProperty $
+       -- , scope "valP_round_trip_prop" $ property $
        --   valP_round_trip_prop
        ]
 

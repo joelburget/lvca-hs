@@ -207,8 +207,8 @@ addAssoc = Term "Add"
   , Term "Add" [ Z', Z' ]
   ]
 
-example :: Term Void
-example = Term "Add"
+exampleTm :: Term Void
+exampleTm = Term "Add"
   [ Term "Mul"
     [ S' Z'
     , Term "Sub"
@@ -279,36 +279,36 @@ domainTermP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValueF)
 termP3 :: TermRepresentable f => Prism' (Term a) (Fix (f a))
 termP3 = mkTermP termP3 . from _Fix
 
-arithTests :: Test ()
+arithTests :: Test
 arithTests = tests
   [ scope "prop_parse_abstract_pretty" $
-    testProperty $ prop_parse_abstract_pretty syntax "Arith"
+    prop_parse_abstract_pretty syntax "Arith"
       (const Nothing) primParsers
 
 --   TODO: this fails because the syntax can't parse variables
 --   , scope "prop_parse_concrete_pretty" $
---     testProperty $ prop_parse_concrete_pretty syntax "Arith" concreteArith
+--     property $ prop_parse_concrete_pretty syntax "Arith" concreteArith
 
-  , scope "prop_serialise_identity" $ testProperty $
+  , scope "prop_serialise_identity" $
     prop_serialise_identity @() syntax "Arith" (const Nothing)
   , scope "standard parsing" $ standardParseTermTest
       (ParseEnv syntax "Arith" UntaggedExternals primParsers)
       "Za"
       (Var "Za")
   , scope "pretty-printing" $
-    let expectEq1 tm str = do
+    let expectEq1 tm str = unitTest $ do
           let result = show $ runReader (prettyTm tm) (-1, concreteArith)
-          result `expectEq` str
-        expectEq2 tm str = do
+          result === str
+        expectEq2 tm str = unitTest $ do
           let result = show $ runReader (prettyTm tm) (-1, forceRight concreteArith2)
-          result `expectEq` str
+          result === str
     in tests
          [ addOneOne `expectEq1` "S Z + S Z"
          , addAssoc  `expectEq1` "Z + Z + (Z + Z)"
-         , example   `expectEq1` "S Z * (S (S Z) - S Z) + S (S (S Z))"
+         , exampleTm `expectEq1` "S Z * (S (S Z) - S Z) + S (S (S Z))"
          , addOneOne `expectEq2` "S Z + S Z"
          , addAssoc  `expectEq2` "Z + Z + (Z + Z)"
-         , example   `expectEq2` "S Z * (S (S Z) - S Z) + S (S (S Z))"
+         , exampleTm `expectEq2` "S Z * (S (S Z) - S Z) + S (S (S Z))"
          ]
 
   , scope "concrete parsing with earley" $
@@ -317,10 +317,10 @@ arithTests = tests
     in tests
          [ "S Z + S Z"                           `expectEq1` addOneOne
          , "Z + Z + (Z + Z)"                     `expectEq1` addAssoc
-         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq1` example
+         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq1` exampleTm
          , "S Z + S Z"                           `expectEq2` addOneOne
          , "Z + Z + (Z + Z)"                     `expectEq2` addAssoc
-         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq2` example
+         , "S Z * (S (S Z) - S Z) + S (S (S Z))" `expectEq2` exampleTm
          ]
   ]
   where

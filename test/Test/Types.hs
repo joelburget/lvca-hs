@@ -14,26 +14,29 @@ import qualified Data.Text             as Text
 import           Data.Void             (Void)
 import           EasyTest
 import           Hedgehog
-  (GenT, MonadGen, Property, forAll, property, (===))
+  (GenT, MonadGen) -- , Property, forAll, property, (===))
 import qualified Hedgehog.Gen          as Gen
 import qualified Hedgehog.Range        as Range
 
 import           Lvca.Types            hiding (valences)
 
-toPatternTests :: Test ()
+toPatternTests :: Test
 toPatternTests = scope "toPattern" $
   let toPat :: Operator -> Pattern Void
       toPat = toPattern
   in tests
-    [ expectEq
-      (toPat (Operator "num" (Arity []) "numbers"))
-      (PatternTm "num" [])
-    , expectEq
-      (toPat (Operator "plus"  (Arity ["Exp", "Exp"]) "addition"))
-      (PatternTm "plus" [PatternAny, PatternAny])
-    , expectEq
-      (toPat (Operator "num" (ExternalArity "num") "numbers"))
-      (PatternTm "num" [ PatternPrimVal Nothing ])
+    [ example $
+      toPat (Operator "num" (Arity []) "numbers")
+      ===
+      PatternTm "num" []
+    , example $
+      toPat (Operator "plus"  (Arity ["Exp", "Exp"]) "addition")
+      ===
+      PatternTm "plus" [PatternAny, PatternAny]
+    , example $
+      toPat (Operator "num" (ExternalArity "num") "numbers")
+      ===
+      PatternTm "num" [ PatternPrimVal Nothing ]
     ]
 
 genName :: MonadGen m => m Text
@@ -96,7 +99,7 @@ prop_serialise_identity
   => SyntaxChart
   -> Sort
   -> (SortName -> Maybe (GenT Identity a))
-  -> Property
+  -> Test
 prop_serialise_identity chart sort aGen = property $ do
   tm <- forAll $ genTerm chart sort aGen
   -- (this is serialiseIdentity from Codec.Serialise.Properties)

@@ -60,7 +60,7 @@ main = do
 --   putStrLn "\nlogs:"
 --   traverse (putStrLn . Text.unpack) logs
 
-  case Arith.peanoProceed Arith.example of
+  case Arith.peanoProceed Arith.exampleTm of
       Left err    -> putStrLn "1" >> putStrLn err
       Right steps -> putStrLn "2" >> (void $ traverse print steps)
       -- void $ defaultMain app $
