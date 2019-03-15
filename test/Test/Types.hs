@@ -13,8 +13,7 @@ import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import           Data.Void             (Void)
 import           EasyTest
-import           Hedgehog
-  (GenT, MonadGen) -- , Property, forAll, property, (===))
+import           Hedgehog              (GenT, MonadGen)
 import qualified Hedgehog.Gen          as Gen
 import qualified Hedgehog.Range        as Range
 

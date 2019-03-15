@@ -82,6 +82,7 @@ library
   import: extensions, core-deps
   exposed-modules:
     Lvca
+    Lvca.Bidirectional
     Lvca.Brick
     Lvca.EarleyParseTerm
     Lvca.FunctorUtil
@@ -107,7 +108,7 @@ executable lvca
   hs-source-dirs:   src, test
   other-modules:    Languages.Arith
   main-is:          Main.hs
-  build-depends:    lvca, easytest
+  build-depends:    lvca, easytest >= 0.3
   default-language: Haskell2010
 
 test-suite tests
@@ -121,7 +122,8 @@ test-suite tests
     Languages.TExample
     Test.ParseTerm
     Test.Types
+    Test.Bidirectional
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   default-language: Haskell2010
-  build-depends:    lvca, easytest
+  build-depends:    lvca, easytest >= 0.3

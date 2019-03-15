@@ -1,5 +1,6 @@
 module Lvca
-  ( module Lvca.Brick
+  ( module Lvca.Bidirectional
+  , module Lvca.Brick
   , module Lvca.FunctorUtil
   , module Lvca.Languages.Edits
   , module Lvca.Languages.MachineModel
@@ -15,6 +16,7 @@ module Lvca
   , module Lvca.Util
   ) where
 
+import           Lvca.Bidirectional hiding (_conclusion, Term'(..))
 import           Lvca.Brick
 import           Lvca.FunctorUtil
 import           Lvca.Languages.Edits
