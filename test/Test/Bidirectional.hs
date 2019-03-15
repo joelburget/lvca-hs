@@ -1,63 +1,88 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Test.Bidirectional where
 
-import Prelude  hiding (Bool(..))
 import EasyTest
 
-import Lvca.Bidirectional
+import Lvca.Bidirectional hiding (rules)
 
-pattern True, False, Bool :: Term'
+true, false, bool :: Term
 
-pattern True  = Term' "true"  []
-pattern False = Term' "false" []
-pattern Bool  = Term' "Bool"  []
+true  = Term "true"  []
+false = Term "false" []
+bool  = Term "Bool"  []
 
-pattern Ite :: Term' -> Term' -> Term' -> Term'
-pattern Ite t1 t2 t3 = Term' "ite" [ t1, t2, t3 ]
+ite :: Term -> Term -> Term -> Term
+ite t1 t2 t3 = Term "ite" [ t1, t2, t3 ]
 
-pattern Lam :: Term' -> Term'
-pattern Lam t = Term' "lam" [ t ]
+lam :: Term -> Term
+lam t = Term "lam" [ t ]
 
-pattern App, Arr, Annot :: Term' -> Term' -> Term'
-pattern App   t1 t2 = Term' "app"   [ t1, t2 ]
-pattern Arr   t1 t2 = Term' "arr"   [ t1, t2 ]
-pattern Annot tm ty = Term' "annot" [ tm, ty ]
+app, arr, annot :: Term -> Term -> Term
+app   t1 t2 = Term "app"   [ t1, t2 ]
+arr   t1 t2 = Term "arr"   [ t1, t2 ]
+annot tm ty = Term "annot" [ tm, ty ]
+
+infix 0 .--
+infix 4 .=>
+infix 4 .<=
+
+(.--) :: [TypingClause] -> TypingClause -> Rule
+hyps .-- conc = Rule hyps conc
+
+(.=>) :: Term -> Term -> TypingClause
+tm .=> ty = InferenceRule (tm :=> ty)
+
+(.<=) :: Term -> Term -> TypingClause
+tm .<= ty = CheckingRule (tm :<= ty)
 
 rules :: Env
 rules =
-  let t    = Var' "t"
-      tau  = Var' "tau"
-      tau1 = Var' "tau1"
-      tau2 = Var' "tau2"
-      t1   = Var' "t1"
-      t2   = Var' "t2"
-      t3   = Var' "t3"
+  let t    = Var "t"
+      tau  = Var "tau"
+      tau1 = Var "tau1"
+      tau2 = Var "tau2"
+      t1   = Var "t1"
+      t2   = Var "t2"
+      t3   = Var "t3"
   in Env
-       [ Rule [] $ InferenceRule $ True  :=> Bool
-       , Rule [] $ InferenceRule $ False :=> Bool
+       [ []
+         .--
+         true  .=> bool
+       , []
+         .--
+         false .=> bool
 
-       , Rule [InferenceRule $ t :=> tau ] $
-         CheckingRule $ t :<= tau
-       , Rule [CheckingRule $ t :<= tau ] $
-         InferenceRule $ Annot t tau :=> tau
+       , [ t .=> tau ]
+         .--
+         t .<= tau
+       , [ t .<= tau ]
+         .--
+         annot t tau .=> tau
 
-       , Rule
-         [ CheckingRule $ t1 :<= Bool
-         , CheckingRule $ t2 :<= tau
-         , CheckingRule $ t3 :<= tau
-         ] $ CheckingRule $ Ite t1 t2 t3 :<= tau
+       , [ t1 .<= bool
+         , t2 .<= tau
+         , t3 .<= tau
+         ]
+         .--
+         ite t1 t2 t3 .<= tau
 
-       , Rule
-         [ CheckingRule $ t :<= tau2 -- XXX must include context
-         ] $ CheckingRule $ Lam t :<= Arr tau1 tau2
+       , [ t .<= tau2 -- XXX must include context
+         ]
+         .--
+         lam t .<= arr tau1 tau2
 
-       , Rule
-         [ InferenceRule $ t1 :=> Arr tau1 tau2
-         , CheckingRule $ t2 :<= tau1
-         ] $ InferenceRule $ App t1 t2 :=> tau2
+       , [ t1 .=> arr tau1 tau2
+         , t2 .<= tau1
+         ]
+         .--
+         app t1 t2 .=> tau2
        ]
 
 checkingTests :: Test
-checkingTests = scope "bidirectinal" $ tests
-  [
+checkingTests = scope "bidirectional" $ tests
+  [ scope "1" $ example $ runCheck rules (infer true)                       === Just bool
+  , scope "2" $ example $ runCheck rules (infer false)                      === Just bool
+  , scope "3" $ example $ runCheck rules (check (false :< bool))            === Just ()
+  , scope "4" $ example $ runCheck rules (check (annot false bool :< bool)) === Just ()
+  , scope "5" $ example $ runCheck rules (infer (annot false bool))         === Just bool
   ]
