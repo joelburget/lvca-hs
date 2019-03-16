@@ -37,13 +37,13 @@ tm .<= ty = CheckingRule (tm :<= ty)
 
 rules :: Env
 rules =
-  let t    = Var "t"
-      tau  = Var "tau"
-      tau1 = Var "tau1"
-      tau2 = Var "tau2"
-      t1   = Var "t1"
-      t2   = Var "t2"
-      t3   = Var "t3"
+  let t   = Var "t"
+      ty  = Var "ty"
+      ty1 = Var "ty1"
+      ty2 = Var "ty2"
+      t1  = Var "t1"
+      t2  = Var "t2"
+      t3  = Var "t3"
   in Env
        [ []
          .--
@@ -52,30 +52,30 @@ rules =
          .--
          false .=> bool
 
-       , [ t .=> tau ]
+       , [ t .=> ty ]
          .--
-         t .<= tau
-       , [ t .<= tau ]
+         t .<= ty
+       , [ t .<= ty ]
          .--
-         annot t tau .=> tau
+         annot t ty .=> ty
 
        , [ t1 .<= bool
-         , t2 .<= tau
-         , t3 .<= tau
+         , t2 .<= ty
+         , t3 .<= ty
          ]
          .--
-         ite t1 t2 t3 .<= tau
+         ite t1 t2 t3 .<= ty
 
-       , [ t .<= tau2 -- XXX must include context
+       , [ t .<= ty2 -- XXX must include context
          ]
          .--
-         lam t .<= arr tau1 tau2
+         lam t .<= arr ty1 ty2
 
-       , [ t1 .=> arr tau1 tau2
-         , t2 .<= tau1
+       , [ t1 .=> arr ty1 ty2
+         , t2 .<= ty1
          ]
          .--
-         app t1 t2 .=> tau2
+         app t1 t2 .=> ty2
        ]
 
 checkingTests :: Test
