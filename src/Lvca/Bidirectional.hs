@@ -2,20 +2,21 @@
 {-# LANGUAGE TemplateHaskell        #-}
 module Lvca.Bidirectional where
 
-import Data.Foldable             (for_)
+import Control.Applicative       ((<|>))
 import Control.Monad             (join)
-import Data.Monoid               (First(First, getFirst))
-import Data.Text                 (Text)
-import Control.Lens              (makeLenses, (^?), ix, (<>~))
+import Control.Lens              (makeLenses, (^?), at, ix, (<>~), view)
 import Control.Monad.Reader
 import Control.Monad.Trans.Class (lift)
+import Data.Foldable             (for_)
 import Data.Map                  (Map)
 import qualified Data.Map        as Map
+import Data.Monoid               (First(First, getFirst))
 import Data.Set (Set)
+import Data.Text                 (Text)
 
 import Lvca.Util
 
-import Debug.Trace
+-- import Debug.Trace
 
 data Term
   = Term !Text !(Set Text) ![Term]
@@ -86,61 +87,64 @@ check (tm :< ty) = join $ ReaderT $ \Env{_rules} -> getFirst $
         tmAssignments <- matchPatternVars ruleTm tm
         tyAssignments <- matchPatternVars ruleTy ty
 
-        traceM $ "hyps: " ++ show hyps
-        traceM $ "ruleTm: " ++ show ruleTm
-        traceM $ "ruleTy: " ++ show ruleTy
-        traceM $ "tmAssignments: " ++ show tmAssignments
-        traceM $ "tyAssignments: " ++ show tyAssignments
+        -- traceM "check\n====="
+        -- traceM $ "hyps: " ++ show hyps
+        -- traceM $ "tm: " ++ show tm
+        -- traceM $ "ruleTm: " ++ show ruleTm
+        -- traceM $ "ty: " ++ show ty
+        -- traceM $ "ruleTy: " ++ show ruleTy
+        -- traceM $ "tmAssignments: " ++ show tmAssignments
+        -- traceM $ "tyAssignments: " ++ show tyAssignments
 
         Just $ for_ hyps $ \case
           (ctx, CheckingRule  (hypTm :<= hypTy)) -> do
-            tm' <- lift $ instantiate tmAssignments hypTm
-            ty' <- lift $ instantiate tyAssignments hypTy
-            traceM $ "tm': " ++ show tm'
-            traceM $ "ty': " ++ show ty'
-            local (varTypes <>~ ctx) $
-              check $ tm' :< ty'
+            tm'  <- lift $ instantiate tmAssignments hypTm
+            ty'  <- lift $ instantiate tyAssignments hypTy
+            ctx' <- lift $ traverse (instantiate tyAssignments) ctx
+            local (varTypes <>~ ctx') $ check $ tm' :< ty'
           (ctx, InferenceRule (hypTm :=> hypTy)) -> do
-            tm' <- lift $ instantiate tmAssignments hypTm
-            ty' <- local (varTypes <>~ ctx) $ infer tm'
-            -- TODO: propagate unification information
-            lift $ checkEq hypTy ty')
+            tm'  <- lift $ instantiate tmAssignments hypTm
+            ty'  <- lift $ instantiate tyAssignments hypTy
+            ctx' <- lift $ traverse (instantiate tyAssignments) ctx
+            ty'' <- local (varTypes <>~ ctx') $ infer tm'
+            lift $ checkEq ty' ty'')
     _rules
 
 instantiate :: Map Text Term -> Term -> Maybe Term
 instantiate env (Term tag names subtms)
-  = let env' = Map.withoutKeys env names
-    in Term tag names <$> traverse (instantiate env') subtms
+  = Term tag names <$> traverse (instantiate env') subtms
+      where env' = Map.withoutKeys env names
 instantiate env (Var v)
   = env ^? ix v
 
 infer :: Term -> Check Term
-infer tm = join $ ReaderT $ \Env{_rules} -> getFirst $
+infer tm = (join $ ReaderT $ \Env{_rules} -> getFirst $
   foldMap
     (First . \case
       Rule _ CheckingRule{} -> Nothing
       Rule hyps (InferenceRule (ruleTm :=> ruleTy)) -> do
         tmAssignments <- matchPatternVars ruleTm tm
 
-        traceM $ "hyps: " ++ show hyps
-        traceM $ "ruleTm: " ++ show ruleTm
-        traceM $ "ruleTy: " ++ show ruleTy
-        traceM $ "tmAssignments: " ++ show tmAssignments
+--         traceM "infer\n====="
+--         traceM $ "hyps: " ++ show hyps
+--         traceM $ "ruleTm: " ++ show ruleTm
+--         traceM $ "ruleTy: " ++ show ruleTy
+--         traceM $ "tmAssignments: " ++ show tmAssignments
 
         Just $ do
           for_ hyps $ \case
             (ctx, CheckingRule  (hypTm :<= hypTy)) -> do
-              traceM $ "hypTm: " ++ show hypTm
-              traceM $ "hypTy: " ++ show hypTy
               tm' <- lift $ instantiate tmAssignments hypTm
               ty' <- lift $ instantiate tmAssignments hypTy
-              traceM $ "tm': " ++ show tm'
-              traceM $ "ty': " ++ show ty'
               local (varTypes <>~ ctx) $ check $ tm' :< ty'
             (ctx, InferenceRule (hypTm :=> hypTy)) -> do
               tm' <- lift $ instantiate tmAssignments hypTm
               ty' <- local (varTypes <>~ ctx) $ infer tm'
-              -- TODO: propagate unification information
               lift $ checkEq hypTy ty'
           lift $ instantiate tmAssignments ruleTy)
-    _rules
+    _rules) <|> ctxInfer tm
+
+ctxInfer :: Term -> Check Term
+ctxInfer = lift <=< \case
+  Term{} -> pure Nothing
+  Var v  -> view $ varTypes . at v
