@@ -6,19 +6,19 @@ import Data.Foldable             (for_)
 import Control.Monad             (join)
 import Data.Monoid               (First(First, getFirst))
 import Data.Text                 (Text)
-import Control.Lens              (makeLenses, (^?), ix)
+import Control.Lens              (makeLenses, (^?), ix, (<>~))
 import Control.Monad.Reader
-import Control.Monad.State
 import Control.Monad.Trans.Class (lift)
 import Data.Map                  (Map)
 import qualified Data.Map        as Map
+import Data.Set (Set)
 
 import Lvca.Util
 
 import Debug.Trace
 
 data Term
-  = Term !Text ![Term]
+  = Term !Text !(Set Text) ![Term]
   | Var !Text
   deriving (Eq, Show)
 
@@ -30,64 +30,55 @@ data InferenceRule = Term :=> Term
 data CheckingRule = Term :<= Term
   deriving Show
 
+type Ctx = Map Text Term
+
 data TypingClause
   = InferenceRule !InferenceRule
   | CheckingRule  !CheckingRule
   deriving Show
 
 data Rule = Rule
-  { _hypotheses :: ![TypingClause]
+  { _hypotheses :: ![(Ctx, TypingClause)]
   , _conclusion :: !TypingClause
   }
 
-newtype Env = Env { _rules :: [Rule] }
-newtype VarTys = VarTys { _varTypes :: Map Text Term }
+data Env = Env
+  { _rules    :: ![Rule]
+  , _varTypes :: !(Map Text Term)
+  -- , _arities :: Map Text Int
+  }
 
 makeLenses ''Env
-makeLenses ''VarTys
 
-type Check a = ReaderT Env (StateT VarTys Maybe) a
+type Check a = ReaderT Env Maybe a
 
--- XXX what to do with VarTys?
 runCheck :: Env -> Check a -> Maybe a
-runCheck env = (`evalStateT` VarTys Map.empty) . (`runReaderT` env)
+runCheck = flip runReaderT
 
 data Typing = Term :< Term
 
-unify :: Term -> Term -> Maybe Term
-unify (Term t1 ts1) (Term t2 ts2)
+checkEq :: Term -> Term -> Maybe ()
+checkEq (Term t1 _ ts1) (Term t2 _ ts2)
   = if t1 == t2
-    then Term t1 <$> (join $ fmap sequence $ pairWith unify ts1 ts2)
+    then join $ sequence_ <$> pairWith checkEq ts1 ts2
     else Nothing
--- XXX this is wrong
-unify (Var a) (Var b) = if a == b then Just (Var a) else Nothing
-unify Var{} t@Term{} = Just t
-unify t@Term{} Var{} = Just t
-
--- saturate :: Term -> Check Term
--- saturate (Term tag subtms) = Term tag <$> traverse saturate subtms
--- saturate v@(Var name) = do
---   ty <- use $ varTypes . at name
---   case ty of
---     Nothing  -> pure v
---     Just val -> pure val
+checkEq (Var a) (Var b) = if a == b then Just () else Nothing
+checkEq Var{} Term{} = Just ()
+checkEq Term{} Var{} = Just ()
 
 -- | Match a pattern (on the left) with a term (containing no variables).
 matchPatternVars :: Term -> Term -> Maybe (Map Text Term)
 matchPatternVars (Var v) tm
   = Just $ Map.singleton v tm
-matchPatternVars (Term head1 args1) (Term head2 args2)
+matchPatternVars (Term head1 _ args1) (Term head2 _ args2)
   | head1 == head2
   && length args1 == length args2
   = Map.unions <$> traverse (uncurry matchPatternVars) (zip args1 args2)
 matchPatternVars _ _
   = Nothing
 
-liftMaybe :: Maybe a -> Check a
-liftMaybe = lift . lift
-
 check :: Typing -> Check ()
-check (tm :< ty) = join $ ReaderT $ \Env{_rules} -> lift $ getFirst $
+check (tm :< ty) = join $ ReaderT $ \Env{_rules} -> getFirst $
   foldMap
     (First . \case
       Rule _ InferenceRule{} -> Nothing
@@ -102,25 +93,29 @@ check (tm :< ty) = join $ ReaderT $ \Env{_rules} -> lift $ getFirst $
         traceM $ "tyAssignments: " ++ show tyAssignments
 
         Just $ for_ hyps $ \case
-          CheckingRule  (hypTm :<= hypTy) -> do
-            tm' <- liftMaybe $ instantiate tmAssignments hypTm
-            ty' <- liftMaybe $ instantiate tyAssignments hypTy
+          (ctx, CheckingRule  (hypTm :<= hypTy)) -> do
+            tm' <- lift $ instantiate tmAssignments hypTm
+            ty' <- lift $ instantiate tyAssignments hypTy
             traceM $ "tm': " ++ show tm'
             traceM $ "ty': " ++ show ty'
-            check $ tm' :< ty'
-          InferenceRule (hypTm :=> hypTy) -> do
-            tm' <- liftMaybe $ instantiate tmAssignments hypTm
-            ty' <- infer tm'
+            local (varTypes <>~ ctx) $
+              check $ tm' :< ty'
+          (ctx, InferenceRule (hypTm :=> hypTy)) -> do
+            tm' <- lift $ instantiate tmAssignments hypTm
+            ty' <- local (varTypes <>~ ctx) $ infer tm'
             -- TODO: propagate unification information
-            void $ liftMaybe $ unify hypTy ty')
+            lift $ checkEq hypTy ty')
     _rules
 
 instantiate :: Map Text Term -> Term -> Maybe Term
-instantiate env (Term tag subtms) = Term tag <$> traverse (instantiate env) subtms
-instantiate env (Var v)          = env ^? ix v
+instantiate env (Term tag names subtms)
+  = let env' = Map.withoutKeys env names
+    in Term tag names <$> traverse (instantiate env') subtms
+instantiate env (Var v)
+  = env ^? ix v
 
 infer :: Term -> Check Term
-infer tm = join $ ReaderT $ \Env{_rules} -> lift $ getFirst $
+infer tm = join $ ReaderT $ \Env{_rules} -> getFirst $
   foldMap
     (First . \case
       Rule _ CheckingRule{} -> Nothing
@@ -134,19 +129,18 @@ infer tm = join $ ReaderT $ \Env{_rules} -> lift $ getFirst $
 
         Just $ do
           for_ hyps $ \case
-            CheckingRule  (hypTm :<= hypTy) -> do
+            (ctx, CheckingRule  (hypTm :<= hypTy)) -> do
               traceM $ "hypTm: " ++ show hypTm
               traceM $ "hypTy: " ++ show hypTy
-              tm' <- liftMaybe $ instantiate tmAssignments hypTm
-              ty' <- liftMaybe $ instantiate tmAssignments hypTy
+              tm' <- lift $ instantiate tmAssignments hypTm
+              ty' <- lift $ instantiate tmAssignments hypTy
               traceM $ "tm': " ++ show tm'
               traceM $ "ty': " ++ show ty'
-              check $ tm' :< ty'
-            InferenceRule (hypTm :=> hypTy) -> do
-              tm' <- liftMaybe $ instantiate tmAssignments hypTm
-              ty' <- infer tm'
+              local (varTypes <>~ ctx) $ check $ tm' :< ty'
+            (ctx, InferenceRule (hypTm :=> hypTy)) -> do
+              tm' <- lift $ instantiate tmAssignments hypTm
+              ty' <- local (varTypes <>~ ctx) $ infer tm'
               -- TODO: propagate unification information
-              void $ liftMaybe $ unify hypTy ty'
-          liftMaybe $ instantiate tmAssignments ruleTy)
-          -- saturate ruleTy)
+              lift $ checkEq hypTy ty'
+          lift $ instantiate tmAssignments ruleTy)
     _rules
