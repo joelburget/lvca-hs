@@ -15,7 +15,7 @@ import Data.Foldable             (for_)
 import Data.Map                  (Map)
 import qualified Data.Map        as Map
 import Data.Monoid               (First(First, getFirst))
-import Data.Set (Set)
+import qualified Data.Set        as Set
 import Data.Text                 (Text)
 
 import Lvca.Util
@@ -30,7 +30,7 @@ import Lvca.Util
 -- Bidirectional typechecking is, after all, a strategy for algorithmization.
 
 data Term
-  = Term !Text !(Set Text) ![Term]
+  = Term !Text ![([Text], Term)]
   | Var !Text
   deriving (Eq, Show)
 
@@ -78,31 +78,44 @@ data Typing = Term :< Term
 type MonadMaybe m = (Alternative m, MonadError () m)
 
 checkEq :: MonadMaybe m => Term -> Term -> m ()
-checkEq (Term t1 _ ts1) (Term t2 _ ts2)
+checkEq (Term t1 ts1) (Term t2 ts2)
   = if t1 == t2
-    then join $ sequence_ <$> (pairWith checkEq ts1 ts2 ?? ())
+    then join $ sequence_ <$> fromMaybe (pairWith checkEq' ts1 ts2)
     else empty
 checkEq (Var a) (Var b) = if a == b then pure () else empty
 checkEq Var{} Term{} = pure ()
 checkEq Term{} Var{} = pure ()
 
+-- XXX renaming
+checkEq' :: MonadMaybe m => ([Text], Term) -> ([Text], Term) -> m ()
+checkEq' (_, t1) (_, t2) = checkEq t1 t2
+
 -- | Match a pattern (on the left) with a term (containing no variables).
 matchPatternVars :: MonadMaybe m => Term -> Term -> m (Map Text Term)
 matchPatternVars (Var v) tm
   = pure $ Map.singleton v tm
-matchPatternVars (Term head1 _ args1) (Term head2 _ args2)
+matchPatternVars (Term head1 args1) (Term head2 args2)
   | head1 == head2
   && length args1 == length args2
-  = Map.unions <$> traverse (uncurry matchPatternVars) (zip args1 args2)
+  = Map.unions <$> traverse (uncurry matchPatternVars') (zip args1 args2)
 matchPatternVars _ _
   = empty
 
+-- XXX renaming
+matchPatternVars'
+  :: MonadMaybe m
+  => ([Text], Term) -> ([Text], Term) -> m (Map Text Term)
+matchPatternVars' (_, t1) (_, t2) = matchPatternVars t1 t2
+
 instantiate :: MonadMaybe m => Map Text Term -> Term -> m Term
-instantiate env (Term tag names subtms)
-  = Term tag names <$> traverse (instantiate env') subtms
-      where env' = Map.withoutKeys env names
+instantiate env (Term tag subtms)
+  = Term tag <$> traverse (instantiate' env) subtms
 instantiate env (Var v)
   = env ^? ix v ?? ()
+
+instantiate' :: MonadMaybe m => Map Text Term -> ([Text], Term) -> m ([Text], Term)
+instantiate' env (names, tm)
+  = (names,) <$> instantiate (Map.withoutKeys env (Set.fromList names)) tm
 
 fromMaybe :: MonadMaybe m => Maybe a -> m a
 fromMaybe m = m ?? ()

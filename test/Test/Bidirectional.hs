@@ -2,7 +2,6 @@
 module Test.Bidirectional where
 
 import qualified Data.Map        as Map
-import qualified Data.Set as Set
 import Data.Text (Text)
 import EasyTest
 
@@ -10,23 +9,32 @@ import Lvca.Bidirectional
 
 true, false, bool :: Term
 
-true  = Term "true"  Set.empty []
-false = Term "false" Set.empty []
-bool  = Term "Bool"  Set.empty []
+true  = Term "true"  []
+false = Term "false" []
+bool  = Term "Bool"  []
 
 ite :: Term -> Term -> Term -> Term
-ite t1 t2 t3 = Term "ite" Set.empty [ t1, t2, t3 ]
+ite t1 t2 t3 = Term "ite" [ ([], t1), ([], t2), ([], t3) ]
 
 lam :: Text -> Term -> Term
-lam x t = Term "lam" (Set.singleton x) [ t ]
+lam x t = Term "lam" [ ([x], t) ]
 
 app, arr, annot :: Term -> Term -> Term
-app   t1 t2 = Term "app"   Set.empty [ t1, t2 ]
-arr   t1 t2 = Term "arr"   Set.empty [ t1, t2 ]
-annot tm ty = Term "annot" Set.empty [ tm, ty ]
+app   t1 t2 = Term "app"   [ ([], t1), ([], t2) ]
+arr   t1 t2 = Term "arr"   [ ([], t1), ([], t2) ]
+annot tm ty = Term "annot" [ ([], tm), ([], ty) ]
 
 bnot :: Term -> Term
 bnot tm = ite tm false true
+
+idTm, idTm', notTm, notTm' :: Term
+idTm = lam "x" (Var "x")
+idTm' = annot idTm b2b
+notTm = lam "x" (bnot (Var "x"))
+notTm' = annot notTm b2b
+
+b2b :: Term
+b2b = arr bool bool
 
 infix 0 .--
 infix 4 .=>
@@ -96,9 +104,9 @@ checkingTests = scope "bidirectional" $ tests
   , scope "4" $ example $ runCheck' env (check (annot false bool :< bool)) === Just ()
   , scope "5" $ example $ runCheck' env (infer (annot false bool))         === Just bool
   , scope "6" $ example $
-    runCheck' env (check (idTm :< arr bool bool))       === Just ()
+    runCheck' env (check (idTm :< b2b))                 === Just ()
   , scope "7" $ example $
-    runCheck' env (infer idTm')                         === Just (arr bool bool)
+    runCheck' env (infer idTm')                         === Just b2b
   , scope "8" $ example $
     runCheck' env (infer (app idTm' true))              === Just bool
   , scope "9" $ example $
@@ -108,13 +116,7 @@ checkingTests = scope "bidirectional" $ tests
   , scope "11" $ example $
     runCheck' env (check (ite true true false :< bool)) === Just ()
   , scope "12" $ example $
-    runCheck' env (check (notTm :< arr bool bool))      === Just ()
+    runCheck' env (check (notTm :< b2b))                === Just ()
   , scope "12" $ example $
-    runCheck' env (infer notTm')                        === Just (arr bool bool)
+    runCheck' env (infer notTm')                        === Just b2b
   ]
-
-idTm, idTm', notTm, notTm' :: Term
-idTm = lam "x" (Var "x")
-idTm' = annot idTm (arr bool bool)
-notTm = lam "x" (bnot (Var "x"))
-notTm' = annot notTm (arr bool bool)
