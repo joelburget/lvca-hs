@@ -25,6 +25,9 @@ app   t1 t2 = Term "app"   Set.empty [ t1, t2 ]
 arr   t1 t2 = Term "arr"   Set.empty [ t1, t2 ]
 annot tm ty = Term "annot" Set.empty [ tm, ty ]
 
+bnot :: Term -> Term
+bnot tm = ite tm false true
+
 infix 0 .--
 infix 4 .=>
 infix 4 .<=
@@ -87,16 +90,31 @@ env =
 
 checkingTests :: Test
 checkingTests = scope "bidirectional" $ tests
-  [ scope "1" $ example $ runCheck env (infer true)                       === Just bool
-  , scope "2" $ example $ runCheck env (infer false)                      === Just bool
-  , scope "3" $ example $ runCheck env (check (false :< bool))            === Just ()
-  , scope "4" $ example $ runCheck env (check (annot false bool :< bool)) === Just ()
-  , scope "5" $ example $ runCheck env (infer (annot false bool))         === Just bool
+  [ scope "1" $ example $ runCheck' env (infer true)                       === Just bool
+  , scope "2" $ example $ runCheck' env (infer false)                      === Just bool
+  , scope "3" $ example $ runCheck' env (check (false :< bool))            === Just ()
+  , scope "4" $ example $ runCheck' env (check (annot false bool :< bool)) === Just ()
+  , scope "5" $ example $ runCheck' env (infer (annot false bool))         === Just bool
   , scope "6" $ example $
-    runCheck env (check (idTm :< arr bool bool)) === Just ()
+    runCheck' env (check (idTm :< arr bool bool))       === Just ()
   , scope "7" $ example $
-    runCheck env (infer idTm') === Just (arr bool bool)
+    runCheck' env (infer idTm')                         === Just (arr bool bool)
+  , scope "8" $ example $
+    runCheck' env (infer (app idTm' true))              === Just bool
+  , scope "9" $ example $
+    runCheck' env (infer (app idTm' (app idTm' true)))  === Just bool
+  , scope "10" $ example $
+    runCheck' env (check (ite true true false :< bool)) === Just ()
+  , scope "11" $ example $
+    runCheck' env (check (ite true true false :< bool)) === Just ()
+  , scope "12" $ example $
+    runCheck' env (check (notTm :< arr bool bool))      === Just ()
+  , scope "12" $ example $
+    runCheck' env (infer notTm')                        === Just (arr bool bool)
   ]
 
+idTm, idTm', notTm, notTm' :: Term
 idTm = lam "x" (Var "x")
 idTm' = annot idTm (arr bool bool)
+notTm = lam "x" (bnot (Var "x"))
+notTm' = annot notTm (arr bool bool)
