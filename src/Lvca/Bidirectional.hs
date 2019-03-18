@@ -82,8 +82,8 @@ type MonadMaybe m = (Alternative m, MonadError () m)
 checkEq :: MonadCheck m => Term -> Term -> m ()
 checkEq (Term t1 ts1) (Term t2 ts2)
   = if t1 == t2
-    then join $ sequence_ <$> fromMaybe "checkEq mismatched term lengths"
-           (pairWith checkEq' ts1 ts2)
+    then join $ sequence_ <$>
+           (pairWith checkEq' ts1 ts2 ?? "checkEq mismatched term lengths")
     else throwError $ "checkEq mismatched terms: " ++ Text.unpack t1 ++
            " vs " ++ Text.unpack t2
 checkEq (Var a) (Var b) = if a == b then pure () else throwError $
@@ -119,9 +119,6 @@ instantiate env (Var v)
 instantiate' :: MonadCheck m => Map Text Term -> ([Text], Term) -> m ([Text], Term)
 instantiate' env (names, tm)
   = (names,) <$> instantiate (Map.withoutKeys env (Set.fromList names)) tm
-
-fromMaybe :: MonadCheck m => String -> Maybe a -> m a
-fromMaybe msg m = m ?? msg
 
 check :: Typing -> Check ()
 check (tm :< ty) = do
@@ -196,7 +193,7 @@ infer tm = do
 
 ctxInfer :: Term -> Check Term
 ctxInfer = \case
-  Var v -> view (varTypes . at v) >>=
-    fromMaybe ("Variable not found in context: " ++ Text.unpack v)
+  Var v -> view (varTypes . at v) ???
+    ("Variable not found in context: " ++ Text.unpack v)
   tm    -> throwError $
     "found no matching inference rule for this term: " ++ show tm
