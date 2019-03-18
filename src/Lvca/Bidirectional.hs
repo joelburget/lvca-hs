@@ -3,11 +3,12 @@
 {-# LANGUAGE TemplateHaskell        #-}
 module Lvca.Bidirectional where
 
+import Data.Map.Merge.Lazy       as Map
 import Control.Monad.Error.Class
 import Control.Monad.Trans.Except
 import Control.Applicative
 import Control.Monad             (join)
-import Control.Lens              (makeLenses, (^?), at, ix, (<>~), (<>=), view)
+import Control.Lens              (makeLenses, (^?), at, ix, (%~), (%=), view)
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Class (lift)
@@ -110,78 +111,98 @@ instantiate env (Term tag subtms)
 instantiate env (Var v)
   = env ^? ix v ?? ("instantiate couldn't find variable " ++ Text.unpack v)
 
-instantiate' :: MonadCheck m => Map Text Term -> ([Text], Term) -> m ([Text], Term)
+instantiate'
+  :: MonadCheck m => Map Text Term -> ([Text], Term) -> m ([Text], Term)
 instantiate' env (names, tm)
   = (names,) <$> instantiate (Map.withoutKeys env (Set.fromList names)) tm
 
 check :: Typing -> Check ()
 check (tm :< ty) = do
   Env{_rules} <- ask
-  let matchedRule :: Maybe (Check ())
-      matchedRule = getFirst $ foldMap
-        (First . \case
-          Rule _ InferenceRule{} -> Nothing
-          Rule hyps (CheckingRule (ruleTm :<= ruleTy)) -> do
-            tmAssignments <- matchPatternVars ruleTm tm
-            tyAssignments <- matchPatternVars ruleTy ty
 
-            Just $ flip evalStateT Map.empty $
-              for_ hyps $ \case
-                (patternCtx, CheckingRule (hypTm :<= hypTy)) -> do
-                  ctxState <- get
-                  let ctx = ctxState <> patternCtx
+  let matchRule = \case
+        Rule _ InferenceRule{} -> Nothing
+        Rule hyps (CheckingRule (ruleTm :<= ruleTy)) -> do
+
+          -- Find the terms which correspond to metavars in the typing rule.
+          -- If the term and type in the focus of this rule match, then the
+          -- rule matches.
+          tmAssignments <- matchPatternVars ruleTm tm
+          tyAssignments <- matchPatternVars ruleTy ty
+
+          Just $ flip evalStateT Map.empty $
+            for_ hyps $ \(patternCtx, rule) -> do
+              ctxState <- get
+              ctx <- traverse (instantiate tyAssignments) (mergeCtx ctxState patternCtx)
+
+              case rule of
+                CheckingRule (hypTm :<= hypTy) -> do
+                  -- TODO: should be (tmAssignments <> tyAssignments) /
+                  -- (tmAssignments <> tyAssignments <> ctx)?
                   tm'  <- instantiate tmAssignments hypTm
                   ty'  <- instantiate tyAssignments hypTy
-                  ctx' <- traverse (instantiate tyAssignments) ctx
-                  lift $ local (varTypes <>~ ctx') $ check $ tm' :< ty'
-                (patternCtx, InferenceRule (hypTm :=> hypTy)) -> do
-                  ctxState <- get
-                  let ctx = ctxState <> patternCtx
-                  ctx' <- traverse (instantiate tyAssignments) ctx
-
+                  lift $ local (varTypes %~ mergeCtx ctx) $ check $ tm' :< ty'
+                InferenceRule (hypTm :=> hypTy) -> do
+                  -- TODO: see above
                   tm'  <- instantiate tmAssignments hypTm
                   ty'  <- instantiate tyAssignments hypTy
-                  ty'' <- lift $ local (varTypes <>~ ctx') $ infer tm'
-                  checkEq ty' ty'')
-        _rules
-  case matchedRule of
+                  ty'' <- lift $ local (varTypes %~ mergeCtx ctx) $ infer tm'
+
+                  -- Update the binding for any type variable we've infered
+                  learnedTys <- matchPatternVars hypTy ty'' ?? "TODO: msg"
+                  id %= mergeCtx learnedTys
+
+                  checkEq ty' ty''
+
+  case getFirst $ foldMap (First . matchRule) _rules of
     Just rule -> rule
     Nothing   -> throwError $ "No matching checking rule found for " ++ show tm
+
+mergeCtx :: Map Text Term -> Map Text Term -> Maybe (Map Text Term)
+mergeCtx = Map.mergeA
+  preserveMissing
+  preserveMissing
+  (zipWithMaybeAMatched $ \_ x y -> if x == y then Just (Just x) else Nothing)
 
 infer :: Term -> Check Term
 infer tm = do
   Env {_rules} <- ask
-  let matchedRule = getFirst $ foldMap
-        (First . \case
-          Rule _ CheckingRule{} -> Nothing
-          Rule hyps (InferenceRule (ruleTm :=> ruleTy)) -> do
-            assignments <- matchPatternVars ruleTm tm
 
-            pure $ flip evalStateT Map.empty $ do
-              for_ hyps $ \case
-                (patternCtx, CheckingRule  (hypTm :<= hypTy)) -> do
-                  ctxState <- get
-                  let ctx = ctxState <> patternCtx
-                  tm' <- instantiate (assignments <> ctx) hypTm
-                  ty' <- instantiate (assignments <> ctx) hypTy
-                  lift $ local (varTypes <>~ ctx) $ check $ tm' :< ty'
-                (patternCtx, InferenceRule (hypTm :=> hypTy)) -> do
-                  ctxState <- get
-                  let ctx = ctxState <> patternCtx
+  let matchRule = \case
+        Rule _ CheckingRule{} -> Nothing
+        Rule hyps (InferenceRule (ruleTm :=> ruleTy)) -> do
+
+          -- Find the terms which correspond to metavars in the typing rule.
+          -- In contrast to checking, we match only the term in focus.
+          assignments <- matchPatternVars ruleTm tm
+
+          pure $ flip evalStateT Map.empty $ do
+            for_ hyps $ \(patternCtx, rule) -> do
+              ctxState <- get
+              let ctx = ctxState <> patternCtx
+
+              case rule of
+                CheckingRule  (hypTm :<= hypTy) -> do
+                  ctx' <- mergeCtx assignments ctx ?? "bad merge"
+                  tm' <- instantiate ctx' hypTm
+                  ty' <- instantiate ctx' hypTy
+                  lift $ local (varTypes %~ mergeCtx ctx') $ check $ tm' :< ty'
+
+                InferenceRule (hypTm :=> hypTy) -> do
+                  -- TODO: should be (assignments <> ctx)?
                   tm' <- instantiate assignments hypTm
-                  ty' <- lift $ local (varTypes <>~ ctx) $ infer tm'
+                  ty' <- lift $ local (varTypes %~ mergeCtx ctx) $ infer tm'
 
                   -- Update the binding for any type variable we've infered
                   learnedTys <- matchPatternVars hypTy ty' ?? "TODO: msg"
-                  id <>= learnedTys
+                  id %= mergeCtx learnedTys
 
                   checkEq hypTy ty'
 
-              ctxState <- get
-              instantiate (assignments <> ctxState) ruleTy)
-        _rules
+            ctxState <- get
+            instantiate (mergeCtx assignments ctxState) ruleTy
 
-  case matchedRule of
+  case getFirst $ foldMap (First . matchRule) _rules of
     Just rule -> rule
     Nothing   -> ctxInfer tm
 
