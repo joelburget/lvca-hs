@@ -72,7 +72,6 @@ runCheck env c = runExcept $ runReaderT c env
 data Typing = Term :< Term
 
 type MonadCheck m = (Alternative m, MonadError String m)
-type MonadMaybe m = (Alternative m, MonadError () m)
 
 checkEq :: MonadCheck m => Term -> Term -> m ()
 checkEq (Term t1 ts1) (Term t2 ts2)
