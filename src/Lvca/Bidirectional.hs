@@ -8,7 +8,7 @@ import Control.Monad.Error.Class
 import Control.Monad.Trans.Except
 import Control.Applicative
 import Control.Monad             (join)
-import Control.Lens              (makeLenses, (^?), at, ix, (%~), (%=), view)
+import Control.Lens              (makeLenses, (^?), at, ix, view, (.~))
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Class (lift)
@@ -116,6 +116,30 @@ instantiate'
 instantiate' env (names, tm)
   = (names,) <$> instantiate (Map.withoutKeys env (Set.fromList names)) tm
 
+localCtx
+  :: Map Text Term
+  -> Check a
+  -> StateT (Map Text Term) (ReaderT Env (Except String)) a
+localCtx ctx action = do
+  envCtx  <- view varTypes
+  envCtx' <- mergeCtx envCtx ctx
+    ?? "localCtx: failed context merge: " ++ show envCtx ++ " / " ++ show ctx
+  lift $ local (varTypes .~ envCtx') action
+
+mergeCtx :: Map Text Term -> Map Text Term -> Maybe (Map Text Term)
+mergeCtx = Map.mergeA
+  preserveMissing
+  preserveMissing
+  (zipWithMaybeAMatched $ \_ x y -> if x == y then Just (Just x) else Nothing)
+
+updateCtx
+  :: Map Text Term
+  -> StateT (Map Text Term) (ReaderT Env (Except String)) ()
+updateCtx ctx = do
+  stateCtx <- get
+  stateCtx' <- mergeCtx ctx stateCtx ?? "updateCtx: failed context merge"
+  put stateCtx'
+
 check :: Typing -> Check ()
 check (tm :< ty) = do
   Env{_rules} <- ask
@@ -133,7 +157,8 @@ check (tm :< ty) = do
           Just $ flip evalStateT Map.empty $
             for_ hyps $ \(patternCtx, rule) -> do
               ctxState <- get
-              ctx <- traverse (instantiate tyAssignments) (mergeCtx ctxState patternCtx)
+              ctx' <- mergeCtx ctxState patternCtx ?? ""
+              ctx <- traverse (instantiate tyAssignments) ctx'
 
               case rule of
                 CheckingRule (hypTm :<= hypTy) -> do
@@ -141,28 +166,23 @@ check (tm :< ty) = do
                   -- (tmAssignments <> tyAssignments <> ctx)?
                   tm'  <- instantiate tmAssignments hypTm
                   ty'  <- instantiate tyAssignments hypTy
-                  lift $ local (varTypes %~ mergeCtx ctx) $ check $ tm' :< ty'
+                  localCtx ctx $ check $ tm' :< ty'
                 InferenceRule (hypTm :=> hypTy) -> do
                   -- TODO: see above
                   tm'  <- instantiate tmAssignments hypTm
                   ty'  <- instantiate tyAssignments hypTy
-                  ty'' <- lift $ local (varTypes %~ mergeCtx ctx) $ infer tm'
+                  ty'' <- localCtx ctx $ infer tm'
 
                   -- Update the binding for any type variable we've infered
-                  learnedTys <- matchPatternVars hypTy ty'' ?? "TODO: msg"
-                  id %= mergeCtx learnedTys
+                  learnedTys <- matchPatternVars hypTy ty''
+                    ?? "check InferenceRule: failed context merge"
+                  updateCtx learnedTys
 
                   checkEq ty' ty''
 
   case getFirst $ foldMap (First . matchRule) _rules of
     Just rule -> rule
     Nothing   -> throwError $ "No matching checking rule found for " ++ show tm
-
-mergeCtx :: Map Text Term -> Map Text Term -> Maybe (Map Text Term)
-mergeCtx = Map.mergeA
-  preserveMissing
-  preserveMissing
-  (zipWithMaybeAMatched $ \_ x y -> if x == y then Just (Just x) else Nothing)
 
 infer :: Term -> Check Term
 infer tm = do
@@ -186,21 +206,23 @@ infer tm = do
                   ctx' <- mergeCtx assignments ctx ?? "bad merge"
                   tm' <- instantiate ctx' hypTm
                   ty' <- instantiate ctx' hypTy
-                  lift $ local (varTypes %~ mergeCtx ctx') $ check $ tm' :< ty'
+                  localCtx ctx' $ check $ tm' :< ty'
 
                 InferenceRule (hypTm :=> hypTy) -> do
                   -- TODO: should be (assignments <> ctx)?
                   tm' <- instantiate assignments hypTm
-                  ty' <- lift $ local (varTypes %~ mergeCtx ctx) $ infer tm'
+                  ty' <- localCtx ctx $ infer tm'
 
                   -- Update the binding for any type variable we've infered
-                  learnedTys <- matchPatternVars hypTy ty' ?? "TODO: msg"
-                  id %= mergeCtx learnedTys
+                  learnedTys <- matchPatternVars hypTy ty'
+                    ?? "infer InferenceRule: failed context merge"
+                  updateCtx learnedTys
 
                   checkEq hypTy ty'
 
             ctxState <- get
-            instantiate (mergeCtx assignments ctxState) ruleTy
+            ctxState' <- mergeCtx assignments ctxState ?? "TODO"
+            instantiate ctxState' ruleTy
 
   case getFirst $ foldMap (First . matchRule) _rules of
     Just rule -> rule
@@ -212,3 +234,9 @@ ctxInfer = \case
     ("Variable not found in context: " ++ Text.unpack v)
   tm    -> throwError $
     "found no matching inference rule for this term: " ++ show tm
+
+
+-- t2: Term "app" [([],Term "annot" [([],Term "lam" [(["x"],Var "x")]),([],Term "arr" [([],Term "Bool" []),([],Term "Bool" [])])]),([],Term "true" [])]
+
+-- t2: Term "true" []
+
