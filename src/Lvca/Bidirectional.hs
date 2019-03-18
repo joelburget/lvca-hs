@@ -69,11 +69,6 @@ type Check a = ReaderT Env (Except String) a
 runCheck :: Env -> Check a -> Either String a
 runCheck env c = runExcept $ runReaderT c env
 
-runCheck' :: Env -> Check a -> Maybe a
-runCheck' env c = case runCheck env c of
-  Left _  -> Nothing
-  Right a -> Just a
-
 data Typing = Term :< Term
 
 type MonadCheck m = (Alternative m, MonadError String m)
