@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Test.Bidirectional where
 
-import qualified Data.Map        as Map
+import qualified Data.IntMap     as IntMap
 import Data.Text (Text)
 import EasyTest
 
@@ -28,15 +28,16 @@ bnot :: Term -> Term
 bnot tm = ite tm false true
 
 idTm, idTm', notTm, notTm' :: Term
-idTm = lam "x" (Var "x")
+idTm = lam "x" (Bound 0)
 idTm' = annot idTm b2b
-notTm = lam "x" (bnot (Var "x"))
+notTm = lam "x" (bnot (Bound 0))
 notTm' = annot notTm b2b
 
 b2b :: Term
 b2b = arr bool bool
 
-infix 0 .--
+infix 1 .--
+infix 1 |-
 infix 4 .=>
 infix 4 .<=
 
@@ -49,16 +50,19 @@ tm .=> ty = InferenceRule (tm :=> ty)
 (.<=) :: Term -> Term -> TypingClause
 tm .<= ty = CheckingRule (tm :<= ty)
 
+(|-) :: Ctx -> TypingClause -> (Ctx, TypingClause)
+(|-) = (,)
+
 env :: Env
 env =
-  let t   = Var "t"
-      ty  = Var "ty"
-      ty1 = Var "ty1"
-      ty2 = Var "ty2"
-      t1  = Var "t1"
-      t2  = Var "t2"
-      t3  = Var "t3"
-      gamma = Map.empty
+  let t   = Free "t"
+      ty  = Free "ty"
+      ty1 = Free "ty1"
+      ty2 = Free "ty2"
+      t1  = Free "t1"
+      t2  = Free "t2"
+      t3  = Free "t3"
+      gamma = IntMap.empty
   in Env
        [ []
          .--
@@ -67,34 +71,34 @@ env =
          .--
          false .=> bool
 
-       , [ (gamma, t1 .<= bool)
-         , (gamma, t2 .<= ty)
-         , (gamma, t3 .<= ty)
+       , [ gamma |- t1 .<= bool
+         , gamma |- t2 .<= ty
+         , gamma |- t3 .<= ty
          ]
          .--
          ite t1 t2 t3 .<= ty
 
-       , [ (Map.singleton "x" ty1, t .<= ty2)
+       , [ IntMap.singleton 0 ty1 |- t .<= ty2
          ]
          .--
          lam "x" t .<= arr ty1 ty2
 
-       , [ (gamma, t1 .=> arr ty1 ty2)
-         , (gamma, t2 .<= ty1)
+       , [ gamma |- t1 .=> arr ty1 ty2
+         , gamma |- t2 .<= ty1
          ]
          .--
          app t1 t2 .=> ty2
 
        -- important: this rule must go last otherwise it will subsume all other
        -- checking rules
-       , [ (gamma, t .=> ty) ]
+       , [ gamma |- t .=> ty ]
          .--
          t .<= ty
-       , [ (gamma, t .<= ty) ]
+       , [ gamma |- t .<= ty ]
          .--
          annot t ty .=> ty
        ]
-     Map.empty
+     IntMap.empty
 
 checkingTests :: Test
 checkingTests = scope "bidirectional" $ tests

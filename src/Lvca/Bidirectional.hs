@@ -15,8 +15,8 @@ import Control.Monad.Trans.Class (lift)
 import Data.Foldable             (for_)
 import Data.Map                  (Map)
 import qualified Data.Map        as Map
-import Data.Monoid               (First(First, getFirst))
 import qualified Data.Set        as Set
+import Data.Monoid               (First(First, getFirst))
 import Data.Text                 (Text)
 import qualified Data.Text       as Text
 
@@ -33,7 +33,8 @@ import Lvca.Util
 
 data Term
   = Term !Text ![([Text], Term)]
-  | Var !Text
+  | Bound !Int
+  | Free !Text
   deriving (Eq, Show)
 
 type PatternTerm = Term
@@ -46,7 +47,7 @@ data InferenceRule = Term :=> Term
 data CheckingRule = Term :<= Term
   deriving Show
 
-type Ctx = Map Text Term
+type LocalCtx = Map Text Term
 
 data TypingClause
   = InferenceRule !InferenceRule
@@ -54,7 +55,7 @@ data TypingClause
   deriving Show
 
 data Rule = Rule
-  { _hypotheses :: ![(Ctx, TypingClause)]
+  { _hypotheses :: ![(LocalCtx, TypingClause)]
   , _conclusion :: !TypingClause
   }
 
@@ -74,6 +75,9 @@ data Typing = Term :< Term
 
 type MonadCheck m = (Alternative m, MonadError String m)
 
+-- TODO: this is wrong wrt to variables:
+-- * two unequal variables could be instantiated to the same term
+-- * we should check for variables in the context
 checkEq :: MonadCheck m => Term -> Term -> m ()
 checkEq (Term t1 ts1) (Term t2 ts2)
   = if t1 == t2
@@ -81,40 +85,46 @@ checkEq (Term t1 ts1) (Term t2 ts2)
            (pairWith checkEq' ts1 ts2 ?? "checkEq mismatched term lengths")
     else throwError $ "checkEq mismatched terms: " ++ Text.unpack t1 ++
            " vs " ++ Text.unpack t2
-checkEq (Var a) (Var b) = if a == b then pure () else throwError $
-  "unequal vars: " ++ Text.unpack a ++ " vs " ++ Text.unpack b
-checkEq Var{} Term{} = pure ()
-checkEq Term{} Var{} = pure ()
+checkEq (Bound a) (Bound b) = if a == b then pure () else throwError $
+  -- TODO: show names
+  "unequal vars: " ++ show a ++ " vs " ++ show b
+checkEq (Free a) (Free b) = if a == b then pure () else throwError $
+  "unequal vars: " ++ show a ++ " vs " ++ show b
+checkEq Bound{} Term{} = pure ()
+checkEq Term{} Bound{} = pure ()
 
--- XXX renaming
 checkEq' :: MonadCheck m => ([Text], Term) -> ([Text], Term) -> m ()
 checkEq' (_, t1) (_, t2) = checkEq t1 t2
 
 -- | Match a pattern (on the left) with a term (containing no variables).
-matchPatternVars :: Term -> Term -> Maybe (Map Text Term)
-matchPatternVars (Var v) tm
+matchSchemaVars :: Term -> Term -> Maybe (Map Text Term)
+matchSchemaVars (Free v) tm
   = pure $ Map.singleton v tm
-matchPatternVars (Term head1 args1) (Term head2 args2)
+matchSchemaVars (Term head1 args1) (Term head2 args2)
   | head1 == head2
   && length args1 == length args2
-  = Map.unions <$> traverse (uncurry matchPatternVars') (zip args1 args2)
-matchPatternVars _ _
+  = Map.unions <$> traverse (uncurry matchSchemaVars') (zip args1 args2)
+matchSchemaVars _ _
   = Nothing
 
--- XXX renaming
-matchPatternVars' :: ([Text], Term) -> ([Text], Term) -> Maybe (Map Text Term)
-matchPatternVars' (_, t1) (_, t2) = matchPatternVars t1 t2
+matchSchemaVars' :: ([Text], Term) -> ([Text], Term) -> Maybe (Map Text Term)
+matchSchemaVars' (_, t1) (_, t2) = matchSchemaVars t1 t2
 
 instantiate :: MonadCheck m => Map Text Term -> Term -> m Term
 instantiate env (Term tag subtms)
   = Term tag <$> traverse (instantiate' env) subtms
-instantiate env (Var v)
-  = env ^? ix v ?? ("instantiate couldn't find variable " ++ Text.unpack v)
+instantiate env (Free v)
+  -- TODO show name
+  = env ^? ix v ?? "instantiate couldn't find variable " ++ show v
+instantiate env v@Bound{} = pure v
 
 instantiate'
   :: MonadCheck m => Map Text Term -> ([Text], Term) -> m ([Text], Term)
-instantiate' env (names, tm)
-  = (names,) <$> instantiate (Map.withoutKeys env (Set.fromList names)) tm
+instantiate' env (names, tm) = (names,) <$> instantiate (keyUpdate env) tm
+  where keyUpdate m = Map.withoutKeys m (Set.fromList names)
+  -- where keyUpdate m
+  --         = Map Text.mapKeys (\x -> x - length names)
+  --         $ Map Text.withoutKeys m (IntSet.fromList [0.. length names - 1])
 
 localCtx
   :: Map Text Term
@@ -128,9 +138,9 @@ localCtx ctx action = do
 
 mergeCtx :: Map Text Term -> Map Text Term -> Maybe (Map Text Term)
 mergeCtx = Map.mergeA
-  preserveMissing
-  preserveMissing
-  (zipWithMaybeAMatched $ \_ x y -> if x == y then Just (Just x) else Nothing)
+  Map.preserveMissing
+  Map.preserveMissing
+  (Map.zipWithMaybeAMatched $ \_ x y -> if x == y then Just (Just x) else Nothing)
 
 updateCtx
   :: Map Text Term
@@ -148,11 +158,11 @@ check (tm :< ty) = do
         Rule _ InferenceRule{} -> Nothing
         Rule hyps (CheckingRule (ruleTm :<= ruleTy)) -> do
 
-          -- Find the terms which correspond to metavars in the typing rule.
-          -- If the term and type in the focus of this rule match, then the
-          -- rule matches.
-          tmAssignments <- matchPatternVars ruleTm tm
-          tyAssignments <- matchPatternVars ruleTy ty
+          -- Find the terms which correspond to schema varas in the typing
+          -- rule.  If the term and type in the focus of this rule match, then
+          -- the rule matches.
+          tmAssignments <- matchSchemaVars ruleTm tm
+          tyAssignments <- matchSchemaVars ruleTy ty
 
           Just $ flip evalStateT Map.empty $
             for_ hyps $ \(patternCtx, rule) -> do
@@ -174,7 +184,7 @@ check (tm :< ty) = do
                   ty'' <- localCtx ctx $ infer tm'
 
                   -- Update the binding for any type variable we've infered
-                  learnedTys <- matchPatternVars hypTy ty''
+                  learnedTys <- matchSchemaVars hypTy ty''
                     ?? "check InferenceRule: failed context merge"
                   updateCtx learnedTys
 
@@ -186,15 +196,15 @@ check (tm :< ty) = do
 
 infer :: Term -> Check Term
 infer tm = do
-  Env {_rules} <- ask
+  Env{_rules} <- ask
 
   let matchRule = \case
         Rule _ CheckingRule{} -> Nothing
         Rule hyps (InferenceRule (ruleTm :=> ruleTy)) -> do
 
-          -- Find the terms which correspond to metavars in the typing rule.
+          -- Find the terms which correspond to schema vars in the typing rule.
           -- In contrast to checking, we match only the term in focus.
-          assignments <- matchPatternVars ruleTm tm
+          assignments <- matchSchemaVars ruleTm tm
 
           pure $ flip evalStateT Map.empty $ do
             for_ hyps $ \(patternCtx, rule) -> do
@@ -214,7 +224,7 @@ infer tm = do
                   ty' <- localCtx ctx $ infer tm'
 
                   -- Update the binding for any type variable we've infered
-                  learnedTys <- matchPatternVars hypTy ty'
+                  learnedTys <- matchSchemaVars hypTy ty'
                     ?? "infer InferenceRule: failed context merge"
                   updateCtx learnedTys
 
@@ -230,8 +240,9 @@ infer tm = do
 
 ctxInfer :: Term -> Check Term
 ctxInfer = \case
-  Var v -> view (varTypes . at v) ???
-    ("Variable not found in context: " ++ Text.unpack v)
+  Free v -> view (varTypes . at v) ???
+    -- TODO: show name
+    ("Variable not found in context: " ++ show v)
   tm    -> throwError $
     "found no matching inference rule for this term: " ++ show tm
 
