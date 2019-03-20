@@ -16,7 +16,7 @@ module Lvca
   , module Lvca.Util
   ) where
 
-import           Lvca.Bidirectional hiding (_conclusion, Term(..))
+import           Lvca.Bidirectional hiding (_conclusion, Term(..), subst)
 import           Lvca.Brick
 import           Lvca.FunctorUtil
 import           Lvca.Languages.Edits
