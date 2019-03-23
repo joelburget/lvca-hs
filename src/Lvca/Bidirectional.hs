@@ -1,16 +1,13 @@
 {-# LANGUAGE ConstraintKinds        #-}
 {-# LANGUAGE NamedFieldPuns         #-}
 {-# LANGUAGE TemplateHaskell        #-}
-
-{-# LANGUAGE ScopedTypeVariables        #-}
 module Lvca.Bidirectional where
 
 import Data.Map.Merge.Strict       as Map
 import Control.Monad.Error.Class
 import Control.Monad.Trans.Except
 import Control.Applicative
-import Control.Monad             (join)
-import Control.Lens              (makeLenses, (^?), at, ix, view, (.~), (.=), (<&>))
+import Control.Lens              (makeLenses, (^?), at, ix, view, (.~))
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Class (lift)
@@ -21,13 +18,9 @@ import qualified Data.Set        as Set
 import Data.Monoid               (First(First, getFirst))
 import Data.Text                 (Text)
 import qualified Data.Text       as Text
-import Data.List (find)
-import Data.Maybe (fromJust)
-import Data.Traversable (for)
+import Data.Traversable          (for)
 
 import Lvca.Util
-
-import Debug.Trace
 
 -- Note: order matters (!), both the ordering of a set of rules and the
 -- ordering of hypotheses within a rule.
@@ -57,7 +50,7 @@ data InferenceRule = Term :=> Term
 data CheckingRule = Term :<= Term
   deriving Show
 
-type LocalCtx = Map Text Term
+-- type Environment = Map Text Term
 
 data TypingClause
   = InferenceRule !InferenceRule
@@ -65,7 +58,7 @@ data TypingClause
   deriving Show
 
 data Rule = Rule
-  { _hypotheses :: ![(LocalCtx, TypingClause)]
+  { _hypotheses :: ![(Map Text Term, TypingClause)]
   , _conclusion :: !TypingClause
   }
 
@@ -90,116 +83,71 @@ open args (Scope names body)
   | length args /= length names
   = Nothing
   | otherwise
-  = Just $ subst (Map.fromList $ zip names args) body
-
-subst :: Map Text Term -> Term -> Term
-subst m = \case
-  Term name subtms -> Term name $ subtms <&> \(Scope names body)
-    -> Scope names $ subst (Map.withoutKeys m (Set.fromList names)) body
-  v@(Free name) -> case Map.lookup name m of
-    Nothing -> v
-    Just tm -> tm
-  bound -> bound
-
-instantiate :: MonadCheck m => Map Text Term -> Term -> m Term
-instantiate env (Term tag subtms)
-  = fmap (Term tag) $ for subtms $ \(Scope names body)
-    -> Scope names <$> instantiate (Map.withoutKeys env (Set.fromList names)) body
-instantiate env (Free v)
-  -- TODO show name
-  = env ^? ix v ?? "instantiate couldn't find variable " ++ show v
-instantiate _ v@Bound{}
-  = pure v
-
-containsFree :: Text -> Term -> Bool
-containsFree name = \case
-  Free name'    -> name == name'
-  Bound{}       -> False
-  Term _ scopes -> any (\(Scope _ body) -> containsFree name body) scopes
-
--- TODO: this is wrong wrt to variables:
--- * two unequal variables could be instantiated to the same term
--- * we should check for variables in the context
-checkEq :: forall m. MonadCheck m => Term -> Term -> m ()
-checkEq (Term t1 ts1) (Term t2 ts2)
-  = if t1 == t2
-    then join $ fmap sequence_ $
-           pairWith checkEq' ts1 ts2 ?? "checkEq mismatched term lengths"
-    else throwError $ "checkEq mismatched terms: " ++ Text.unpack t1 ++
-           " vs " ++ Text.unpack t2
-    where checkEq' s1@(Scope names1 _) s2@(Scope names2 _)
-            | length names1 /= length names2
-            = throwError "TODO"
+  = open' 0 body
+  where open' offset tm = case tm of
+          Term tag subtms
+            -> fmap (Term tag) $
+              for subtms $ \(Scope binders subtm)
+                  -> Scope binders <$> open' (offset + length binders) subtm
+          Bound i
+            | i >= offset
+            -> args ^? ix (i - offset)
             | otherwise
-            = do
-                  -- find first available name for each variable we're
-                  -- opening
-              let freeVars = Free <$> findFreeScopeNames s1 s2
-              s1' <- open freeVars s1 ?? "failed to open first scope"
-              s2' <- open freeVars s2 ?? "failed to open second scope"
-              checkEq s1' s2'
-checkEq (Bound a) (Bound b) = if a == b then pure () else throwError $
-  -- TODO: show names
-  "unequal bound vars: " ++ show a ++ " vs " ++ show b
-checkEq (Free a) (Free b) = if a == b then pure () else throwError $
-  "unequal free vars: " ++ show a ++ " vs " ++ show b
-checkEq Free{} Term{} = pure ()
-checkEq Term{} Free{} = pure ()
-checkEq a b
-  = throwError $ "checkEq mismatched terms: " ++ show a ++ " / " ++ show b
+            -> Just tm
+          Free{}
+            -> Just tm
 
-findFreeScopeNames :: Scope -> Scope -> [Text]
-findFreeScopeNames (Scope names1 body1) (Scope _ body2)
-  = names1 <&> \name -> fromJust $ find
-      (\name' -> not (containsFree name' body1)
-              && not (containsFree name' body2))
-      (name : ([1 :: Int ..] <&> \i -> name <> tShow i))
+instantiate :: MonadCheck m => Map Text Scope -> Term -> m Term
+instantiate env tm = case tm of
+  Term tag subtms
+    -> fmap (Term tag) $ for subtms $ \(Scope names body) ->
+      Scope names <$> instantiate (Map.withoutKeys env (Set.fromList names)) body
+  Bound{}
+    -> pure tm
+  Free v -> do
+    sc@(Scope names _) <- env ^? ix v
+      ?? "Couldn't find scope in context: " ++ Text.unpack v
+    open (fmap Free names) sc
+      ?? "Failed to open scope: " ++ show sc
 
 -- | Match a pattern (on the left) with a term (containing no variables).
-matchSchemaVars :: Term -> Term -> Maybe (Map Text Term)
+matchSchemaVars :: Term -> Term -> Maybe (Map Text Scope)
 matchSchemaVars (Free v) tm
-  = pure $ Map.singleton v tm
-matchSchemaVars (Term head1 args1) (Term head2 args2)
-  | head1 == head2
+  = pure $ Map.singleton v $ Scope [] tm
+matchSchemaVars (Term tag1 args1) (Term tag2 args2)
+  | tag1 == tag2
   && length args1 == length args2
   = Map.unions <$> zipWithA matchSchemaVars' args1 args2
-    where matchSchemaVars' :: Scope -> Scope -> Maybe (Map Text Term)
-          matchSchemaVars' s1@(Scope names1 _) s2@(Scope names2 _)
-            | length names1 /= length names2
-            = Nothing
-            | otherwise
-            = do
-              let freeVars = Free <$> findFreeScopeNames s1 s2
-              s1' <- open freeVars s1
-              s2' <- open freeVars s2
-              matchSchemaVars s1' s2'
-          zipWithA :: Applicative p => (a -> b -> p c) -> [a] -> [b] -> p [c]
-          zipWithA f x y = sequenceA (zipWith f x y)
+  where matchSchemaVars' :: Scope -> Scope -> Maybe (Map Text Scope)
+        matchSchemaVars' (Scope names1 body1) (Scope names2 body2)
+          | length names1 /= length names2
+          = Nothing
+          | otherwise
+          = fmap (enscope names1) <$> matchSchemaVars body1 body2
 matchSchemaVars _ _
   = Nothing
 
-localCtx
-  :: Map Text Term
-  -> Check a
-  -> StateT (Map Text Term) (ReaderT Env (Except String)) a
-localCtx ctx action = do
-  envCtx  <- view varTypes
-  envCtx' <- mergeCtx envCtx ctx
-    ?? "localCtx: failed context merge: " ++ show envCtx ++ " / " ++ show ctx
-  lift $ local (varTypes .~ envCtx') action
+enscope :: [Text] -> Scope -> Scope
+enscope binders (Scope binders' body) = Scope (binders' <> binders) body
 
-mergeCtx :: Map Text Term -> Map Text Term -> Maybe (Map Text Term)
-mergeCtx = Map.mergeA
+safeMerge
+  :: (MonadCheck m, Eq a, Show a) => Map Text a -> Map Text a -> m (Map Text a)
+safeMerge m1 m2 = Map.mergeA
   Map.preserveMissing
   Map.preserveMissing
-  (Map.zipWithMaybeAMatched $ \_ x y -> if x == y then Just (Just x) else Nothing)
+  (Map.zipWithMaybeAMatched $ \_ x y
+    -> if x == y then Just (Just x) else Nothing)
+  m1
+  m2
+  ?? "failed merge of (" ++ show m1 ++ ") / (" ++ show m2 ++ ")"
 
+-- Merge in the types of any terms we've just learned
 updateCtx
-  :: Map Text Term
-  -> StateT (Map Text Term) (ReaderT Env (Except String)) ()
+  :: Map Text Scope
+  -> StateT (Map Text Scope) (ReaderT Env (Except String)) ()
 updateCtx ctx = do
   stateCtx <- get
-  stateCtx' <- mergeCtx ctx stateCtx ?? "updateCtx: failed context merge"
+  stateCtx' <- safeMerge ctx stateCtx
   put stateCtx'
 
 check :: Typing -> Check ()
@@ -214,37 +162,31 @@ check (tm :< ty) = do
           tmAssignments <- matchSchemaVars ruleTm tm
           tyAssignments <- matchSchemaVars ruleTy ty
 
-          traceM $ "tmAssignments: " ++ show tmAssignments
-          traceM $ "tyAssignments: " ++ show tyAssignments
-
           Just $ flip evalStateT Map.empty $ do
-            assignments <- mergeCtx tmAssignments tyAssignments
-              ?? "check failed to merge contexts"
-            id .= assignments
+            vts <- view varTypes
+
+            ctxState     <- get
+            assignments  <- safeMerge tmAssignments tyAssignments
+            assignments' <- safeMerge ctxState assignments
 
             for_ hyps $ \(patternCtx, rule) -> do
-              ctxState <- get
-              ctx      <- mergeCtx ctxState patternCtx ?? "TODO"
-              -- ctx      <- traverse (instantiate assignments) ctx'
+              patternCtx' <- traverse (instantiate assignments') patternCtx
+              localCtx    <- safeMerge vts patternCtx'
 
               case rule of
                 CheckingRule (hypTm :<= hypTy) -> do
-                  tm'  <- instantiate ctx hypTm
-                  ty'  <- instantiate ctx hypTy
-                  localCtx ctx $ check $ tm' :< ty'
+                  tm'  <- instantiate assignments' hypTm
+                  ty'  <- instantiate assignments' hypTy
+                  lift $ local (varTypes .~ localCtx) $ check $ tm' :< ty'
 
                 InferenceRule (hypTm :=> hypTy) -> do
-                  -- TODO: see above
-                  tm'  <- instantiate ctx hypTm
-                  ty'  <- instantiate ctx hypTy
-                  ty'' <- localCtx ctx $ infer tm'
+                  tm' <- instantiate assignments' hypTm
+                  ty' <- lift $ local (varTypes .~ localCtx) $ infer tm'
 
                   -- Update the binding for any type variable we've infered
-                  learnedTys <- matchSchemaVars hypTy ty''
+                  learnedTys <- matchSchemaVars hypTy ty'
                     ?? "check InferenceRule: failed context merge"
                   updateCtx learnedTys
-
-                  checkEq ty' ty''
 
   Env{_rules} <- ask
   case getFirst $ foldMap (First . matchRule) _rules of
@@ -261,31 +203,33 @@ infer tm = do
           -- In contrast to checking, we match only the term in focus.
           assignments <- matchSchemaVars ruleTm tm
 
-          pure $ flip evalStateT assignments $ do
+          pure $ flip evalStateT Map.empty $ do
+            vts <- view varTypes
+
             for_ hyps $ \(patternCtx, rule) -> do
-              ctxState <- get
-              ctx      <- mergeCtx ctxState patternCtx ?? "TODO"
+              ctxState     <- get
+              assignments' <- safeMerge ctxState assignments
+
+              patternCtx' <- traverse (instantiate assignments') patternCtx
+              localCtx    <- safeMerge vts patternCtx'
 
               case rule of
                 CheckingRule  (hypTm :<= hypTy) -> do
-                  tm' <- instantiate ctx hypTm
-                  ty' <- instantiate ctx hypTy
-                  localCtx ctx $ check $ tm' :< ty'
+                  tm' <- instantiate assignments' hypTm
+                  ty' <- instantiate assignments' hypTy
+                  lift $ local (varTypes .~ localCtx) $ check $ tm' :< ty'
 
                 InferenceRule (hypTm :=> hypTy) -> do
-                  tm'  <- instantiate ctx hypTm
-                  ty'  <- instantiate ctx hypTy
-                  ty'' <- localCtx ctx $ infer tm'
+                  tm' <- instantiate assignments' hypTm
+                  ty' <- lift $ local (varTypes .~ localCtx) $ infer tm'
 
                   -- Update the binding for any type variable we've infered
-                  learnedTys <- matchSchemaVars hypTy ty''
+                  learnedTys <- matchSchemaVars hypTy ty'
                     ?? "infer InferenceRule: failed context merge"
                   updateCtx learnedTys
 
-                  checkEq ty' ty''
-
-            ctxState <- get
-            ctxState' <- mergeCtx assignments ctxState ?? "TODO"
+            ctxState  <- get
+            ctxState' <- safeMerge assignments ctxState
             instantiate ctxState' ruleTy
 
   Env{_rules} <- ask
@@ -295,14 +239,8 @@ infer tm = do
 
 ctxInfer :: Term -> Check Term
 ctxInfer = \case
-  Free v -> view (varTypes . at v) ???
+  Free v -> view (varTypes . at v)
     -- TODO: show name
-    "Variable not found in context: " ++ show v
+    ??? "Variable not found in context: " ++ show v
   tm     -> throwError $
     "found no matching inference rule for this term: " ++ show tm
-
-
--- t2: Term "app" [([],Term "annot" [([],Term "lam" [(["x"],Var "x")]),([],Term "arr" [([],Term "Bool" []),([],Term "Bool" [])])]),([],Term "true" [])]
-
--- t2: Term "true" []
-

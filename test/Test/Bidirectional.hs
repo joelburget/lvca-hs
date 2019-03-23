@@ -1,6 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 module Test.Bidirectional where
 
+import           Data.Map     (Map)
 import qualified Data.Map     as Map
 import Data.Text (Text)
 import EasyTest
@@ -41,7 +42,7 @@ infix 1 |-
 infix 4 .=>
 infix 4 .<=
 
-(.--) :: [(LocalCtx, TypingClause)] -> TypingClause -> Rule
+(.--) :: [(Map Text Term, TypingClause)] -> TypingClause -> Rule
 hyps .-- conc = Rule hyps conc
 
 (.=>) :: Term -> Term -> TypingClause
@@ -50,7 +51,7 @@ tm .=> ty = InferenceRule (tm :=> ty)
 (.<=) :: Term -> Term -> TypingClause
 tm .<= ty = CheckingRule (tm :<= ty)
 
-(|-) :: LocalCtx -> TypingClause -> (LocalCtx, TypingClause)
+(|-) :: Map Text Term -> TypingClause -> (Map Text Term, TypingClause)
 (|-) = (,)
 
 env :: Env
@@ -101,27 +102,33 @@ env =
        ]
        Map.empty
 
+test = runCheck env (infer (app idTm' true))
+
 checkingTests :: Test
 checkingTests = scope "bidirectional" $ tests
-  [ scope "1" $ example $ runCheck env (infer true)                       === Right bool
+  [ scope "matching" $ example $
+    matchSchemaVars (Term "lam" [ Scope ["x"] (Free "t") ]) (lam "x" (Bound 0))
+    ===
+    Just (Map.singleton "t" (Scope ["x"] (Bound 0)))
+  , scope "1" $ example $ runCheck env (infer true)                       === Right bool
   , scope "2" $ example $ runCheck env (infer false)                      === Right bool
   , scope "3" $ example $ runCheck env (check (false :< bool))            === Right ()
   , scope "4" $ example $ runCheck env (check (annot false bool :< bool)) === Right ()
-  -- , scope "5" $ example $ runCheck env (infer (annot false bool))         === Right bool
-  -- , scope "6" $ example $
-  --   runCheck env (check (idTm :< b2b))                 === Right ()
-  -- , scope "7" $ example $
-  --   runCheck env (infer idTm')                         === Right b2b
-  -- , scope "8" $ example $
-  --   runCheck env (infer (app idTm' true))              === Right bool
-  -- , scope "9" $ example $
-  --   runCheck env (infer (app idTm' (app idTm' true)))  === Right bool
-  -- , scope "10" $ example $
-  --   runCheck env (check (ite true true false :< bool)) === Right ()
-  -- , scope "11" $ example $
-  --   runCheck env (check (ite true true false :< bool)) === Right ()
-  -- , scope "12" $ example $
-  --   runCheck env (check (notTm :< b2b))                === Right ()
-  -- , scope "12" $ example $
-  --   runCheck env (infer notTm')                        === Right b2b
+  , scope "5" $ example $ runCheck env (infer (annot false bool))         === Right bool
+  , scope "6" $ example $
+    runCheck env (check (idTm :< b2b))                 === Right ()
+  , scope "7" $ example $
+    runCheck env (infer idTm')                         === Right b2b
+  , scope "8" $ example $
+    runCheck env (infer (app idTm' true))              === Right bool
+  , scope "9" $ example $
+    runCheck env (infer (app idTm' (app idTm' true)))  === Right bool
+  , scope "10" $ example $
+    runCheck env (check (ite true true false :< bool)) === Right ()
+  , scope "11" $ example $
+    runCheck env (check (ite true true false :< bool)) === Right ()
+  , scope "12" $ example $
+    runCheck env (check (notTm :< b2b))                === Right ()
+  , scope "12" $ example $
+    runCheck env (infer notTm')                        === Right b2b
   ]

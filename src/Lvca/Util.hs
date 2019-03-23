@@ -28,6 +28,9 @@ ipairWith = ipairWith' 0
   ipairWith' i f  (a:as) (b:bs) = (f i a b :) <$> ipairWith' (succ i) f as bs
   ipairWith' _ _  _      _      = Nothing
 
+zipWithA :: Applicative p => (a -> b -> p c) -> [a] -> [b] -> p [c]
+zipWithA f x y = sequenceA (zipWith f x y)
+
 mapAccumM
   :: (Monad m, Functor m, Traversable t)
   => (a -> b -> m (c, a))
