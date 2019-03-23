@@ -102,10 +102,8 @@ env =
        ]
        Map.empty
 
-test = runCheck env (infer (app idTm' true))
-
 checkingTests :: Test
-checkingTests = scope "bidirectional" $ tests
+checkingTests = tests
   [ scope "matching" $ example $
     matchSchemaVars (Term "lam" [ Scope ["x"] (Free "t") ]) (lam "x" (Bound 0))
     ===

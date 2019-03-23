@@ -50,8 +50,6 @@ data InferenceRule = Term :=> Term
 data CheckingRule = Term :<= Term
   deriving Show
 
--- type Environment = Map Text Term
-
 data TypingClause
   = InferenceRule !InferenceRule
   | CheckingRule  !CheckingRule
@@ -146,7 +144,7 @@ updateCtx
   :: Map Text Scope
   -> StateT (Map Text Scope) (ReaderT Env (Except String)) ()
 updateCtx ctx = do
-  stateCtx <- get
+  stateCtx  <- get
   stateCtx' <- safeMerge ctx stateCtx
   put stateCtx'
 
@@ -185,7 +183,7 @@ check (tm :< ty) = do
 
                   -- Update the binding for any type variable we've infered
                   learnedTys <- matchSchemaVars hypTy ty'
-                    ?? "check InferenceRule: failed context merge"
+                    ?? "check InferenceRule: failed to match schema vars"
                   updateCtx learnedTys
 
   Env{_rules} <- ask
@@ -225,7 +223,7 @@ infer tm = do
 
                   -- Update the binding for any type variable we've infered
                   learnedTys <- matchSchemaVars hypTy ty'
-                    ?? "infer InferenceRule: failed context merge"
+                    ?? "infer InferenceRule: failed to match schema vars"
                   updateCtx learnedTys
 
             ctxState  <- get

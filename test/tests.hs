@@ -9,6 +9,7 @@ import qualified Languages.Document      as Document
 import qualified Languages.SimpleExample as SimpleExample
 import qualified Languages.Stlc          as Stlc
 import           Languages.TExample      ()
+import qualified Test.Bidirectional as BD
 
 -- import Test.Inspection
 import           Test.Types
@@ -32,6 +33,7 @@ allTests = scope "all tests" $ tests
   -- , scope "t-example.eval"         TExample.evalTests
   , scope "document"               Document.documentTests
   , scope "arith"                  Arith.arithTests
+  , scope "bidirectional"          BD.checkingTests
   ]
 
 -- inspect $ 'SimpleExample.patP === 'SimpleExample.explicitPatP
