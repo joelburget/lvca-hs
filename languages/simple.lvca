@@ -1,0 +1,66 @@
+language simple:
+
+  abstract syntax:
+
+    tm ::=
+      true()
+      false()
+      annot(tm; ty)
+      ite(tm; tm; tm)
+      lam(tm. tm)
+      app(tm; tm)
+
+    ty ::=
+      bool()
+      arr(ty; ty)
+
+  concrete syntax:
+
+    - "true" ~ true()
+      "false ~ false()
+    - tm ":" ty ~ annot(tm; ty)
+    - "if" t1 "then" t2 "else" t3 ~ ite(t1; t2; t3)
+    - "\" x "." t ~ lam(x. t)
+    - t1 t2 ~ app(t1; t2)
+
+    - "bool" ~ bool()
+      t1 "->" t2 ~ arr(t1; t2)
+
+  statics:
+
+    // TODO:
+    // * "|-" is awkward to type
+    // * should we use concrete syntax?
+    // * how to show var separate from context?
+    // * how to separate hypotheses?
+    // * should we make switch explicit instead of implicit?
+
+    ----------------------- (bool intro 1)
+    env |- true() => bool()
+
+    ------------------------ (bool intro 2)
+    env |- false() => bool()
+
+     env[x -> ty]
+    -------------- (var)
+    env |- x => ty
+
+    // env |- tm => ty
+    // --- (switch)
+    // env |- tm <= ty
+
+          env |- tm <= ty
+    -------------------------- (annot)
+    env |- annot(tm; ty) => ty
+
+    env |- t1 <= bool()  env |- t2 <= ty  env |- t3 <= ty
+    ----------------------------------------------------- (bool elim)
+               env |- ite(t1; t2; t3) <= ty
+
+        env, x : ty1 |- tm <= ty2
+    ---------------------------------- (lam intro)
+    env |- lam(x. tm) <= arr(ty1; ty2)
+
+    env |- tm1 => arr(ty1; ty2)  env |- tm2 <= ty1
+    ---------------------------------------------- (lam elim)
+            env |- app(tm1; tm2) => ty2
