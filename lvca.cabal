@@ -89,8 +89,10 @@ library
     Lvca.Judgements
     Lvca.Languages.Edits
     Lvca.Languages.MachineModel
+    Lvca.ParseBidirectional
     Lvca.ParseConcreteSyntaxDescription
     Lvca.ParseDenotationChart
+    Lvca.ParseLanguage
     Lvca.ParseTerm
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil

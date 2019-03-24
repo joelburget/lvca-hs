@@ -27,6 +27,9 @@ lexeme = L.lexeme scn
 symbol :: MonadParsec e Text m => Text -> m Text
 symbol = L.symbol scn
 
+symbol' :: MonadParsec e Text m => Text -> m Text
+symbol' = L.symbol sc
+
 parens :: MonadParsec e Text m => m a -> m a
 parens = between (symbol "(") (symbol ")")
 

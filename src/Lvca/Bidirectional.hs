@@ -57,6 +57,7 @@ data TypingClause
 
 data Rule = Rule
   { _hypotheses :: ![(Map Text Term, TypingClause)]
+  , _name       :: !(Maybe Text)
   , _conclusion :: !TypingClause
   }
 
@@ -151,8 +152,8 @@ updateCtx ctx = do
 check :: Typing -> Check ()
 check (tm :< ty) = do
   let matchRule = \case
-        Rule _ InferenceRule{} -> Nothing
-        Rule hyps (CheckingRule (ruleTm :<= ruleTy)) -> do
+        Rule _ _ InferenceRule{} -> Nothing
+        Rule hyps _ (CheckingRule (ruleTm :<= ruleTy)) -> do
 
           -- Find the terms which correspond to schema varas in the typing
           -- rule.  If the term and type in the focus of this rule match, then
@@ -194,8 +195,8 @@ check (tm :< ty) = do
 infer :: Term -> Check Term
 infer tm = do
   let matchRule = \case
-        Rule _ CheckingRule{} -> Nothing
-        Rule hyps (InferenceRule (ruleTm :=> ruleTy)) -> do
+        Rule _ _ CheckingRule{} -> Nothing
+        Rule hyps _ (InferenceRule (ruleTm :=> ruleTy)) -> do
 
           -- Find the terms which correspond to schema vars in the typing rule.
           -- In contrast to checking, we match only the term in focus.

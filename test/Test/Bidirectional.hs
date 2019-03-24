@@ -3,8 +3,8 @@ module Test.Bidirectional where
 
 import           Data.Map     (Map)
 import qualified Data.Map     as Map
-import Data.Text (Text)
-import EasyTest
+import           Data.Text    (Text)
+import           EasyTest
 
 import Lvca.Bidirectional
 

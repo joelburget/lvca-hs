@@ -4,6 +4,7 @@ module Lvca
   , module Lvca.FunctorUtil
   , module Lvca.Languages.Edits
   , module Lvca.Languages.MachineModel
+  , module Lvca.ParseBidirectional
   , module Lvca.ParseDenotationChart
   , module Lvca.ParseTerm
   , module Lvca.ParseSyntaxDescription
@@ -22,6 +23,7 @@ import           Lvca.FunctorUtil
 import           Lvca.Languages.Edits
 import           Lvca.Languages.MachineModel
 import           Lvca.ParseConcreteSyntaxDescription
+import           Lvca.ParseBidirectional
 import           Lvca.ParseDenotationChart
   (DenotationChartParser, parseDenotationChart)
 import           Lvca.ParseSyntaxDescription
