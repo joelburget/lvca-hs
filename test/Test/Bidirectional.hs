@@ -12,7 +12,7 @@ true, false, bool :: Term
 
 true  = Term "true"  []
 false = Term "false" []
-bool  = Term "Bool"  []
+bool  = Term "bool"  []
 
 ite :: Term -> Term -> Term -> Term
 ite t1 t2 t3 = Term "ite" [ Scope [] t1, Scope [] t2, Scope [] t3 ]
@@ -43,7 +43,7 @@ infix 4 .=>
 infix 4 .<=
 
 (.--) :: [(Map Text Term, TypingClause)] -> TypingClause -> Rule
-hyps .-- conc = Rule hyps conc
+hyps .-- conc = Rule hyps Nothing conc
 
 (.=>) :: Term -> Term -> TypingClause
 tm .=> ty = InferenceRule (tm :=> ty)
@@ -56,13 +56,13 @@ tm .<= ty = CheckingRule (tm :<= ty)
 
 env :: Env
 env =
-  let t   = Free "t"
+  let t   = Free "tm"
       ty  = Free "ty"
       ty1 = Free "ty1"
       ty2 = Free "ty2"
-      t1  = Free "t1"
-      t2  = Free "t2"
-      t3  = Free "t3"
+      t1  = Free "tm1"
+      t2  = Free "tm2"
+      t3  = Free "tm3"
       gamma = Map.empty
   in Env
        [ []
@@ -71,6 +71,10 @@ env =
        , []
          .--
          false .=> bool
+
+       , [ gamma |- t .<= ty ]
+         .--
+         annot t ty .=> ty
 
        , [ gamma |- t1 .<= bool
          , gamma |- t2 .<= ty
@@ -89,10 +93,6 @@ env =
          ]
          .--
          app t1 t2 .=> ty2
-
-       , [ gamma |- t .<= ty ]
-         .--
-         annot t ty .=> ty
 
        -- important: this rule must go last otherwise it will subsume all other
        -- rules

@@ -44,28 +44,29 @@ type PatternTerm = Term
 
 -- | Inference rule
 data InferenceRule = Term :=> Term
-  deriving Show
+  deriving (Eq, Show)
 
 -- | Checking rule
 data CheckingRule = Term :<= Term
-  deriving Show
+  deriving (Eq, Show)
 
 data TypingClause
   = InferenceRule !InferenceRule
   | CheckingRule  !CheckingRule
-  deriving Show
+  deriving (Eq, Show)
 
 data Rule = Rule
   { _hypotheses :: ![(Map Text Term, TypingClause)]
   , _name       :: !(Maybe Text)
   , _conclusion :: !TypingClause
-  }
+  } deriving (Eq, Show)
 
 data Env = Env
   { _rules    :: ![Rule]
   , _varTypes :: !(Map Text Term)
   }
 
+makeLenses ''Rule
 makeLenses ''Env
 
 type Check a = ReaderT Env (Except String) a

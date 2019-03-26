@@ -92,6 +92,7 @@ parseVoid = empty <?> "void parse"
 noParse :: MonadParsec e t m => m a
 noParse = empty <?> "no parse"
 
+-- | Like 'endBy' but runs its parser in a 'try'.
 endBy' :: (MonadPlus m, MonadParsec e s m) => m a -> m sep -> m [a]
 endBy' p sep = many $ try $ do
   x <- p

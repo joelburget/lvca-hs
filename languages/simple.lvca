@@ -41,13 +41,13 @@ language simple:
     ------------------------ (bool intro 2)
     env |- false() => bool()
 
-     env[x -> ty]
-    -------------- (var)
-    env |- x => ty
+    //  env[x -> ty]
+    // -------------- (var)
+    // env |- x => ty
 
-    // env |- tm => ty
-    // --- (switch)
-    // env |- tm <= ty
+    env |- tm => ty
+    --- (switch)
+    env |- tm <= ty
 
           env |- tm <= ty
     -------------------------- (annot)

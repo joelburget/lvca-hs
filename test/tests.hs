@@ -10,6 +10,7 @@ import qualified Languages.SimpleExample as SimpleExample
 import qualified Languages.Stlc          as Stlc
 import           Languages.TExample      ()
 import qualified Test.Bidirectional as BD
+import           Test.ParseBidirectional
 
 -- import Test.Inspection
 import           Test.Types
@@ -34,6 +35,7 @@ allTests = scope "all tests" $ tests
   , scope "document"               Document.documentTests
   , scope "arith"                  Arith.arithTests
   , scope "bidirectional"          BD.checkingTests
+  , scope "bidirectional.parse"    testParseBidirectional
   ]
 
 -- inspect $ 'SimpleExample.patP === 'SimpleExample.explicitPatP

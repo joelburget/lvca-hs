@@ -122,9 +122,10 @@ test-suite tests
     Languages.SimpleExample
     Languages.Stlc
     Languages.TExample
+    Test.Bidirectional
+    Test.ParseBidirectional
     Test.ParseTerm
     Test.Types
-    Test.Bidirectional
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   default-language: Haskell2010
