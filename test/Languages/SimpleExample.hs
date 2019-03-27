@@ -540,22 +540,26 @@ primEval (Fix tm) = case tm of
   InL BindingF'{} -> Left "unexpectely hit a an abstraction in evaluation"
   InR tm' -> case tm' of
     Plus a b -> do
-      ValNum a' <- primEval a
-      ValNum b' <- primEval b
-      pure $ ValNum $ a' + b'
-    Times a b -> do
-      ValNum a' <- primEval a
-      ValNum b' <- primEval b
-      pure $ ValNum $ a' * b'
-    Cat a b -> do
-      ValStr a' <- primEval a
-      ValStr b' <- primEval b
-      pure $ ValStr $ a' <> b'
-    Len a -> do
       a' <- primEval a
-      case a' of
-        ValStr str -> Right $ ValNum $ Text.length str
-        _          -> Left "bad argument to len"
+      b' <- primEval b
+      case (a', b') of
+        (ValNum a'', ValNum b'') -> pure $ ValNum $ a'' + b''
+        _                        -> Left "Unexpected types in Plus"
+    Times a b -> do
+      a' <- primEval a
+      b' <- primEval b
+      case (a', b') of
+        (ValNum a'', ValNum b'') -> pure $ ValNum $ a'' * b''
+        _                        -> Left "Unexpected types in Times"
+    Cat a b -> do
+      a' <- primEval a
+      b' <- primEval b
+      case (a', b') of
+        (ValStr a'', ValStr b'') -> pure $ ValStr $ a'' <> b''
+        _                        -> Left "Unexpected types in Cat"
+    Len a -> primEval a >>= \case
+      ValStr str -> Right $ ValNum $ Text.length str
+      _          -> Left "bad argument to len"
     Let a (Fix (InL (BindingF' [name] b))) -> primEval $ subst name a b
     Annotation _annot tm'' -> primEval tm''
     NumLit a -> pure $ Fix $ NumV a

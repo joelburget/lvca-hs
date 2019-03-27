@@ -311,10 +311,11 @@ textDocument = [text|
 
 documentTests :: Test
 documentTests = tests
-  [ example $ do
-      Just doc  <- pure $ textDocument ^? foldText
-      Just doc' <- pure $ doc          ^? foldTerm
-      textDocument === doc'
+  [ example $ case textDocument ^? foldText of
+      Just doc -> case doc ^? foldTerm of
+        Just doc' -> textDocument === doc'
+        _ -> fail "failed to extract text from term"
+      _ -> fail "failed to extract term from text"
 
   , scope "parse" $ standardParseTermTest
       (ParseEnv (forceRight syntax) "Document" UntaggedExternals
