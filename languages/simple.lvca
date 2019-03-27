@@ -29,11 +29,10 @@ language simple:
   statics:
 
     // TODO:
-    // * "|-" is awkward to type
     // * should we use concrete syntax?
     // * how to show var separate from context?
     // * how to separate hypotheses?
-    // * should we make switch explicit instead of implicit?
+    // * should we make var rule explicit instead of implicit?
 
     ----------------------- (bool intro 1)
     env |- true() => bool()

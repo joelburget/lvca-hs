@@ -1,7 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE KindSignatures  #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Lvca.Proceed where
+module Lvca.Proceed (EvalEnv(..), eval, translate, proceed, runProceedM) where
 
 import           Control.Lens                hiding (from, to, (??))
 import           Control.Monad.Except

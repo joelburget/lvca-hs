@@ -16,7 +16,7 @@ common core-deps
   build-depends:
     Earley >= 0.13,
     aeson,
-    base >=4.11 && <4.12,
+    base >=4.11 && <4.13,
     bifunctors,
     brick >= 0.41,
     bytestring,
@@ -85,6 +85,7 @@ library
     Lvca.Bidirectional
     Lvca.Brick
     Lvca.EarleyParseTerm
+    Lvca.Eval
     Lvca.FunctorUtil
     Lvca.Judgements
     Lvca.Languages.Edits

@@ -26,6 +26,7 @@ import           Lvca.ParseConcreteSyntaxDescription
 import           Lvca.ParseBidirectional
 import           Lvca.ParseDenotationChart
   (DenotationChartParser, parseDenotationChart)
+import           Lvca.ParseLanguage
 import           Lvca.ParseSyntaxDescription
   (SyntaxDescriptionParser, parseSyntaxDescription)
 import           Lvca.ParseTerm

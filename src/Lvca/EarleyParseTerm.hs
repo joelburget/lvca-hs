@@ -11,7 +11,7 @@ import           Data.Char            (isSpace)
 import           Data.Foldable        (asum)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
-import           Data.Sequence        (Seq((:|>)))
+import           Data.Sequence        (Seq(Empty, (:|>)))
 import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
@@ -46,7 +46,7 @@ concreteParserGrammar
 concreteParserGrammar (ConcreteSyntax directives) = mdo
   whitespace <- rule $ many $ satisfy isSpace
 
-  _ :|> lowestPrecParser <- mfix $ \prods ->
+  it <- mfix $ \prods ->
     ifor directives $ \precedence precedenceLevel -> do
       let opNames = _csOperatorName <$> precedenceLevel
           prodTag = Text.intercalate " | " opNames
@@ -87,8 +87,11 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
         <|> higherPrecP
         <?> prodTag
 
-  -- enter the lowest precedence parser
-  pure lowestPrecParser
+  case it of
+    _ :|> lowestPrecParser  ->
+      -- enter the lowest precedence parser
+      pure lowestPrecParser
+    Empty -> error "TODO"
 
 parens :: Prod r e Char a -> Prod r e Char a
 parens p = token '(' *> p <* token ')'
