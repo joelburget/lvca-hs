@@ -571,18 +571,6 @@ instance TermRepresentable TermF where
       Var name          -> pure $ VarF name
       PrimValue a       -> pure $ PrimValueF a
 
-class HasPrism a b where
-  prism :: Prism' a b
-
-instance HasPrism (Term a) (Term a) where
-  prism = id
-
-instance HasPrism (Pattern a) (Pattern a) where
-  prism = id
-
-instance HasPrism a b => HasPrism (Pattern a) (Pattern b) where
-  prism = patAdaptor prism
-
 patAdaptor :: Prism' a b -> Prism' (Pattern a) (Pattern b)
 patAdaptor p = prism' rtl ltr where
   rtl = \case
@@ -597,9 +585,6 @@ patAdaptor p = prism' rtl ltr where
     PatternPrimVal Nothing  -> pure $ PatternPrimVal Nothing
     PatternPrimVal (Just a) -> PatternPrimVal . Just <$> preview p a
     PatternUnion subpats    -> PatternUnion <$> traverse ltr subpats
-
-instance HasPrism a b => HasPrism (Term a) (Term b) where
-  prism = termAdaptor prism
 
 termAdaptor :: Prism' a b -> Prism' (Term a) (Term b)
 termAdaptor p = prism' rtl ltr where
