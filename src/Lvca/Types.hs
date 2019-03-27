@@ -121,11 +121,6 @@ module Lvca.Types
   , minus
   , patternCheck
   , findMatch
-
-  -- * Other
-  , prismSum
-  , prismSum3
-  , prismSum4
   ) where
 
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
@@ -602,29 +597,6 @@ patAdaptor p = prism' rtl ltr where
     PatternPrimVal Nothing  -> pure $ PatternPrimVal Nothing
     PatternPrimVal (Just a) -> PatternPrimVal . Just <$> preview p a
     PatternUnion subpats    -> PatternUnion <$> traverse ltr subpats
-
--- TODO: do we still want prismSum*?
-
-prismSum ::
-  ( HasPrism a (f1 (Fix (f1 :+: f2)))
-  , HasPrism a (f2 (Fix (f1 :+: f2)))
-  ) => Prism' a (Fix ((f1 :+: f2)))
-prismSum = sumPrisms prism prism
-
-prismSum3 ::
-  ( HasPrism a (f1 (Fix (f1 :+: f2 :+: f3)))
-  , HasPrism a (f2 (Fix (f1 :+: f2 :+: f3)))
-  , HasPrism a (f3 (Fix (f1 :+: f2 :+: f3)))
-  ) => Prism' a (Fix ((f1 :+: f2 :+: f3)))
-prismSum3 = sumPrisms3 prism prism prism
-
-prismSum4 ::
-  ( HasPrism a (f1 (Fix (f1 :+: f2 :+: f3 :+: f4)))
-  , HasPrism a (f2 (Fix (f1 :+: f2 :+: f3 :+: f4)))
-  , HasPrism a (f3 (Fix (f1 :+: f2 :+: f3 :+: f4)))
-  , HasPrism a (f4 (Fix (f1 :+: f2 :+: f3 :+: f4)))
-  ) => Prism' a (Fix ((f1 :+: f2 :+: f3 :+: f4)))
-prismSum4 = sumPrisms4 prism prism prism prism
 
 instance HasPrism a b => HasPrism (Term a) (Term b) where
   prism = termAdaptor prism
