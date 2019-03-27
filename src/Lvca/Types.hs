@@ -122,17 +122,6 @@ module Lvca.Types
   , patternCheck
   , findMatch
 
-  -- * Languages
-  , AbstractDomain(..)
-  , Domain(..)
-  , Language(..)
-  , Language'(..)
-  , HasAbstractSyntax(..)
-  , HasStatics(..)
-  , HasConcreteSyntax(..)
-  , HasDenotationChart(..)
-  , HasDenotationChart'(..)
-
   -- * Other
   , prismSum
   , prismSum3
@@ -967,38 +956,6 @@ instance Pretty Valence where
   pretty (Valence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
--- | An abstract domain has abstract syntax but no concrete syntax or
--- interpretation.
-data AbstractDomain = AbstractDomain
-  { _abstractDomainAbstractSyntax :: !SyntaxChart
-  , _abstractDomainStatics        :: !JudgementRules
-  }
-
--- | A domain has (abstract and concrete) syntax but no interpretation.
-data Domain = Domain
-  { _domainAbstractSyntax :: !SyntaxChart
-  , _domainConcreteSyntax :: !ConcreteSyntax
-  , _domainStatics        :: !JudgementRules
-  }
-
--- | A language has syntax and a denotation (an interpretation to another
--- domain).
-data Language a b = Language
-  { _languageAbstractSyntax  :: !SyntaxChart
-  , _languageConcreteSyntax  :: !ConcreteSyntax
-  , _languageDenotationChart :: !(DenotationChart a b)
-  , _languageStatics         :: !JudgementRules
-  }
-
--- | A language has syntax and a denotation (an interpretation to another
--- domain).
-data Language' f g = Language'
-  { _language'AbstractSyntax  :: !SyntaxChart
-  , _language'ConcreteSyntax  :: !ConcreteSyntax
-  , _language'DenotationChart :: !(DenotationChart' f g)
-  , _language'Statics         :: !JudgementRules
-  }
-
 makeLenses ''SyntaxChart
 makeLenses ''Sort
 makePrisms ''Sort
@@ -1015,10 +972,6 @@ deriveBifoldable ''TermF
 deriveBitraversable ''TermF
 deriveBimatchable ''TermF
 makeLenses ''PatternCheckResult
-makeLenses ''AbstractDomain
-makeLenses ''Domain
-makeLenses ''Language
-makeLenses ''Language'
 
 meaningOfP :: Prism' (Term a) Text -> Prism' (Term a) (MeaningOfF (Fix f))
 meaningOfP textP = prism' rtl ltr where
@@ -1027,57 +980,3 @@ meaningOfP textP = prism' rtl ltr where
   ltr = \case
     Term "MeaningOf" [name] -> MeaningOf <$> preview textP name
     _                       -> Nothing
-
-class HasAbstractSyntax d where
-  abstractSyntax :: Lens' d SyntaxChart
-
-instance HasAbstractSyntax AbstractDomain where
-  abstractSyntax = abstractDomainAbstractSyntax
-
-instance HasAbstractSyntax Domain where
-  abstractSyntax = domainAbstractSyntax
-
-instance HasAbstractSyntax (Language a b) where
-  abstractSyntax = languageAbstractSyntax
-
-instance HasAbstractSyntax (Language' f g) where
-  abstractSyntax = language'AbstractSyntax
-
-class HasStatics d where
-  statics :: Lens' d JudgementRules
-
-instance HasStatics AbstractDomain where
-  statics = abstractDomainStatics
-
-instance HasStatics Domain where
-  statics = domainStatics
-
-instance HasStatics (Language a b) where
-  statics = languageStatics
-
-instance HasStatics (Language' f g) where
-  statics = language'Statics
-
-class HasConcreteSyntax d where
-  concreteSyntax :: Lens' d ConcreteSyntax
-
-instance HasConcreteSyntax Domain where
-  concreteSyntax = domainConcreteSyntax
-
-instance HasConcreteSyntax (Language a b) where
-  concreteSyntax = languageConcreteSyntax
-
-instance HasConcreteSyntax (Language' f g) where
-  concreteSyntax = language'ConcreteSyntax
-
-class HasDenotationChart d a b where
-  denotationChart :: Lens' (d a b) (DenotationChart a b)
-
-instance HasDenotationChart Language a b where
-  denotationChart = languageDenotationChart
-
-class HasDenotationChart' d (f :: * -> *) (g :: * -> *) where
-  denotationChart' :: Lens' (d f g) (DenotationChart' f g)
-
-instance HasDenotationChart' Language' f g where
-  denotationChart' = language'DenotationChart
