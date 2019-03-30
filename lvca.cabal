@@ -85,11 +85,9 @@ library
     Lvca.Bidirectional
     Lvca.Brick
     Lvca.EarleyParseTerm
-    Lvca.Eval
     Lvca.FunctorUtil
     Lvca.Judgements
     Lvca.Languages.Edits
-    Lvca.Languages.MachineModel
     Lvca.ParseBidirectional
     Lvca.ParseConcreteSyntaxDescription
     Lvca.ParseDenotationChart
@@ -97,7 +95,6 @@ library
     Lvca.ParseTerm
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil
-    Lvca.Proceed
     Lvca.TH
     Lvca.Types
     Lvca.SyntaxComponents

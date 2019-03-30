@@ -56,7 +56,6 @@ module Lvca.Types
   -- * Denotation charts
   -- | Denotational semantics definition.
   , DenotationChart(..)
-  , DenotationChart'(..)
   , pattern (:->)
   , (<->)
   , pattern PatternAny
@@ -64,32 +63,18 @@ module Lvca.Types
   , Subst(..)
 
   -- * Terms / Values
-  , VarBindingF(..)
-  , varBindingP
-  , PatVarF(..)
-  , patVarP'
-  , patVarP
-  , MeaningOfF(..)
-  , meaningOfP
-  , TermF(..)
-  , Term
+  , Term(..)
   -- ** Term patterns
-  , pattern Term
-  , pattern Binding
-  , pattern Var
-  , pattern PrimValue
   , pattern BinaryTerm
   -- ** Term prisms / traversals
-  , _TermF
-  , _BindingF
-  , _VarF
-  , _PrimValueF
+  , _Term
+  , _Binding
+  , _Var
+  , _PrimValue
   , subterms
   , termName
   , identify
   -- ** TermRepresentable / PatternRepresentable
-  , TermRepresentable(..)
-  , PatternRepresentable(..)
   , patAdaptor
   , termAdaptor
 
@@ -447,66 +432,17 @@ prettyInfix str fixity subtms = case subtms of
       Infixr -> ret <$> prettyTm l         <*> assoc (prettyTm r)
   _ -> error "expected two subterms for infix directive"
 
-data VarBindingF f
-  = BindingF' ![Text] !f
-  | VarF'     !Text
-  deriving (Eq, Show, Functor, Foldable, Traversable)
-
-instance Show1 VarBindingF where
-  liftShowsPrec showsf _ p tm = showParen (p > 10) $ case tm of
-    BindingF' nms f -> ss "BindingF' " . showList nms . ss " " . showsf 11 f
-    VarF' mname     -> ss "VarF' "  . showsPrec 11 mname
-    where ss = showString
-
-instance Eq1 VarBindingF where
-  liftEq eq (BindingF' n1 x) (BindingF' n2 y) = n1 == n2 && eq x y
-  liftEq _  (VarF' x)        (VarF' y)        = x == y
-  liftEq _  _                _                = False
-
-varBindingP
-  :: Prism' (Term a)              (Fix f)
-  -> Prism' (Term a) (VarBindingF (Fix f))
-varBindingP p = prism' rtl ltr where
-  rtl = \case
-    BindingF' names f -> Binding names $ review p f
-    VarF' name        -> Var name
-  ltr = \case
-    Binding names tm -> BindingF' names <$> preview p tm
-    Var name         -> Just $ VarF' name
-    _                -> Nothing
-
--- TODO: generalize this to PatternF
-data PatVarF f = PatVarF !(Maybe Text)
-  deriving (Functor, Foldable, Traversable)
-
-patVarP' :: Prism' (Pattern a) (PatVarF (Fix f))
-patVarP' = prism' rtl ltr where
-  rtl (PatVarF name) = PatternVar name
-  ltr = \case
-    PatternVar name -> Just $ PatVarF name
-    _               -> Nothing
-
-patVarP :: PatternRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
-patVarP = sumPrisms patVarP' (mkPatP patVarP)
-
-instance Show1 PatVarF where
-  liftShowsPrec _ _ p pat = showParen (p > 10) $ case pat of
-    PatVarF mname -> showString "PatVarF " . showsPrec 11 mname
-
-instance Eq1 PatVarF where
-  liftEq _  (PatVarF x) (PatVarF y) = x == y
-
 -- | An evaluated or unevaluated term
-data TermF a term
-  = TermF
+data Term a
+  = Term
     { _termName :: !Text   -- ^ name of this term
-    , _subterms :: ![term] -- ^ subterms
+    , _subterms :: ![Term a] -- ^ subterms
     }
-  | BindingF
+  | Binding
     ![Text]
-    !term
-  | VarF !Text
-  | PrimValueF !a
+    !(Term a)
+  | Var !Text
+  | PrimValue !a
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
 
 arr :: [Value] -> Value
@@ -526,50 +462,10 @@ instance FromJSON a => FromJSON (Term a) where
     [String "v", a   ] -> Var       <$> parseJSON a
     [String "p", a   ] -> PrimValue <$> parseJSON a
     -- TODO: better message
-    _                  -> fail "unexpected JSON format for TermF"
-
-type Term a = Fix (TermF a)
-
-pattern Term :: Text -> [Term a] -> Term a
-pattern Term name subtms = Fix (TermF name subtms)
-
-pattern Binding :: [Text] -> Term a -> Term a
-pattern Binding names body = Fix (BindingF names body)
-
-pattern Var :: Text -> Term a
-pattern Var name = Fix (VarF name)
-
-pattern PrimValue :: a -> Term a
-pattern PrimValue a = Fix (PrimValueF a)
-
-{-# COMPLETE Term, Binding, Var, PrimValue #-}
+    _                  -> fail "unexpected JSON format for Term"
 
 pattern BinaryTerm :: Text -> Term a -> Term a -> Term a
 pattern BinaryTerm name x y = Term name [x, y]
-
-class TermRepresentable f where
-  -- TODO: could we make both of these from one?
-  mkTermP
-    :: Prism' (Term a)      (Fix f')
-    -> Prism' (Term a) (f a (Fix f'))
-
-class PatternRepresentable f where
-  mkPatP
-    :: Prism' (Pattern a)      (Fix f')
-    -> Prism' (Pattern a) (f a (Fix f'))
-
-instance TermRepresentable TermF where
-  mkTermP p = prism' rtl ltr where
-    rtl = \case
-      TermF name subtms -> Term name $ review p <$> subtms
-      BindingF names tm -> Binding names $ review p tm
-      VarF name         -> Var name
-      PrimValueF a      -> PrimValue a
-    ltr tm = case tm of
-      Term name subtms  -> TermF name <$> traverse (preview p) subtms
-      Binding names tm' -> BindingF names <$> preview p tm'
-      Var name          -> pure $ VarF name
-      PrimValue a       -> pure $ PrimValueF a
 
 patAdaptor :: Prism' a b -> Prism' (Pattern a) (Pattern b)
 patAdaptor p = prism' rtl ltr where
@@ -599,28 +495,24 @@ termAdaptor p = prism' rtl ltr where
     Var v            -> Just $ Var v
     PrimValue a      -> PrimValue <$> preview p a
 
-instance (Serialise a, Serialise term) => Serialise (TermF a term) where
+instance Serialise a => Serialise (Term a) where
   encode tm =
     let (tag, content) = case tm of
-          TermF      name  subtms -> (0, encode name  <> encode subtms)
-          BindingF   names body   -> (1, encode names <> encode body  )
-          VarF       name         -> (2, encode name                  )
-          PrimValueF a            -> (3, encode a                     )
+          Term      name  subtms -> (0, encode name  <> encode subtms)
+          Binding   names body   -> (1, encode names <> encode body  )
+          Var       name         -> (2, encode name                  )
+          PrimValue a            -> (3, encode a                     )
     in encodeListLen 2 <> encodeWord tag <> content
 
   decode = do
     decodeListLenOf 2
     tag <- decodeWord
     case tag of
-      0 -> TermF      <$> decode <*> decode
-      1 -> BindingF   <$> decode <*> decode
-      2 -> VarF       <$> decode
-      3 -> PrimValueF <$> decode
+      0 -> Term      <$> decode <*> decode
+      1 -> Binding   <$> decode <*> decode
+      2 -> Var       <$> decode
+      3 -> PrimValue <$> decode
       _ -> fail "invalid Term encoding"
-
-instance (Serialise a) => Serialise (Term a) where
-  encode (Fix term) = encode term
-  decode            = Fix <$> decode
 
 newtype Sha256 = Sha256 ByteString
 
@@ -675,10 +567,8 @@ pattern PatternAny = PatternVar Nothing
 pattern PatternEmpty :: Pattern a
 pattern PatternEmpty = PatternUnion []
 
-deriveShow1 ''TermF
-deriveEq1   ''TermF
-deriveShow2 ''TermF
-deriveEq2   ''TermF
+deriveShow1 ''Term
+deriveEq1   ''Term
 deriveShow1 ''Pattern
 deriveEq1   ''Pattern
 
@@ -696,21 +586,6 @@ newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
 instance (Pretty a, Pretty b) => Pretty (DenotationChart a b) where
   pretty (DenotationChart rows) = vsep $ rows <&> \(pat, tm) ->
     "[[ " <> pretty pat <> " ]] = " <> pretty tm
-
-data DenotationChart' (f :: * -> *) (g :: * -> *) = DenotationChart'
-  [(Fix (PatVarF :+: f), Fix (VarBindingF :+: MeaningOfF :+: g))]
-  deriving Show
-
-data MeaningOfF a
-  = MeaningOf !Text
-  deriving (Show, Eq, Functor, Foldable, Traversable)
-
-instance Show1 MeaningOfF where
-  liftShowsPrec _ _ p (MeaningOf name) = showParen (p > 10) $
-    showString "MeaningOf " . showsPrec 11 name
-
-instance Eq1 MeaningOfF where
-  liftEq _  (MeaningOf  a1) (MeaningOf  a2) = a1 == a2
 
 newtype Subst a = Subst { _assignments :: Map Text (Term a) }
   deriving (Eq, Show, Semigroup, Monoid)
@@ -769,16 +644,16 @@ noMatch    = lift Nothing
 emptyMatch = pure mempty
 
 matches :: (Show a, Eq a) => Pattern a -> Term a -> Matching a (Subst a)
--- matches pat (Left (Return val))     = matches pat (Right val)
 matches (PatternVar (Just name)) tm
   = pure $ Subst $ Map.singleton name tm
-matches (PatternVar Nothing)     _  = emptyMatch
+matches (PatternVar Nothing)     _
+  = emptyMatch
 
-matches pat (Var name) = do
-  mTermVal <- view $ envVars . at name
-  case mTermVal of
-    Just termVal -> matches pat termVal
-    Nothing      -> noMatch
+matches pat (Var name)
+  = do mTermVal <- view $ envVars . at name
+       case mTermVal of
+         Just termVal -> matches pat termVal
+         Nothing      -> noMatch
 
 matches (PatternTm name1 subpatterns) (Term name2 subterms)
   | name1 /= name2
@@ -797,13 +672,15 @@ matches (PatternPrimVal pVal) (PrimValue val)
   | otherwise
   = noMatch
 
-matches PatternAny _ = emptyMatch
-matches (PatternUnion pats) tm = do
-  env <- ask
-  lift $ getFirst $ foldMap
-    (\pat -> First $ runReaderT (pat `matches` tm) env)
-    pats
-matches _ _ = noMatch
+matches PatternAny _
+  = emptyMatch
+matches (PatternUnion pats) tm
+  = do env <- ask
+       lift $ getFirst $ foldMap
+         (\pat -> First $ runReaderT (pat `matches` tm) env)
+         pats
+matches _ _
+  = noMatch
 
 runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
 runMatches chart sort = flip runReaderT (MatchesEnv chart sort Map.empty)
@@ -922,18 +799,7 @@ makeWrapped ''Arity
 makeLenses ''Pattern
 makePrisms ''Pattern
 makeLenses ''Operator
-makeLenses ''TermF
-makePrisms ''TermF
-deriveBifunctor ''TermF
-deriveBifoldable ''TermF
-deriveBitraversable ''TermF
-deriveBimatchable ''TermF
+makeLenses ''Term
+makePrisms ''Term
+deriveMatchable ''Term
 makeLenses ''PatternCheckResult
-
-meaningOfP :: Prism' (Term a) Text -> Prism' (Term a) (MeaningOfF (Fix f))
-meaningOfP textP = prism' rtl ltr where
-  rtl (MeaningOf name)
-    = Term "MeaningOf" [ review textP name ]
-  ltr = \case
-    Term "MeaningOf" [name] -> MeaningOf <$> preview textP name
-    _                       -> Nothing

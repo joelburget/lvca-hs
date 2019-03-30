@@ -14,7 +14,6 @@ import qualified Graphics.Vty                as V
 import           NeatInterpolation
 
 import           Lvca.FunctorUtil
-import           Lvca.Languages.MachineModel
 import           Lvca.Types
 
 
@@ -36,23 +35,17 @@ instance TmShow Text where
 type ListZipper a = Top :>> [a] :>> a
 
 data State f a = State
-  { _timeline :: ListZipper (StateStep f a)
-  , _showHelp :: Bool
+  -- { _timeline :: ListZipper (StateStep f a)
+  { _showHelp :: Bool
   }
 
 makeLenses ''State
 
 next :: State f a -> State f a
-next state@(State tl _help) = case tl ^. focus of
-  Done{} -> state
-  _      -> case rightward tl of
-    Just tl' -> state & timeline .~ tl'
-    Nothing  -> state
+next state = state
 
 prev :: State f a -> State f a
-prev state@(State tl _help) = case leftward tl of
-  Just tl' -> state & timeline .~ tl'
-  Nothing  -> state
+prev state = state
 
 toggleHelp :: State f a -> State f a
 toggleHelp = showHelp %~ not
@@ -91,15 +84,9 @@ handleEvent g (VtyEvent (V.EvKey V.KEsc []))        = halt g
 handleEvent g _                                     = continue g
 
 drawUI :: TmShow s => State f s -> Widget ()
-drawUI (State tl showHelp') =
+drawUI (State showHelp') =
 
-  let mainView = case tl ^. focus of
-        StateStep ctx valTm ->
-          let lBox = bordered "Context" $ center $ drawCtx ctx
-              rBox = bordered "Term"    $ center $ drawFocus valTm
-          in lBox <+> rBox
-        Errored info -> withAttr redAttr $ center $ txt "error " <+> txt info
-        Done val     -> bordered "Done"  $ center $ withAttr blueAttr $ drawTm' val
+  let mainView = txt "TODO"
       helpView = bordered "Help" $ center $ txt [text|
         h - backward
         l - forward
@@ -108,49 +95,28 @@ drawUI (State tl showHelp') =
       |]
   in if showHelp' then mainView <=> helpView else mainView
 
-drawCtx :: TmShow a => [StackFrame f a] -> Widget ()
-drawCtx = \case
-  []    -> fill ' '
-  stack -> vBox (reverse $ fmap drawStackFrame stack)
+-- drawCtx :: TmShow a => [StackFrame f a] -> Widget ()
+-- drawCtx = \case
+--   []    -> fill ' '
+--   stack -> vBox (reverse $ fmap drawStackFrame stack)
 
-drawStackFrame :: TmShow a => StackFrame f a -> Widget ()
-drawStackFrame = hBox . \case
-  EvalFrame    _k _v -> [str "eval " <+> txt "TODO: k" <+> str "; " <+> txt "TODO: v"]
-  BindingFrame k v -> [txt k <+> str ": " <+> drawTm' v]
+-- drawStackFrame :: TmShow a => StackFrame f a -> Widget ()
+-- drawStackFrame = hBox . \case
+--   EvalFrame    _k _v -> [str "eval " <+> txt "TODO: k" <+> str "; " <+> txt "TODO: v"]
+--   BindingFrame k v -> [txt k <+> str ": " <+> drawTm' v]
 
--- TODO: distinguish between in and out
-drawFocus :: TmShow a => Focus f a -> Widget ()
-drawFocus = \case
-  Descending tm -> drawTm  tm
-  Ascending  tm -> drawTm' tm
+-- -- TODO: distinguish between in and out
+-- drawFocus :: TmShow a => Focus f a -> Widget ()
+-- drawFocus = \case
+--   Descending tm -> drawTm  tm
+--   Ascending  tm -> drawTm' tm
 
-showTermSlot :: TmShow a => Term a -> Widget ()
-showTermSlot tm = case tm of
-  Term name _ -> txt $ "[" <> name <> "]"
-  Var name    -> txt name
-  Binding _ _ -> txt "TODO: binding"
-  PrimValue a -> txt "{" <+> drawPrim a <+> txt "}"
-
-drawBinding :: (Text, Term a) -> Widget ()
-drawBinding _ = txt "binding"
-
-drawTm' :: TmShow a => (Fix (f a)) -> Widget ()
-drawTm' _ = txt "TODO: drawTm'"
-
-drawTm :: TmShow a => (Fix (Extended' f a)) -> Widget ()
-drawTm (Fix _tm) = txt "TODO: drawTm"
-
--- case tm of
---   Term name subtms ->
---     txt name
---     <=>
---     padLeft (Pad 2) (vBox (fmap drawTm subtms))
---   Binding names subterm ->
---     txt ("[" <> T.unwords names <> "]")
---     <=>
---     padLeft (Pad 2) (drawTm subterm)
---   Var name   -> txt name
---   PrimValue primVal -> txt "{" <+> drawPrim primVal <+> txt "}"
+-- showTermSlot :: TmShow a => Term a -> Widget ()
+-- showTermSlot tm = case tm of
+--   Term name _ -> txt $ "[" <> name <> "]"
+--   Var name    -> txt name
+--   Binding _ _ -> txt "TODO: binding"
+--   PrimValue a -> txt "{" <+> drawPrim a <+> txt "}"
 
 app :: TmShow s => App (State f s) a ()
 app = B.App
