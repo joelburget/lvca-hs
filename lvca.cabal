@@ -102,14 +102,6 @@ library
   default-language:    Haskell2010
   ghc-options:         -Wall
 
-executable lvca
-  import:           extensions, core-deps, extra-deps
-  hs-source-dirs:   src, test
-  other-modules:    Languages.Arith
-  main-is:          Main.hs
-  build-depends:    lvca, easytest >= 0.3
-  default-language: Haskell2010
-
 test-suite tests
   import:           extensions, core-deps, extra-deps
   main-is:          tests.hs

@@ -2,13 +2,11 @@
 
 import           EasyTest
 
--- import           Lvca.Languages.MachineModel
-
 import qualified Languages.Arith         as Arith
 import qualified Languages.Document      as Document
 import qualified Languages.SimpleExample as SimpleExample
 import qualified Languages.Stlc          as Stlc
-import           Languages.TExample      ()
+-- import           Languages.TExample      ()
 import qualified Test.Bidirectional as BD
 import           Test.ParseBidirectional
 
