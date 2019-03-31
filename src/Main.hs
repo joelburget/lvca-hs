@@ -42,7 +42,7 @@ natJudgements = JudgementRules
 --     Right v -> absurd v
 
 main :: IO ()
-main = do
+main = putStrLn "coming soon"
 
 --   putStrLn "term:"
 --   print Arith.example
@@ -60,9 +60,9 @@ main = do
 --   putStrLn "\nlogs:"
 --   traverse (putStrLn . Text.unpack) logs
 
-  case Arith.peanoProceed Arith.exampleTm of
-      Left err    -> putStrLn "1" >> putStrLn err
-      Right steps -> putStrLn "2" >> (void $ traverse print steps)
+  -- case Arith.peanoProceed Arith.exampleTm of
+  --     Left err    -> putStrLn "1" >> putStrLn err
+  --     Right steps -> putStrLn "2" >> (void $ traverse print steps)
       -- void $ defaultMain app $
       --   trace ("steps: " ++ show steps) $
       --   State (zipper steps & fromWithin traverse) False
