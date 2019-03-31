@@ -494,12 +494,6 @@ propTests =
        --   valP_round_trip_prop
        ]
 
-pattern ValNum :: Int -> Fix (Val E)
-pattern ValNum a = Fix (NumV (E (Left a)))
-
-pattern ValStr :: Text -> Fix (Val E)
-pattern ValStr a = Fix (StrV (E (Right a)))
-
 primParsers :: ExternalParsers E
 primParsers = makeExternalParsers
   [ ("Num", E . Left  <$> (intLiteral :: ExternalParser Int))

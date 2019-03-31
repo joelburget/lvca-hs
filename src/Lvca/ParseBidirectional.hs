@@ -10,7 +10,7 @@ import           Data.Void                     (Void)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 
-import           Lvca.Bidirectional
+import           Lvca.Bidirectional            hiding (name)
 import           Lvca.ParseUtil
 
 type BidirectionalParser a = Parsec

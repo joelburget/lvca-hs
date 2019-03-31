@@ -16,6 +16,7 @@ import           Text.Megaparsec
 
 import           Lvca.EarleyParseTerm
 import           Lvca.ParseTerm
+import           Lvca.Printer
 import           Lvca.Types
 import           Test.Types
 

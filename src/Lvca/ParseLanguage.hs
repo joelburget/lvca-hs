@@ -10,7 +10,6 @@ import Lvca.ParseSyntaxDescription
 import Lvca.ParseConcreteSyntaxDescription
 import Lvca.ParseBidirectional
 import Lvca.ParseTerm
-import Lvca.EarleyParseTerm
 
 type LanguageParser a = Parsec
   Void -- error type

@@ -17,7 +17,6 @@ common core-deps
     Earley >= 0.13,
     aeson,
     base >=4.11 && <4.13,
-    bifunctors,
     brick >= 0.41,
     bytestring,
     cborg,
@@ -85,7 +84,6 @@ library
     Lvca.Bidirectional
     Lvca.Brick
     Lvca.EarleyParseTerm
-    Lvca.FunctorUtil
     Lvca.Judgements
     Lvca.Languages.Edits
     Lvca.ParseBidirectional
@@ -95,6 +93,7 @@ library
     Lvca.ParseTerm
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil
+    Lvca.Printer
     Lvca.TH
     Lvca.Types
     Lvca.SyntaxComponents
@@ -102,6 +101,7 @@ library
     Text.Megaparsec.Char.LexerAlt
   hs-source-dirs:      src
   default-language:    Haskell2010
+  ghc-options:         -Wall
 
 executable lvca
   import:           extensions, core-deps, extra-deps

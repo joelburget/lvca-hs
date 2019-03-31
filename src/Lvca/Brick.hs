@@ -13,9 +13,6 @@ import           Data.Void                   (Void, absurd)
 import qualified Graphics.Vty                as V
 import           NeatInterpolation
 
-import           Lvca.FunctorUtil
-import           Lvca.Types
-
 
 class TmShow a where
   drawPrim :: a -> Widget ()
