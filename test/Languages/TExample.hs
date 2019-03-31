@@ -75,28 +75,6 @@ mkTypes (Options Nothing Map.empty)
   |]
 mkSyntaxInstances ''Val
 
-instance Show ((VarBindingF :+: LambdaF :+: Val (Either Text Void))
-  (Fix (VarBindingF :+: (LambdaF :+: Val (Either Text Void))))) where
-   showsPrec = liftShowsPrec showsPrec showList
-
-dynamics' :: DenotationChart' (Exp Text) (LambdaF :+: Val Text)
-dynamics' = DenotationChart'
-  [ Fix (InR Z)
-    :->
-    Fix (InR (InR (InR Zv)))
-  , Fix (InR (S (Fix (InL (PatVarF (Just "e"))))))
-    :->
-    Fix (InR (InR (InR (Sv (Fix (InR (InL (MeaningOf "e"))))))))
-  -- TODO: rec
-  , Fix (InR (Ap
-      (Fix (InR (Lam (Fix (InL (PatVarF (Just "body")))))))
-      (Fix (InL (PatVarF (Just "arg"))))))
-    :->
-    Fix (InR (InR (InL (App
-      (Fix (InR (InL (MeaningOf "body"))))
-      (Fix (InR (InL (MeaningOf "arg"))))))))
-  ]
-
 -- dynamics2 :: DenotationChart T (Either Text Void)
 -- dynamics2 = DenotationChart
 --   [ PatternTm "Z" []
@@ -120,51 +98,8 @@ dynamics' = DenotationChart'
 --       ]
 --   ]
 
-customPatP :: Prism' (Pattern T) (Fix (PatVarF :+: Exp a))
-customPatP = prism' rtl ltr where
-  rtl :: Fix (PatVarF :+: Exp a) -> Pattern T
-  rtl = \case
-    Fix (InL pat) -> review patVarP' pat
-    Fix (InR pat) -> review patP'    pat
-
-  ltr :: Pattern T -> Maybe (Fix (PatVarF :+: Exp a))
-  ltr tm = asum @[]
-    [ Fix . InL <$> preview patVarP' tm
-    , Fix . InR <$> preview patP'    tm
-    ]
-
-  patP' :: Prism' (Pattern T) (Exp a (Fix (PatVarF :+: Exp a)))
-  patP' = prism' rtl' ltr' where
-    rtl' = \case
-      Z         -> PatternTm "Z" []
-      S a       -> PatternTm "S" [ review customPatP a ]
-      Rec a b c -> PatternTm "Rec"
-        [ review customPatP a
-        , review customPatP b
-        , review customPatP c
-        ]
-      Lam a  -> PatternTm "Lam" [ review customPatP a ]
-      Ap a b -> PatternTm "Ap"  [ review customPatP a, review customPatP b ]
-
-    ltr' = \case
-      PatternTm "Z" []          -> Just Z
-      PatternTm "S" [a]         -> S <$> preview customPatP a
-      PatternTm "Rec" [a, b, c] -> Rec
-        <$> preview customPatP a
-        <*> preview customPatP b
-        <*> preview customPatP c
-      -- XXX Lam should have binding structure
-      PatternTm "Lam" [a]   -> Lam <$> preview customPatP a
-      PatternTm "Ap" [a, b] -> Ap <$> preview customPatP a <*> preview customPatP b
-      _                     -> Nothing
-
-
-valP :: Prism' (Term (Either Text Void))
-               (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val Text))
-valP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValueF)
-
 dynamics :: DenotationChart T (Either Text Void)
-dynamics = mkDenotationChart customPatP valP dynamics'
+dynamics = undefined -- mkDenotationChart customPatP valP dynamics'
 
 z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
 z = Term "Z" []
@@ -187,6 +122,3 @@ sszv = Term "Sv" [szv]
 -- eval' = eval $ mkEvalEnv "Exp" expSyntax dynamics
 --     (const Nothing)
 --     (const Nothing)
-
-evalF :: Fix (VarBindingF :+: Exp Void) -> (Either String (Fix (Val Void)), Seq Text)
-evalF = eval (EvalEnv Map.empty) dynamics'

@@ -9,10 +9,9 @@ module Languages.SimpleExample
   , prettySyntaxChartTests
   , prettyStaticTests
   , matchesTests
-  , evalTests
+  -- , evalTests
   , parseTests
   , propTests
-  , explicitPatP
 
   -- currently unused:
   , tm1
@@ -201,31 +200,6 @@ syntax = SyntaxChart $ Map.fromList
 
 genText :: Gen Text
 genText = Gen.text (Range.exponential 0 1000) Gen.unicode
-
-pattern FixExp
-  :: Exp E (Fix (PatVarF :+: Exp E))
-  -> Fix        (PatVarF :+: Exp E)
-pattern FixExp x = Fix (InR x)
-
-genPat :: Gen (Fix (PatVarF :+: Exp E))
-genPat = Gen.recursive Gen.choice [
-    Fix . InL . PatVarF <$> Gen.choice
-      [ pure Nothing
-      , Just <$> genText
-      ]
-  ] [
-    Gen.subterm2 genPat genPat (fmap FixExp . Plus)
-  , Gen.subterm2 genPat genPat (fmap FixExp . Times)
-  , Gen.subterm2 genPat genPat (fmap FixExp . Cat)
-  , Gen.subterm  genPat        (     FixExp . Len)
-  , Gen.subterm2 genPat genPat (fmap FixExp . Let)
-  , Gen.subterm  genPat        (     FixExp . Annotation (E (Right "annotation")))
-  ]
-
-patP_round_trip_prop :: Test
-patP_round_trip_prop = property $ do
-  x <- forAll genPat
-  preview patVarP (review patVarP x) === Just x
 
 -- valP_round_trip_prop :: Test
 -- valP_round_trip_prop = property $ do
@@ -439,16 +413,16 @@ matchesTests = scope "matches" $
          (Just mempty :: Maybe (Subst ()))
        ]
 
-evalTests :: Test
-evalTests =
-  let run' tm expected = unitTest $ case primEval tm of
-        Left err     -> crash err
-        Right result -> result === expected
-  in tests
-       [ run' tm1F $ Fix $ NumV $ E $ Left 3
-       , run' tm2F $ Fix $ StrV "foobar"
-       , run' tm3F $ Fix $ NumV $ E $ Left 15
-       ]
+-- evalTests :: Test
+-- evalTests =
+--   let run' tm expected = unitTest $ case primEval tm of
+--         Left err     -> crash err
+--         Right result -> result === expected
+--   in tests
+--        [ run' tm1F $ Fix $ NumV $ E $ Left 3
+--        , run' tm2F $ Fix $ StrV "foobar"
+--        , run' tm3F $ Fix $ NumV $ E $ Left 15
+--        ]
 
 parseTests :: Test
 parseTests =
@@ -516,9 +490,6 @@ propTests =
        , scope "prop_serialise_identity" $
          prop_serialise_identity syntax "Exp" aGen
 
-       , scope "patP_round_trip_prop" $
-         patP_round_trip_prop
-
        -- , scope "valP_round_trip_prop" $ property $
        --   valP_round_trip_prop
        ]
@@ -528,105 +499,6 @@ pattern ValNum a = Fix (NumV (E (Left a)))
 
 pattern ValStr :: Text -> Fix (Val E)
 pattern ValStr a = Fix (StrV (E (Right a)))
-
--- | We can evaluate terms directly in haskell.
---
--- This is a very simplistic implementation
-primEval
-  :: Fix (VarBindingF :+: Exp E)
-  -> Either String (Fix (Val E))
-primEval (Fix tm) = case tm of
-  InL (VarF' v) -> Left $ "unexpected free variable: " ++ show v
-  InL BindingF'{} -> Left "unexpectely hit a an abstraction in evaluation"
-  InR tm' -> case tm' of
-    Plus a b -> do
-      a' <- primEval a
-      b' <- primEval b
-      case (a', b') of
-        (ValNum a'', ValNum b'') -> pure $ ValNum $ a'' + b''
-        _                        -> Left "Unexpected types in Plus"
-    Times a b -> do
-      a' <- primEval a
-      b' <- primEval b
-      case (a', b') of
-        (ValNum a'', ValNum b'') -> pure $ ValNum $ a'' * b''
-        _                        -> Left "Unexpected types in Times"
-    Cat a b -> do
-      a' <- primEval a
-      b' <- primEval b
-      case (a', b') of
-        (ValStr a'', ValStr b'') -> pure $ ValStr $ a'' <> b''
-        _                        -> Left "Unexpected types in Cat"
-    Len a -> primEval a >>= \case
-      ValStr str -> Right $ ValNum $ Text.length str
-      _          -> Left "bad argument to len"
-    Let a (Fix (InL (BindingF' [name] b))) -> primEval $ subst name a b
-    Annotation _annot tm'' -> primEval tm''
-    NumLit a -> pure $ Fix $ NumV a
-    StrLit a -> pure $ Fix $ StrV a
-    _ -> Left "unexpected term in evaluation"
-
-explicitPatP :: forall a. Prism' (Pattern a) (Fix (PatVarF :+: Exp a))
-explicitPatP = prism' rtl ltr where
-  rtl = \case
-    Fix (InL pat) -> review patVarP' pat
-    Fix (InR pat) -> review patP    pat
-  ltr tm = msum
-    [ Fix . InL <$> preview patVarP' tm
-    , Fix . InR <$> preview patP    tm
-    ]
-
-  p :: Prism' (Pattern a) a
-  p = _PatternPrimVal . _Just
-
-  patP :: Prism' (Pattern a) (Exp a (Fix (PatVarF :+: Exp a)))
-  patP = prism' rtl' ltr' where
-    rtl' = \case
-      Plus  a b -> PatternTm "Plus"  [ review explicitPatP a , review explicitPatP b ]
-      Times a b -> PatternTm "Times" [ review explicitPatP a , review explicitPatP b ]
-      Cat   a b -> PatternTm "Cat"   [ review explicitPatP a , review explicitPatP b ]
-      Len   a   -> PatternTm "Len"   [ review explicitPatP a                 ]
-      Let   a b -> PatternTm "Let"   [ review explicitPatP a , review explicitPatP b ]
-      Annotation a b -> PatternTm "Annotation" [ review p a,   review explicitPatP b ]
-      NumLit i  -> PatternTm "NumLit" [ review p i ]
-      StrLit s  -> PatternTm "StrLit" [ review p s ]
-    ltr' = \case
-      PatternTm "Plus"       [ a, b ] -> Plus  <$> preview explicitPatP a <*> preview explicitPatP b
-      PatternTm "Times"      [ a, b ] -> Times <$> preview explicitPatP a <*> preview explicitPatP b
-      PatternTm "Cat"        [ a, b ] -> Cat   <$> preview explicitPatP a <*> preview explicitPatP b
-      PatternTm "Len"        [ a    ] -> Len   <$> preview explicitPatP a
-      PatternTm "Let"        [ a, b ] -> Let   <$> preview explicitPatP a <*> preview explicitPatP b
-      PatternTm "Annotation" [ a, b ] -> Annotation <$> preview p a <*> preview explicitPatP b
-      PatternTm "NumLit"     [ i    ] -> NumLit <$> preview p i
-      PatternTm "StrLit"     [ s    ] -> StrLit <$> preview p s
-      _                               -> Nothing
-
---   valP' = prism' rtl' ltr' where
---     rtl' = \case
---       NumV i      -> Term "NumV" [ PrimValue $ Right i ]
---       StrV s      -> Term "StrV" [ PrimValue $ Right s ]
---     ltr' tm = case tm of
---       Term "NumV" [ PrimValue (Right i) ] -> Just $ NumV i
---       Term "StrV" [ PrimValue (Right s) ] -> Just $ StrV s
---       _                                   -> Nothing
-
-tm1F, tm2F, tm3F :: Fix (VarBindingF :+: Exp E)
-
-tm1F = Fix $ InR $ Annotation (E $ Right "annotation") $
-  Fix $ InR $ Let
-    (Fix $ InR $ NumLit $ E $ Left 1)
-    (Fix $ InL $ BindingF' ["x"] $ Fix $ InR $ Plus
-      (Fix $ InL $ VarF' "x")
-      (Fix $ InR $ NumLit $ E $ Left 2)
-      )
-
-tm2F = Fix $ InR $ Cat
- (Fix (InR (StrLit "foo")))
- (Fix (InR (StrLit "bar")))
-
-tm3F = Fix $ InR $ Times
-  (Fix $ InR $ Len $ Fix $ InR $ StrLit "hippo")
-  (Fix $ InR $ NumLit $ E $ Left 3)
 
 primParsers :: ExternalParsers E
 primParsers = makeExternalParsers

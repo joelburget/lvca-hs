@@ -28,7 +28,7 @@ allTests = scope "all tests" $ tests
   , scope "simple-example"         SimpleExample.dynamicTests
   , scope "pretty-syntax"          SimpleExample.prettySyntaxChartTests
   , scope "syntax-statics"         SimpleExample.prettyStaticTests
-  , scope "simple-example.eval"    SimpleExample.evalTests
+  -- , scope "simple-example.eval"    SimpleExample.evalTests
   , scope "simple-example.parse"   SimpleExample.parseTests
   , scope "simple-example.props"   SimpleExample.propTests
   -- , scope "t-example.eval"         TExample.evalTests

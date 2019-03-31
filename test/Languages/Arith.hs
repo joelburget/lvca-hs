@@ -222,63 +222,6 @@ exampleTm = Term "Add"
 pattern PrimInt :: Int -> Term E
 pattern PrimInt i = Term "Int" [ PrimValue (E (Left i)) ]
 
-upcast :: forall sub sup. Prism' sup sub -> Prism' (Term sup) (Term sub)
-upcast p = prism' rtl ltr where
-  rtl :: Term sub -> Term sup
-  rtl (Fix tm) = Fix $ bimap (review p) rtl tm
-  ltr :: Term sup -> Maybe (Term sub)
-  ltr (Fix tm) = Fix <$> bitraverse (preview p) ltr tm
-
-upcast' :: forall sub sup. (sub -> sup) -> Term sub -> Term sup
-upcast' f (Fix tm) = Fix $ bimap f (upcast' f) tm
-
-peanoEval :: Term Void -> Either String (Term Void)
-peanoEval tm = case preview termP1 tm of
-  Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' ->
-    let peanoDynamics'
-          = unMkDenotationChart patP domainTermP (forceRight peanoDynamics)
-    in case peanoDynamics' of
-      Nothing    -> Left "couldn't unmake denotation chart"
-      Just chart ->
-        let resultTm :: (Either String (Fix (RecInt Void)), Seq Text)
-            resultTm = eval @RecInt (EvalEnv Map.empty) chart tm'
-        in second (review termP3) $ fst resultTm
-
-peanoProceed :: Term Void -> Either String [StateStep RecInt Void]
-peanoProceed tm = case preview termP1 tm of
-  Nothing  -> Left "couldn't view term as Arith term"
-  Just tm' ->
-    let peanoDynamics' = unMkDenotationChart
-          (patP @RecInt) domainTermP (forceRight peanoDynamics)
-    in case peanoDynamics' of
-      Nothing    -> Left "couldn't unmake denotation chart"
-      Just chart -> case runWriter (runMaybeT (translate chart tm')) of
-        (Nothing, _logs) -> Left "couldn't translate term"
-        (Just tm'', _logs) -> do
-          let results :: [StateStep RecInt Void]
-              results = runReader (runProceedM (proceed tm''))
-                (EvalEnv Map.empty, [])
-          Right results
-
-patP :: forall f a.
-  PatternRepresentable f => Prism' (Pattern a) (Fix (PatVarF :+: f a))
-patP = sumPrisms patVarP' (mkPatP patP)
-
-termP1 :: TermRepresentable f => Prism' (Term a) (Fix (VarBindingF :+: f a))
-termP1 = sumPrisms (varBindingP termP1) (mkTermP termP1)
-
-domainTermP
-  :: TermRepresentable f
-  => Prism'
-       (Term (Either Text a))
-       -- XXX not sure type should be Text
-       (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: f Text))
-domainTermP = termAdaptor _Left . lambdaTermP (_Fix . _PrimValueF)
-
-termP3 :: TermRepresentable f => Prism' (Term a) (Fix (f a))
-termP3 = mkTermP termP3 . from _Fix
-
 arithTests :: Test
 arithTests = tests
   [ scope "prop_parse_abstract_pretty" $
