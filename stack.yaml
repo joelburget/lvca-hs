@@ -2,5 +2,19 @@ resolver: lts-12.5
 packages:
 - .
 extra-deps:
-- brick-0.38
-- vty-5.22
+- Earley-0.13.0.1
+- brick-0.47
+- cmark-0.5.6.3
+- cmark-patterns-0.1.0.0
+- easytest-0.3
+- matchable-0.1.2
+- matchable-th-0.1.0.0
+- sbv-8.1
+- serialise-0.2.1.0
+- symmetric-properties-0.1.0.1
+- vty-5.25.1
+- crackNum-2.3
+- FloatingHex-0.4
+- megaparsec-7.0.4
+- neat-interpolation-0.3.2.4
+- config-ini-0.2.4.0
