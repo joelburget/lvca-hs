@@ -22,13 +22,10 @@ common core-deps
     cborg,
     containers,
     cryptohash-sha256,
-    data-diverse,
-    data-diverse-lens,
     deriving-compat,
     free,
     lens,
     matchable >= 0.1.2,
-    matchable-th,
     megaparsec,
     mtl,
     neat-interpolation,
@@ -36,21 +33,11 @@ common core-deps
     prettyprinter-ansi-terminal,
     recursion-schemes,
     serialise,
-    symmetric-properties >= 0.1.0.1,
-    template-haskell >= 2.4 && < 2.15,
     text,
     transformers >= 0.5.5,
     vector,
     vty >= 5.25,
-    writer-cps-mtl,
     zippers,
-
-common extra-deps
-  build-depends:
-    cmark,
-    cmark-patterns,
-    hedgehog,
-    sbv,
 
 common extensions
   default-extensions:
@@ -103,7 +90,7 @@ library
   ghc-options:         -Wall
 
 test-suite tests
-  import:           extensions, core-deps, extra-deps
+  import:           extensions, core-deps
   main-is:          tests.hs
   other-modules:
     Languages.Arith
@@ -118,4 +105,13 @@ test-suite tests
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test
   default-language: Haskell2010
-  build-depends:    lvca, easytest >= 0.3
+  build-depends:
+    lvca,
+    cmark,
+    cmark-patterns,
+    data-diverse,
+    data-diverse-lens,
+    easytest >= 0.3,
+    hedgehog,
+    sbv,
+    writer-cps-mtl,

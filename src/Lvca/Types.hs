@@ -121,7 +121,6 @@ import           Data.Eq.Deriving
 import           Data.Foldable             (fold, foldlM)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
-import           Data.Matchable.TH
 import           Data.Maybe                (fromMaybe)
 import           Data.Monoid               (First(First, getFirst))
 import           Data.Sequence             (Seq)
@@ -718,5 +717,4 @@ makePrisms ''Pattern
 makeLenses ''Operator
 makeLenses ''Term
 makePrisms ''Term
-deriveMatchable ''Term
 makeLenses ''PatternCheckResult
