@@ -43,7 +43,8 @@ instance Pretty E where
     Left  i -> pretty i
     Right t -> "\"" <> pretty t <> "\""
 
-mkTypes (Options (Just "syntax") Map.empty)
+syntax :: SyntaxChart
+Right syntax = runParser parseSyntaxDescription "(syntax)"
   [text|
   Arith ::=
     Add(Arith; Arith)
@@ -54,7 +55,6 @@ mkTypes (Options (Just "syntax") Map.empty)
     Z
     S(Arith)
   |]
-mkSyntaxInstances ''Arith
 
 -- | Manually specified concrete syntax
 concreteArith :: ConcreteSyntax
@@ -97,40 +97,6 @@ pt = parseTest
     - Add(x; y) ~ infixl x "+" y;
       Sub(x; y) ~ infixl x "-" y;
   |]
-
-mkTypes defOptions
-  [text|
-  RecInt ::=
-    Rec(RecInt; RecInt; RecInt. RecInt. RecInt)
-    Zr()
-    Sr(RecInt)
-  |]
-mkSyntaxInstances ''RecInt
-
-{-
--- XXX Fix syntax generation when we create multiple data types
-mkTypes (Options Nothing Map.empty)
-  [text|
-  Op ::=
-    AddOp
-    SubOp
-    MulOp
-    Push
-    Succ
-
-  Zero ::= Zero
-
-  Program ::= Pgm(OpSeq)
-
-  OpSeq ::=
-    Nil
-    Cons(Op; OpSeq)
-  |]
-mkSyntaxInstances ''Op
-mkSyntaxInstances ''Zero
-mkSyntaxInstances ''Program
-mkSyntaxInstances ''OpSeq
--}
 
 stackMachineDenotation :: DenotationChart a (Either Text b)
 Right stackMachineDenotation = runParser (parseDenotationChart noParse noParse)

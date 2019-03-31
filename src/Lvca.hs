@@ -11,7 +11,6 @@ module Lvca
   , module Lvca.ParseUtil
   , module Lvca.Printer
   , module Lvca.SyntaxComponents
-  , module Lvca.TH
   , module Lvca.Types
   , module Lvca.Util
   ) where
@@ -30,6 +29,5 @@ import           Lvca.ParseTerm
 import           Lvca.ParseUtil                      hiding (re)
 import           Lvca.Printer
 import           Lvca.SyntaxComponents
-import           Lvca.TH
 import           Lvca.Types                          hiding (findMatch, matches)
 import           Lvca.Util

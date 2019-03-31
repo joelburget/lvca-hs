@@ -67,24 +67,6 @@ pattern TI x = PrimValue' "Num" (Left x)
 pattern TS :: Text -> Term E
 pattern TS x = PrimValue' "Str" (Right x)
 
-mkTypes (Options Nothing $ Map.fromList
-  [ "Annot" :-> [t| ()   |]
-  , "Int"   :-> [t| Int  |]
-  , "Text"  :-> [t| Text |]
-  ])
-  [text|
-Exp ::=
-  Plus(Exp; Exp)
-  Times(Exp; Exp)
-  Cat(Exp; Exp)
-  Len(Exp)
-  Let(Exp; Exp)
-  Annotation({Annot}; Exp)
-  NumLit{Int}
-  StrLit{Text}
-  |]
-mkSyntaxInstances ''Exp
-
 _concreteSyntaxChart :: Text
 _concreteSyntaxChart = [text|
   Exp :=
@@ -103,17 +85,6 @@ _concreteSyntaxChart = [text|
 
     "(" a ")"      <=> a
   |]
-
-mkTypes (Options Nothing $ Map.fromList
-  [ "Int"  :-> [t| Int  |]
-  , "Text" :-> [t| Text |]
-  ])
-  [text|
-  Val ::=
-    NumV{Int}
-    StrV{Text}
-  |]
-mkSyntaxInstances ''Val
 
 tm1, tm2, tm3 :: Term E
 tm1 = Term "Annotation"

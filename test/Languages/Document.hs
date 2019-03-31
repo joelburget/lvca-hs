@@ -73,14 +73,6 @@ syntax = runParser parseSyntaxDescription "(document syntax)"
       Just(a)
   |]
 
--- $(do
---   Just t <- lookupTypeName "Text"
---   mkTypes syntaxText $ Map.fromList
---     [ ("BlockEmbed",  VarT $ mkName "blockEmbed")
---     , ("InlineEmbed", VarT $ mkName "inlineEmbed")
---     , ("Text",        PromotedT t)
---     ])
-
 newtype Embed a b = Embed (Which '[a, b, Text])
   deriving (Show, Eq)
 

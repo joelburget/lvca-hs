@@ -94,7 +94,6 @@ library
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil
     Lvca.Printer
-    Lvca.TH
     Lvca.Types
     Lvca.SyntaxComponents
     Lvca.Util

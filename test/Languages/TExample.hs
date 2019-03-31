@@ -56,25 +56,6 @@ syntax' = SyntaxChart $ Map.fromList
     ])
   ]
 
-mkTypes (Options Nothing Map.empty)
-  [text|
-  Exp ::=
-    Z
-    S(Exp)
-    Rec(Exp; Exp. Exp. Exp; Exp)
-    Lam(Exp. Exp)
-    Ap(Exp; Exp)
-  |]
-mkSyntaxInstances ''Exp
-
-mkTypes (Options Nothing Map.empty)
-  [text|
-  Val ::=
-    Zv
-    Sv(Val)
-  |]
-mkSyntaxInstances ''Val
-
 -- dynamics2 :: DenotationChart T (Either Text Void)
 -- dynamics2 = DenotationChart
 --   [ PatternTm "Z" []
