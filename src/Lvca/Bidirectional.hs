@@ -101,7 +101,8 @@ instantiate :: MonadCheck m => Map Text Scope -> Term -> m Term
 instantiate env tm = case tm of
   Term tag subtms
     -> fmap (Term tag) $ for subtms $ \(Scope names body) ->
-      Scope names <$> instantiate (Map.withoutKeys env (Set.fromList names)) body
+      fmap (Scope names) $
+        instantiate (Map.withoutKeys env (Set.fromList names)) body
   Bound{}
     -> pure tm
   Free v -> do

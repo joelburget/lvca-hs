@@ -43,16 +43,19 @@ prettyTm tm = do
       -- precedence to [n..0].
       let opPrec = Seq.length directives - reverseOpPrec
 
+          subtms' = subtms <&> \case
+            Scope [] tm' -> tm'
+            _            -> error "TODO: support printing bindings"
+
           body = local (_1 .~ opPrec) $ case directive of
             MixfixDirective directive' -> prettyMixfix $ PrintInfo directive' $
-              Map.fromList $ zip subTmNames subtms
-            InfixDirective str fixity -> prettyInfix str fixity subtms
+              Map.fromList $ zip subTmNames subtms'
+            InfixDirective str fixity -> prettyInfix str fixity subtms'
 
       -- If the child has a lower precedence than the parent you must
       -- parenthesize it
       pure $ if opPrec <= envPrec then parens <$> body else body
 
-    Binding{}   -> error "TODO"
     Var name    -> pure $ pretty name
     PrimValue a -> pure $ pretty a
 

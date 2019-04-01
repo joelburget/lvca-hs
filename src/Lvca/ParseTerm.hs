@@ -136,13 +136,13 @@ standardParser' = do
                       let parsePrim' = ReaderT (const parsePrim)
                       in case externalStyle' of
                            UntaggedExternals ->
-                             Term name . (:[]) . PrimValue
+                             Term name . (:[]) . Scope [] . PrimValue
                                <$> parsePrim'
                            TaggedExternals   -> do
                              _    <- string name
                              prim <- braces parsePrim'
                                  <|> parens (braces parsePrim')
-                             pure $ Term name [ PrimValue prim ]
+                             pure $ Term name [ Scope [] $ PrimValue prim ]
 
               Operator name (Arity valences') _ -> label (unpack name) $ do
                 _ <- try $ do
@@ -181,7 +181,7 @@ standardParser' = do
 
   parseTerm
 
-parseValence :: Parser a (Term a) -> Valence -> Parser a (Term a)
+parseValence :: Parser a (Term a) -> Valence -> Parser a (Scope a)
 parseValence parseTerm valence@(Valence sorts bodySort) = do
   primParsers <- view externalParsers
   let parseTerm' = case bodySort of
@@ -194,12 +194,9 @@ parseValence parseTerm valence@(Valence sorts bodySort) = do
             UntaggedExternals -> PrimValue <$> parsePrim'
         SortAp _ _ -> local (parseSort .~ bodySort) parseTerm
 
-  label ("valence " <> show valence) $
-    if null sorts
-    then parseTerm'
-    else Binding
-      <$> countSepBy (length sorts) parseName (symbol ".")
-      <*> parseTerm'
+  label ("valence " <> show valence) $ Scope
+    <$> countSepBy (length sorts) parseName (symbol ".")
+    <*> parseTerm'
 
 noExternalParsers :: ExternalParsers Void
 noExternalParsers = Map.empty

@@ -64,13 +64,13 @@ stlcChart = SyntaxChart $ Map.fromList
 
 stlcTm1, stlcTm2 :: Term Void
 stlcTm1 = Term "lam"
-  [ Var "ty"
-  , Binding ["x"] $ Term "ap"
-    [ Var "x"
-    , Var "x"
+  [ Scope [] $ Var "ty"
+  , Scope ["x"] $ Term "ap"
+    [ Scope [] $ Var "x"
+    , Scope [] $ Var "x"
     ]
   ]
-stlcTm2 = Term "ap" [stlcTm1, stlcTm1]
+stlcTm2 = Term "ap" [Scope [] stlcTm1, Scope [] stlcTm1]
 
 stlcTests :: Test
 stlcTests = tests
@@ -128,8 +128,8 @@ stlcTests = tests
              stlcTm2
          , expectParse "lam(nat(); a. a)" $
            Term "lam"
-             [ Term "nat" []
-             , Binding [ "a" ] $ Var "a"
+             [ Scope [] $ Term "nat" []
+             , Scope [ "a" ] $ Var "a"
              ]
          ]
   ]

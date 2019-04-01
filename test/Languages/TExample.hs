@@ -82,22 +82,22 @@ syntax' = SyntaxChart $ Map.fromList
 dynamics :: DenotationChart T (Either Text Void)
 dynamics = undefined -- mkDenotationChart customPatP valP dynamics'
 
-z, sz, ssz, pos, succ, lamapp, lamapp2 :: Term T
+z, sz, ssz, succ, lamapp, lamapp2 :: Term T
 z = Term "Z" []
-sz = Term "S" [z]
-ssz = Term "S" [sz]
-pos = Term "Rec" [sz, z, sz]
+sz = Term "S" [Scope [] z]
+ssz = Term "S" [Scope [] sz]
+-- pos = Term "Rec" [sz, z, sz]
 succ = Term "Lam"
-  [ Term "Nat" []
-  , Binding ["x"] $ Term "S" [Var "x"]
+  [ Scope []    $ Term "Nat" []
+  , Scope ["x"] $ Term "S" [Scope [] $ Var "x"]
   ]
-lamapp = Term "Ap" [succ, z]
-lamapp2 = Term "Ap" [succ, lamapp]
+lamapp = Term "Ap" [Scope [] succ, Scope [] z]
+lamapp2 = Term "Ap" [Scope [] succ, Scope [] lamapp]
 
 zv, szv, sszv :: Term Void
 zv = Term "Zv" []
-szv = Term "Sv" [zv]
-sszv = Term "Sv" [szv]
+szv = Term "Sv" [Scope [] zv]
+sszv = Term "Sv" [Scope [] szv]
 
 -- eval' :: Term T -> Either String (Term Void)
 -- eval' = eval $ mkEvalEnv "Exp" expSyntax dynamics

@@ -69,8 +69,8 @@ parsePrecedenceLine env = do
     Term name subtms -> do
       -- each subterm must be just a variable name
       fmap (name,) $ for subtms $ \case
-        Var name' -> pure name'
-        _         -> fail
+        Scope [] (Var name') -> pure name'
+        _                    -> fail
           "An abstract syntax operator must be specified with a unique \
           \variable in each subterm slot"
     _ -> fail "Each line in a concrete syntax declaration must be an operator"

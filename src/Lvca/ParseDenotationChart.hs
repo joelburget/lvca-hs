@@ -74,17 +74,15 @@ parseDenotationRhs parseB = asum
        option (Var name) $ asum
          [ -- sugar for e.g. `Int{0}`
            do b <- braces parseB
-              pure $ Term name [ PrimValue $ Right b ]
+              pure $ Term name [ Scope [] $ PrimValue $ Right b ]
          , parens $ do
            let boundTerm = do
                  binders <- parseBinders
                  tm      <- parseDenotationRhs parseB
-                 pure $ case binders of
-                   [] -> tm
-                   _  -> Binding binders tm
+                 pure $ Scope binders tm
            Term name <$> boundTerm `sepBy` symbol ";"
          ]
   , oxfordBrackets $ do
       name <- parseName
-      pure $ Term "MeaningOf" [ PrimValue $ Left name ]
+      pure $ Term "MeaningOf" [ Scope [] $ PrimValue $ Left name ]
   ] <?> "non-union pattern"

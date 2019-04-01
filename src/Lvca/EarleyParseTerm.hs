@@ -77,7 +77,8 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
                       -- they occur in on the lhs of the concrete parser spec)
                       let prodList = prodMap <&> \m ->
                             subTmNames <&> \name ->
-                              m ^?! ix name
+                              -- TODO: support binding
+                              Scope [] (m ^?! ix name)
 
                       pure $ Term opName <$> prodList
             in runReader parser' $ Parsers whitespace higherPrecP samePrecP

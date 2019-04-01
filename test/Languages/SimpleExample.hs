@@ -59,7 +59,7 @@ instance IsString E where
   fromString = E . Right . fromString
 
 pattern PrimValue' :: Text -> Either Int Text -> Term E
-pattern PrimValue' name x = Term name [ PrimValue (E x) ]
+pattern PrimValue' name x = Term name [ Scope [] (PrimValue (E x)) ]
 
 pattern TI :: Int -> Term E
 pattern TI x = PrimValue' "Num" (Left x)
@@ -88,27 +88,27 @@ _concreteSyntaxChart = [text|
 
 tm1, tm2, tm3 :: Term E
 tm1 = Term "Annotation"
-  [ TS "annotation"
-  , Term "Let"
-    [ TI 1
-    , Binding ["x"] $
+  [ Scope [] $ TS "annotation"
+  , Scope [] $ Term "Let"
+    [ Scope [] $ TI 1
+    , Scope ["x"] $
       Term "Plus"
-        [ Var "x"
-        , TI 2
+        [ Scope [] $ Var "x"
+        , Scope [] $ TI 2
         ]
     ]
   ]
 
 tm2 = Term "Cat"
-  [ TS "foo"
-  , TS "bar"
+  [ Scope [] $ TS "foo"
+  , Scope [] $ TS "bar"
   ]
 
 tm3 = Term "Times"
-  [ Term "Len"
-    [ TS "hippo"
+  [ Scope [] $ Term "Len"
+    [ Scope [] $ TS "hippo"
     ]
-  , TI 3
+  , Scope [] $ TI 3
   ]
 
 typingJudgement :: JudgementForm
@@ -210,9 +210,9 @@ dynamicTests :: Test
 dynamicTests =
   let
       lenStr :: Term E
-      lenStr      = Term "Len" [ TS "str" ]
+      lenStr      = Term "Len" [ Scope [] $ TS "str" ]
       x           = PatternVar (Just "x")
-      env         = MatchesEnv syntax "Exp" $ Map.singleton "x" $ VI 2
+      env         = MatchesEnv syntax "Exp"
   in tests
        [ expectJust $ runMatches syntax "Exp" $ matches x
          lenStr
@@ -239,7 +239,7 @@ dynamicTests =
                [ PatternVar (Just "n_1")
                , PatternVar (Just "n_2")
                ]
-             tm = Term "Plus" [Var "x", TI 2]
+             tm = Term "Plus" [Scope [] $ Var "x", Scope [] $ TI 2]
          in flip runReaderT env $ matches pat tm
 
        ]
@@ -379,7 +379,7 @@ matchesTests = scope "matches" $
        , example $
          (runMatches syntax "Typ" $ matches
            PatternAny
-           (Binding ["x"] $ Term "num" []))
+           (Term "num" []))
          ===
          (Just mempty :: Maybe (Subst ()))
        ]
@@ -411,10 +411,10 @@ parseTests =
   in scope "parse" $ tests
   [ expectParse UntaggedExternals
       "Plus(1; 2)"
-      (Term "Plus" [TI 1, TI 2])
+      (Term "Plus" [Scope [] $ TI 1, Scope [] $ TI 2])
   , expectParse UntaggedExternals
       "Cat(\"abc\"; \"def\")"
-      (Term "Cat" [TS "abc", TS "def"])
+      (Term "Cat" [Scope [] $ TS "abc", Scope [] $ TS "def"])
   , expectParse UntaggedExternals
       "\"\\\"quoted text\\\"\""
       (TS "\\\"quoted text\\\"")
@@ -425,23 +425,23 @@ parseTests =
   -- Note this doesn't check but it should still parse
   , expectParse UntaggedExternals
       "Cat(\"abc\"; 1)"
-      (Term "Cat" [TS "abc", TI 1])
+      (Term "Cat" [Scope [] $ TS "abc", Scope [] $ TI 1])
   , expectNoParse UntaggedExternals
       "Cat(Str{\"abc\"}; Num{1})"
   , expectParse TaggedExternals
       "Cat(Str{\"abc\"}; Num{1})"
-      (Term "Cat" [TS "abc", TI 1])
+      (Term "Cat" [Scope [] $ TS "abc", Scope [] $ TI 1])
   , expectNoParse TaggedExternals
       "Cat(\"abc\"; 1)"
 
   , expectParse UntaggedExternals
      "Let(1; x. Plus(x; 2))"
      (Term "Let"
-       [ TI 1
-       , Binding ["x"] $
+       [ Scope [] $ TI 1
+       , Scope ["x"] $
          Term "Plus"
-           [ Var "x"
-           , TI 2
+           [ Scope [] $ Var "x"
+           , Scope [] $ TI 2
            ]
        ])
 

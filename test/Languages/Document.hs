@@ -88,15 +88,22 @@ instance (Pretty a, Pretty b) => Pretty (Embed a b) where
 
 type Term' a b = Term (Embed a b)
 
+unscoped :: Prism' (Scope a) (Term a)
+unscoped = prism' bwd fwd where
+  bwd tm = Scope [] tm
+  fwd = \case
+    Scope [] tm -> Just tm
+    _           -> Nothing
+
 model :: Prism' (Term' a b) (Document a b)
 model = prism' bwd fwd where
 
   bwd = \case
-    Document blocks -> Term "Document" [review (listP blockP) blocks]
+    Document blocks -> Term "Document" [review (unscoped . listP blockP) blocks]
 
   fwd tm = case tm of
     Term "Document" [blockList]
-      -> Document <$> preview (listP blockP) blockList
+      -> Document <$> preview (unscoped . listP blockP) blockList
     _ -> Nothing
 
 maybeP :: Prism' (Term b) a -> Prism' (Term b) (Maybe a)
@@ -104,11 +111,11 @@ maybeP p = prism' bwd fwd where
 
   bwd = \case
     Nothing -> Term "Nothing" []
-    Just x  -> Term "Just" [review p x]
+    Just x  -> Term "Just" [review (unscoped . p) x]
 
   fwd = \case
     Term "Nothing" [] -> Just Nothing
-    Term "Just" [x]   -> Just <$> preview p x
+    Term "Just" [x]   -> Just <$> preview (unscoped . p) x
     _                 -> Nothing
 
 listP :: Prism' (Term b) a -> Prism' (Term b) [a]
@@ -116,33 +123,39 @@ listP p = prism' bwd fwd where
 
   bwd = \case
     []   -> Term "Nil" []
-    x:xs -> Term "Cons" [review p x, bwd xs]
+    x:xs -> Term "Cons" [ Scope [] $ review p x, Scope [] $ bwd xs]
 
   fwd = \case
-    Term "Nil" []       -> Just []
-    Term "Cons" [x, xs] -> (:) <$> preview p x <*> fwd xs
-    _                   -> Nothing
+    Term "Nil" []
+      -> Just []
+    Term "Cons" [Scope [] x, Scope [] xs]
+      -> (:) <$> preview p x <*> fwd xs
+    _ -> Nothing
 
 blockP :: Prism' (Term' a b) (Block a b)
 blockP = prism' bwd fwd where
 
   fwd = \case
-    Term "Header" [level, PrimValue (Embed val)] -> Header
-      <$> preview headerLevelP level
-      <*> trialN' @2 val
-    Term "Paragraph" [inline]  -> Paragraph <$> preview inlineP inline
-    Term "BlockEmbed" [ PrimValue (Embed val) ]
+    Term "Header" [ Scope [] level, Scope [] (PrimValue (Embed val))]
+      -> Header
+        <$> preview headerLevelP level
+        <*> trialN' @2 val
+    Term "Paragraph" [ Scope [] inline]
+      -> Paragraph <$> preview inlineP inline
+    Term "BlockEmbed" [ Scope [] (PrimValue (Embed val)) ]
       -> BlockEmbed <$> trialN' @0 val
     _ -> Nothing
 
   bwd = \case
     Header level t -> Term "Header"
-      [ (review headerLevelP) level
-      , PrimValue $ Embed $ pickN @2 t
+      [ Scope [] $ (review headerLevelP) level
+      , Scope [] $ PrimValue $ Embed $ pickN @2 t
       ]
-    Paragraph inline -> Term "Paragraph" [review inlineP inline]
+    Paragraph inline -> Term "Paragraph"
+      [ Scope [] $ review inlineP inline
+      ]
     BlockEmbed embed -> Term "BlockEmbed"
-      [ PrimValue $ Embed $ pickN @0 embed ]
+      [ Scope [] $ PrimValue $ Embed $ pickN @0 embed ]
 
 headerLevelP :: Prism' (Term x) HeaderLevel
 headerLevelP = prism' bwd fwd where
@@ -166,11 +179,12 @@ inlineP :: Prism' (Term' a b) (Inline b)
 inlineP = prism' bwd fwd where
 
   bwd (Inline inlines)
-    = Term "Inline" [review (listP inlineAtomP) inlines]
+    = Term "Inline" [review (unscoped . listP inlineAtomP) inlines]
 
   fwd = \case
-    Term "Inline" [atoms] -> Inline <$> preview (listP inlineAtomP) atoms
-    _                     -> Nothing
+    Term "Inline" [atoms]
+      -> Inline <$> preview (unscoped . listP inlineAtomP) atoms
+    _ -> Nothing
 
 inlineAtomP :: Prism' (Term' a b) (InlineAtom b)
 inlineAtomP = prism' bwd fwd where
@@ -178,18 +192,19 @@ inlineAtomP = prism' bwd fwd where
   bwd :: InlineAtom b -> Term' a b
   bwd = \case
     InlineAtom attrs t -> Term "InlineAtom"
-      [ review (maybeP attributeP) attrs
-      , PrimValue $ Embed $ pickN @2 t
+      [ Scope [] $ review (maybeP attributeP) attrs
+      , Scope [] $ PrimValue $ Embed $ pickN @2 t
       ]
     InlineEmbed embed -> Term "InlineEmbed"
-      [ PrimValue $ Embed $ pickN @1 embed ]
+      [ Scope [] $ PrimValue $ Embed $ pickN @1 embed ]
 
   fwd = \case
-    Term "InlineAtom" [attrs, PrimValue (Embed val)] -> InlineAtom
-      <$> preview (maybeP attributeP) attrs
-      <*> trialN' @2 val
-    Term "InlineEmbed" [PrimValue (Embed val)] ->
-      InlineEmbed <$> trialN' @1 val
+    Term "InlineAtom" [Scope [] attrs, Scope [] (PrimValue (Embed val))]
+      -> InlineAtom
+        <$> preview (maybeP attributeP) attrs
+        <*> trialN' @2 val
+    Term "InlineEmbed" [Scope [] (PrimValue (Embed val))]
+      -> InlineEmbed <$> trialN' @1 val
     _ -> Nothing
 
 attributeP :: Prism' (Term x) Attribute
@@ -314,7 +329,7 @@ documentTests = tests
         externalParsers)
       "Document(Cons(a; a))" $
       Term "Document"
-        [ Term "Cons" [ Var "a", Var "a" ] ]
+        [ Scope [] $ Term "Cons" [ Scope [] $ Var "a", Scope [] $ Var "a" ] ]
 
   , scope "prop_parse_abstract_pretty" $
     prop_parse_abstract_pretty (forceRight syntax) "Document"

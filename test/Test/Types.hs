@@ -67,17 +67,14 @@ genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
                  else pure $ Var name
           ]
 
-        genArity :: [Valence] -> m [Term a]
+        genArity :: [Valence] -> m [Scope a]
         genArity = foldrM
           -- TODO: handle applied sorts
           (\valence valences' -> case valence of
             Valence binders sort -> do
               tm <- genTerm chart (sortSubst sortVarVals sort) genPrim
-              case binders of
-                [] -> pure $ tm : valences'
-                _  -> do
-                  names <- Gen.list (Range.singleton (length binders)) genName
-                  pure $ Binding names tm : valences'
+              names <- Gen.list (Range.singleton (length binders)) genName
+              pure $ Scope names tm : valences'
           )
           []
 

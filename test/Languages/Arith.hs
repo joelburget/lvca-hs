@@ -161,32 +161,32 @@ peanoDynamics = runParser (parseDenotationChart noParse noParse)
 pattern S' :: Term a -> Term a
 pattern Z' ::           Term a
 
-pattern S' x = Term "S" [ x ]
-pattern Z'   = Term "Z" [   ]
+pattern S' x = Term "S" [ Scope [] x ]
+pattern Z'   = Term "Z" [            ]
 
 addOneOne :: Term Void
-addOneOne = Term "Add" [ S' Z', S' Z' ]
+addOneOne = Term "Add" [ Scope [] $ S' Z', Scope [] $ S' Z' ]
 
 addAssoc :: Term Void
 addAssoc = Term "Add"
-  [ Term "Add" [ Z', Z' ]
-  , Term "Add" [ Z', Z' ]
+  [ Scope [] $ Term "Add" [ Scope [] Z', Scope [] Z' ]
+  , Scope [] $ Term "Add" [ Scope [] Z', Scope [] Z' ]
   ]
 
 exampleTm :: Term Void
 exampleTm = Term "Add"
-  [ Term "Mul"
-    [ S' Z'
-    , Term "Sub"
-      [ S' (S' Z')
-      , S' Z'
+  [ Scope [] $ Term "Mul"
+    [ Scope [] $ S' Z'
+    , Scope [] $ Term "Sub"
+      [ Scope [] $ S' $ S' Z'
+      , Scope [] $ S' Z'
       ]
     ]
-  , S' (S' (S' Z'))
+  , Scope [] $ S' $ S' $ S' Z'
   ]
 
 pattern PrimInt :: Int -> Term E
-pattern PrimInt i = Term "Int" [ PrimValue (E (Left i)) ]
+pattern PrimInt i = Term "Int" [ Scope [] (PrimValue (E (Left i))) ]
 
 arithTests :: Test
 arithTests = tests

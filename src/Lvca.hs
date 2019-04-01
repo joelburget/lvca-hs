@@ -15,7 +15,7 @@ module Lvca
   , module Lvca.Util
   ) where
 
-import           Lvca.Bidirectional hiding (_conclusion, Term(..))
+import           Lvca.Bidirectional hiding (_conclusion, Term, Scope)
 import           Lvca.Brick
 import           Lvca.Languages.Edits
 import           Lvca.ParseConcreteSyntaxDescription
