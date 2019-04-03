@@ -4,11 +4,12 @@ import Control.Lens
 import Control.Monad.Reader
 import Data.Monoid (First(First, getFirst))
 import           Data.Text.Prettyprint.Doc
+import           Data.Traversable
 import qualified Data.Map as Map
 
-import Lvca.Core  (Core(..), Var(..))
+import Lvca.Core  (Core(..), Val(..))
 import Lvca.Types
-  (Matching, Pattern, PatternCheckResult(..), IsRedudant(..), Term, MatchResult(..), Scope(..), completePattern, minus, matches, runMatches)
+  (SortName, SyntaxChart, Matching, Pattern, PatternCheckResult(..), IsRedudant(..), Term, MatchResult(..), Scope(..), completePattern, minus, matches, runMatches)
 import Lvca.Util
 
 -- | Denotation charts
@@ -60,14 +61,34 @@ findMatch (DenotationChart pats) tm = do
 
   lift $ getFirst $ foldMap First results
 
--- TODO: use Either
-termToCore :: (Eq a, Show a) => DenotationChart a -> Term a -> Maybe Core
-termToCore chart tm = do
-  (matchRes, protoCore) <- runMatches undefined undefined (findMatch chart tm)
-  fillIn matchRes protoCore
+type Translator a = ReaderT (DenotationChart a, SyntaxChart, SortName) Maybe
 
-fillIn :: MatchResult a -> Core -> Maybe Core
-fillIn (MatchResult assignments) = \case
-  CoreVar (Var name) -> case Map.lookup name assignments of
-    Just (Scope [] tm) -> undefined
-    _                  -> Nothing
+-- TODO: use Either
+termToCore :: (Eq a, Show a) => Term a -> Translator a Core
+termToCore tm = do
+  (dynamics, syntax, sort) <- ask
+  (matchRes, protoCore)
+    <- lift $ runMatches syntax sort $ findMatch dynamics tm
+  fillInCore matchRes protoCore
+
+fillInCore :: (Eq a, Show a) => MatchResult a -> Core -> Translator a Core
+fillInCore mr@(MatchResult assignments) c = case c of
+  Metavar name -> case Map.lookup name assignments of
+    Just (Scope [] tm) -> termToCore tm
+    -- TODO!
+    _                  -> lift Nothing
+  CoreVar{} -> pure c
+  CoreVal val -> CoreVal <$> fillInVal mr val
+  App fun args -> App <$> fillInCore mr fun <*> traverse (fillInCore mr) args
+  Lam binders core -> Lam binders <$> fillInCore mr core
+  Case scrutinee ty branches -> do
+    scrutinee' <- fillInCore mr scrutinee
+    branches'  <- for branches $ \(pat, core) -> (pat,) <$> fillInCore mr core
+    pure $ Case scrutinee' ty branches'
+
+fillInVal :: (Eq a, Show a) => MatchResult a -> Val -> Translator a Val
+fillInVal mr val = case val of
+  ValTm tag vals -> ValTm tag <$> traverse (fillInVal mr) vals
+  ValLit{} -> pure val
+  ValPrimop{} -> pure val
+  ValLam binders core -> ValLam binders <$> fillInCore mr core

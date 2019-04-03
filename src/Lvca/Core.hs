@@ -6,7 +6,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Monoid (First(First, getFirst))
 import Data.String (IsString(fromString))
-import Data.Text (Text)
+import Data.Text (Text, unpack)
 import           Data.Text.Prettyprint.Doc
 
 import Lvca.Types (pattern (:->))
@@ -64,7 +64,7 @@ data Core
   -- * type
   -- * coercion
 
-  -- Temporary?
+  -- Q: Temporary?
   | Metavar !Text
   deriving (Eq, Show)
 
@@ -154,6 +154,7 @@ evalCore' = \case
       foldMap (fmap First $ uncurry $ matchBranch val) branches
       ) ?? "couldn't find a matching branch"
     local (Map.union newVars) (evalCore' branch)
+  Metavar v -> lift $ Left $ "found a metavar! (" ++ unpack v ++ ")"
 
 primops :: Map Text ([Val] -> Eval Val)
 primops = Map.fromList

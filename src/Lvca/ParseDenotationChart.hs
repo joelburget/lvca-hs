@@ -1,14 +1,17 @@
 module Lvca.ParseDenotationChart where
 
 import           Data.Foldable   (asum)
-import           Data.Text       (Text)
+import           Data.Functor    (($>))
+import           Data.Text       (Text, pack)
 import           Data.Void       (Void)
 import           Text.Megaparsec
+import           Text.Megaparsec.Char
 
-import           Lvca.Core            (Core)
+import           Lvca.Core (Core(..), Literal(..), Val(..), Var(..), Pat, Ty(..))
+import qualified Lvca.Core as Core
 import           Lvca.DenotationChart
 import           Lvca.ParseUtil
-import           Lvca.Types
+import           Lvca.Types hiding (Var)
 
 
 type DenotationChartParser a = Parsec
@@ -30,7 +33,7 @@ parseDenotationLine
 parseDenotationLine parseA = (,)
   <$> oxfordBrackets (parsePattern parseA)
   <*  symbol "="
-  <*> parseDenotationRhs
+  <*> parseCore
   <?> "denotation line"
 
 parsePattern
@@ -64,25 +67,68 @@ parseBinders :: DenotationChartParser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
-parseDenotationRhs :: DenotationChartParser Core
-parseDenotationRhs = undefined
+-- This is gross, right?
+parsePat :: DenotationChartParser Pat
+parsePat = asum
+  [ symbol "_" $> Core.PatternDefault
+  , Core.PatternLit <$> parseLit
+  , do name <- parseName
+       -- TODO: remove Maybe?
+       option (Core.PatternVar (Just name)) $ parens $
+         Core.PatternTm name <$> many parsePat
+  ]
 
--- asum
---   -- TODO: allow prims
---   -- [ PrimValue . Right <$> braces parseB
---   [ do name <- parseName
---        option (Var name) $ asum
---          [ -- sugar for e.g. `Int{0}`
---            -- do b <- braces parseB
---            --    pure $ Term name [ Scope [] $ PrimValue $ Right b ]
---            parens $ do
---            let boundTerm = do
---                  binders <- parseBinders
---                  tm      <- parseDenotationRhs
---                  pure $ Scope binders tm
---            Term name <$> boundTerm `sepBy` symbol ";"
---          ]
---   , oxfordBrackets $ do
---       name <- parseName
---       pure $ Term "MeaningOf" [ Scope [] $ PrimValue $ Left name ]
---   ] <?> "non-union pattern"
+parseLit :: DenotationChartParser Literal
+parseLit = asum
+  [ LitInteger <$> intLiteral
+  , LitText <$> stringLiteral
+  ]
+
+-- TODO: awkward level of duplication
+parseVal :: DenotationChartParser Val
+parseVal = asum
+  [ do name <- parseName
+       parens $ ValTm name <$> many parseVal
+  , ValLit <$> parseLit
+  , ValPrimop <$> parsePrimop
+  -- No lam
+  ]
+
+parseCore :: DenotationChartParser Core
+parseCore = asum
+  [ CoreVal . ValLit <$> parseLit
+  , do _ <- symbol "app"
+       parens $ do
+         f:args <- some parseCore
+         pure $ App f args
+
+  , do _ <- symbol "lam"
+       parens $ Lam <$> parseBinders <*> parseCore
+
+  , do _ <- symbol "case"
+       parens $ do
+         scrutinee <- parseCore
+         -- TODO: ty
+
+         -- Q:
+         branches <- some $ (,) <$> parsePat <*> parseCore
+         pure $ Case scrutinee Ty branches
+
+  , CoreVal . ValPrimop <$> parsePrimop
+
+  , do name <- parseName
+       option (CoreVar (Var name)) $ parens $
+         CoreVal . ValTm name <$> many parseVal
+
+  , Metavar <$> oxfordBrackets parseName
+  ] <?> "non-union pattern"
+
+parsePrimop :: DenotationChartParser Text
+parsePrimop = pack
+  <$> ((:)
+       <$> (char '$'
+         <?> "variable beginning character")
+       <*> many (alphaNumChar <|> char '\'' <|> char '_'
+         <?> "variable continuing character")
+       <*  scn)
+  <?> "primop"
