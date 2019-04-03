@@ -172,35 +172,6 @@ syntax = SyntaxChart $ Map.fromList
 genText :: Gen Text
 genText = Gen.text (Range.exponential 0 1000) Gen.unicode
 
--- valP_round_trip_prop :: Test
--- valP_round_trip_prop = property $ do
---   x <- forAll genVal
---   let termP' :: Prism' (Term E) (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val E))
---       termP' = lambdaTermP (_Fix . _PrimValue . _Wrapped . _Right)
---   preview termP' (review termP' x) === Just x
-
--- pattern FixVal
---   :: Val E (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val E))
---   -> Fix        (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val E)
--- pattern FixVal x = Fix (InR (InR (InR x)))
-
--- -- TODO: generate VarBindingF / LambdaF as well
--- genVal :: Gen (Fix (VarBindingF :+: MeaningOfF :+: LambdaF :+: Val E))
--- genVal = Gen.recursive Gen.choice [
---     FixVal . NumV . E . Left  <$> Gen.int Range.exponentialBounded
---   , FixVal . StrV . E . Right <$> genText
---   ] [
---     Gen.subterm2 genVal genVal (\x y -> FixApp "add" [x, y])
---   , Gen.subterm2 genVal genVal (\x y -> FixApp "mul" [x, y])
---   , Gen.subterm2 genVal genVal (\x y -> FixApp "cat" [x, y])
---   , Gen.subterm  genVal        (\x   -> FixApp "len" [x   ])
---   ]
-
--- matchingTermTests :: Test
--- matchingTermTests = tests
---   [ example $ tm1F === tm1
---   ]
-
 expectJust :: Maybe a -> Test
 expectJust  = unitTest . \case
   Nothing -> crash "Expected Just, found Nothing"
@@ -381,7 +352,7 @@ matchesTests = scope "matches" $
            PatternAny
            (Term "num" []))
          ===
-         (Just mempty :: Maybe (Subst ()))
+         (Just mempty :: Maybe (MatchResult ()))
        ]
 
 -- evalTests :: Test

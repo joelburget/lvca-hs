@@ -70,6 +70,7 @@ library
     Lvca
     Lvca.Bidirectional
     Lvca.Brick
+    Lvca.Core
     Lvca.EarleyParseTerm
     Lvca.Judgements
     Lvca.Languages.Edits
@@ -99,6 +100,7 @@ test-suite tests
     Languages.Stlc
     Languages.TExample
     Test.Bidirectional
+    Test.Core
     Test.ParseBidirectional
     Test.ParseTerm
     Test.Types

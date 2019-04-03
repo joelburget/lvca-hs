@@ -29,5 +29,5 @@ import           Lvca.ParseTerm
 import           Lvca.ParseUtil                      hiding (re)
 import           Lvca.Printer
 import           Lvca.SyntaxComponents
-import           Lvca.Types                          hiding (findMatch, matches)
+import           Lvca.Types
 import           Lvca.Util

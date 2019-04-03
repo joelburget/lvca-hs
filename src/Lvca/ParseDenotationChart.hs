@@ -5,6 +5,8 @@ import           Data.Text       (Text)
 import           Data.Void       (Void)
 import           Text.Megaparsec
 
+import           Lvca.Core            (Core)
+import           Lvca.DenotationChart
 import           Lvca.ParseUtil
 import           Lvca.Types
 
@@ -17,21 +19,18 @@ type DenotationChartParser a = Parsec
 -- TODO: add tagged / untagged options for consistency with standard parser
 parseDenotationChart
   :: DenotationChartParser a
-  -> DenotationChartParser b
-  -> DenotationChartParser (DenotationChart a (Either Text b))
-parseDenotationChart parseA parseB = do
+  -> DenotationChartParser (DenotationChart a)
+parseDenotationChart parseA = do
   _ <- scn -- TODO: principled whitespace handling
-  DenotationChart <$> many (parseDenotationLine parseA parseB) <* eof
+  DenotationChart <$> many (parseDenotationLine parseA) <* eof
   <?> "denotation chart"
 
 parseDenotationLine
-  :: DenotationChartParser a
-  -> DenotationChartParser b
-  -> DenotationChartParser (Pattern a, Term (Either Text b))
-parseDenotationLine parseA parseB = (,)
+  :: DenotationChartParser a -> DenotationChartParser (Pattern a, Core)
+parseDenotationLine parseA = (,)
   <$> oxfordBrackets (parsePattern parseA)
   <*  symbol "="
-  <*> parseDenotationRhs parseB
+  <*> parseDenotationRhs
   <?> "denotation line"
 
 parsePattern
@@ -65,24 +64,25 @@ parseBinders :: DenotationChartParser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
-parseDenotationRhs
-  :: DenotationChartParser b
-  -> DenotationChartParser (Term (Either Text b))
-parseDenotationRhs parseB = asum
-  [ PrimValue . Right <$> braces parseB
-  , do name <- parseName
-       option (Var name) $ asum
-         [ -- sugar for e.g. `Int{0}`
-           do b <- braces parseB
-              pure $ Term name [ Scope [] $ PrimValue $ Right b ]
-         , parens $ do
-           let boundTerm = do
-                 binders <- parseBinders
-                 tm      <- parseDenotationRhs parseB
-                 pure $ Scope binders tm
-           Term name <$> boundTerm `sepBy` symbol ";"
-         ]
-  , oxfordBrackets $ do
-      name <- parseName
-      pure $ Term "MeaningOf" [ Scope [] $ PrimValue $ Left name ]
-  ] <?> "non-union pattern"
+parseDenotationRhs :: DenotationChartParser Core
+parseDenotationRhs = undefined
+
+-- asum
+--   -- TODO: allow prims
+--   -- [ PrimValue . Right <$> braces parseB
+--   [ do name <- parseName
+--        option (Var name) $ asum
+--          [ -- sugar for e.g. `Int{0}`
+--            -- do b <- braces parseB
+--            --    pure $ Term name [ Scope [] $ PrimValue $ Right b ]
+--            parens $ do
+--            let boundTerm = do
+--                  binders <- parseBinders
+--                  tm      <- parseDenotationRhs
+--                  pure $ Scope binders tm
+--            Term name <$> boundTerm `sepBy` symbol ";"
+--          ]
+--   , oxfordBrackets $ do
+--       name <- parseName
+--       pure $ Term "MeaningOf" [ Scope [] $ PrimValue $ Left name ]
+--   ] <?> "non-union pattern"

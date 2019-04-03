@@ -54,12 +54,12 @@ module Lvca.Types
 
   -- * Denotation charts
   -- | Denotational semantics definition.
-  , DenotationChart(..)
+  -- , DenotationChart(..)
   , pattern (:->)
   , (<->)
   , pattern PatternAny
   , pattern PatternEmpty
-  , Subst(..)
+  , MatchResult(..)
 
   -- * Terms / Values
   , Scope(..)
@@ -102,8 +102,8 @@ module Lvca.Types
   , runMatches
   , completePattern
   , minus
-  , patternCheck
-  , findMatch
+  -- , patternCheck
+  -- , findMatch
   ) where
 
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
@@ -504,27 +504,11 @@ deriveEq1   ''Term
 deriveShow1 ''Pattern
 deriveEq1   ''Pattern
 
--- | Denotation charts
+-- | The result of matching a pattern against a term. Example:
 --
--- A denotation chart maps from patterns to their denotation. Patterns are
--- checked from top to bottom.
---
--- We check for completeness and redundancy using a very similar algorithm to
--- Haskell's pattern match checks. These could also be compiled efficiently in
--- a similar way.
-newtype DenotationChart a b = DenotationChart [(Pattern a, Term b)]
-  deriving Show
-
-instance (Pretty a, Pretty b) => Pretty (DenotationChart a b) where
-  pretty (DenotationChart rows) = vsep $ rows <&> \(pat, tm) ->
-    "[[ " <> pretty pat <> " ]] = " <> pretty tm
-
--- | A substitution -- the result of matching a pattern against a term. Perhaps
--- a better name for this would be @MatchResult@. Example:
---
--- Pattern @lam(body)@ 'matches' term @lam(x. x)@, resulting in 'Subst'
+-- Pattern @lam(body)@ 'matches' term @lam(x. x)@, resulting in 'MatchResult'
 -- @body -> x. x@.
-newtype Subst a = Subst { _assignments :: Map Text (Scope a) }
+newtype MatchResult a = MatchResult { _assignments :: Map Text (Scope a) }
   deriving (Eq, Show, Semigroup, Monoid)
 
 -- | Is this pattern redundant?
@@ -558,15 +542,15 @@ hasRedundantPat (PatternCheckResult _ overlaps)
 -- * There are very few use cases.
 --
 -- Most of the time you want to hygienically open a term.
-applySubst :: Show a => Subst a -> Term a -> Term a
-applySubst subst@(Subst assignments) tm = case tm of
+applySubst :: Show a => MatchResult a -> Term a -> Term a
+applySubst subst@(MatchResult assignments) tm = case tm of
   Term name subtms    -> Term name (applySubst' subst <$> subtms)
   Var name            -> case assignments ^? ix name of
     Just (Scope _ tm') -> tm'
     _                  -> tm
   _                   -> tm
 
-applySubst' :: Show a => Subst a -> Scope a -> Scope a
+applySubst' :: Show a => MatchResult a -> Scope a -> Scope a
 applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)
 
 -- | Match any instance of this operator
@@ -587,13 +571,13 @@ makeLenses ''MatchesEnv
 
 type Matching a = ReaderT (MatchesEnv a) Maybe
 
-noMatch, emptyMatch :: Matching a (Subst a)
+noMatch, emptyMatch :: Matching a (MatchResult a)
 noMatch    = lift Nothing
 emptyMatch = pure mempty
 
-matches :: (Show a, Eq a) => Pattern a -> Term a -> Matching a (Subst a)
+matches :: (Show a, Eq a) => Pattern a -> Term a -> Matching a (MatchResult a)
 matches (PatternVar (Just name)) tm
-  = pure $ Subst $ Map.singleton name (Scope [] tm)
+  = pure $ MatchResult $ Map.singleton name (Scope [] tm)
 matches (PatternVar Nothing)     _
   = emptyMatch
 
@@ -603,7 +587,7 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms)
   | otherwise = do
     mMatches <- sequence $ fmap sequence $ pairWith
       (\pat (Scope names tm)
-        -> Subst . fmap (enscope names) . _assignments <$> matches pat tm)
+        -> MatchResult . fmap (enscope names) . _assignments <$> matches pat tm)
       subpatterns
       subterms
     mconcat <$> lift mMatches
@@ -647,14 +631,13 @@ minus (PatternVar _) x = do
   pat <- completePattern
   minus pat x
 
-minus x@(PatternTm hd subpats) (PatternTm hd' subpats') =
-  if hd == hd'
-  then do
+minus x@(PatternTm hd subpats) (PatternTm hd' subpats')
+  | hd == hd' = do
     subpats'' <- sequence $ zipWith minus subpats subpats'
     pure $ if all (== PatternEmpty) subpats''
        then PatternEmpty
        else PatternTm hd subpats''
-  else pure x
+  | otherwise = pure x
 
 minus (PatternUnion pats) x = do
   pats' <- traverse (`minus` x) pats
@@ -667,44 +650,6 @@ minus x@(PatternPrimVal a) (PatternPrimVal b)
   = pure $ if a == b then PatternEmpty else x
 minus x@PatternPrimVal{} _           = pure x
 minus x@PatternTm{} PatternPrimVal{} = pure x
-
--- | Check a chart for uncovered and overlapping patterns.
-patternCheck
-  :: forall a b.
-     Eq a
-  => DenotationChart a b
-  -> Matching a (PatternCheckResult a)
-patternCheck (DenotationChart chart) = do
-  unmatched <- completePattern -- everything unmatched
-  (overlaps, unmatched') <- mapAccumM
-    (\unmatchedAcc (pat, _denotation) -> go unmatchedAcc pat)
-    unmatched
-    chart
-  pure $ PatternCheckResult unmatched' overlaps
-
-  -- go:
-  -- - takes the set of uncovered values
-  -- - returns the (set of covered values, set of remaining uncovered values)
-  where go
-          :: Pattern a
-          -> Pattern a
-          -> Matching a ((Pattern a, IsRedudant), Pattern a)
-        go unmatched pat = do
-          pat' <- unmatched `minus` pat
-          let redundant = if pat == pat' then IsRedudant else IsntRedundant
-          pure ((pat, redundant), pat')
-
-findMatch
-  :: (Eq a, Show a, Show b)
-  => DenotationChart a b
-  -> Term a
-  -> Matching a (Subst a, Term b)
-findMatch (DenotationChart pats) tm = do
-  env <- ask
-  let results = pats <&> \(pat, rhs) ->
-        runReaderT (matches pat tm) env & _Just %~ (, rhs)
-
-  lift $ getFirst $ foldMap First results
 
 instance Pretty SyntaxChart where
   pretty (SyntaxChart sorts) =

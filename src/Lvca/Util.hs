@@ -37,8 +37,8 @@ mapAccumM f = flip (runStateT . (traverse (StateT . (flip f))))
 
 -- | Lift a 'Maybe' to 'm'
 (??) :: MonadError e m => Maybe a -> e -> m a
-(Just a) ?? _   = pure a
-Nothing  ?? err = throwError err
+Just a  ?? _   = pure a
+Nothing ?? err = throwError err
 infix 1 ??
 
 -- | Lift an @m Maybe@ to @m@
