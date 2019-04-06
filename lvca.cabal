@@ -71,6 +71,7 @@ library
     Lvca.Bidirectional
     Lvca.Brick
     Lvca.Core
+    Lvca.DenotationChart
     Lvca.EarleyParseTerm
     Lvca.Judgements
     Lvca.Languages.Edits
@@ -82,8 +83,9 @@ library
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil
     Lvca.Printer
-    Lvca.Types
     Lvca.SyntaxComponents
+    Lvca.TokenizeConcrete
+    Lvca.Types
     Lvca.Util
     Text.Megaparsec.Char.LexerAlt
   hs-source-dirs:      src
@@ -102,6 +104,7 @@ test-suite tests
     Test.Bidirectional
     Test.Core
     Test.ParseBidirectional
+    Test.ParseConcreteSyntaxDescription
     Test.ParseTerm
     Test.Types
   type:             exitcode-stdio-1.0
@@ -117,3 +120,7 @@ test-suite tests
     hedgehog,
     sbv,
     writer-cps-mtl,
+
+executable futamura
+  main-is: Futamura.hs
+  build-depends: base, Earley, lvca, megaparsec, mtl, text, prettyprinter

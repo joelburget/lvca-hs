@@ -53,7 +53,9 @@ genTerm
 genTerm _chart (External name) genPrim = case genPrim name of
   Nothing  -> Gen.discard
   Just gen -> PrimValue <$> gen
-genTerm chart@(SyntaxChart chart') (SortAp sortHead sortArgs) genPrim = do
+genTerm
+  chart@(SyntaxChart chart' _startSort)
+  (SortAp sortHead sortArgs) genPrim = do
     let SortDef vars operators = chart' ^?! ix sortHead
         sortVarVals = Map.fromList $ zip vars sortArgs
 

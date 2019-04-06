@@ -38,7 +38,7 @@ data InlineAtom inlineEmbed
 data Attribute = Bold | Italic
 
 syntax :: Either (ParseErrorBundle Text Void) SyntaxChart
-syntax = runParser parseSyntaxDescription "(document syntax)"
+syntax = runParser parseSyntaxDescription' "(document syntax)"
   [text|
     // TODO: would be nice to have some sort of built-in sequences
     Document ::= Document(List Block)

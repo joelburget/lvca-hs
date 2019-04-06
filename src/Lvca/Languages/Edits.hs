@@ -10,7 +10,7 @@ import           Lvca.ParseSyntaxDescription
 import           Lvca.Types                  (SyntaxChart)
 
 editsSyntax :: Either (ParseErrorBundle Text Void) SyntaxChart
-editsSyntax = runParser parseSyntaxDescription "(edits syntax)"
+editsSyntax = runParser parseSyntaxDescription' "(edits syntax)"
   [text|
 pattern ::=
   PatternTm([text]; list(pattern))

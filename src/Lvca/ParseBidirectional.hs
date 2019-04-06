@@ -19,7 +19,7 @@ type BidirectionalParser a = Parsec
   a
 
 parseBidirectional :: BidirectionalParser [Rule]
-parseBidirectional = many parseRule
+parseBidirectional = some parseRule
 
 parseRule :: BidirectionalParser Rule
 parseRule = do

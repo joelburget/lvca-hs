@@ -18,9 +18,13 @@ type SyntaxDescriptionParser a = Parsec
   Text -- stream type
   a
 
+parseSyntaxDescription' :: SyntaxDescriptionParser SyntaxChart
+parseSyntaxDescription' = parseSyntaxDescription <* eof
+
 parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
-parseSyntaxDescription
-  = SyntaxChart . Map.fromList <$> some parseSortDef <* eof
+parseSyntaxDescription = do
+  defs@((start, _):_) <- some parseSortDef
+  pure $ SyntaxChart (Map.fromList defs) start
 
 -- | Parse a sort definition, eg:
 --

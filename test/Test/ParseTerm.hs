@@ -32,7 +32,7 @@ prop_parse_abstract_pretty chart sort aGen aParsers = property $ do
     -- (Just (Gen.int Range.exponentialBounded))
 
   let pretty' = renderStrict . layoutPretty defaultLayoutOptions . pretty
-      parse'  = parseMaybe $ runReaderT standardParser $
+      parse'  = parseMaybe $ runReaderT standardParser' $
         ParseEnv chart sort TaggedExternals aParsers
 
   annotate $ unpack $ pretty' tm
@@ -55,7 +55,7 @@ standardParseTermTest
   :: (Eq a, Show a)
   => ParseEnv a -> Text -> Term a -> Test
 standardParseTermTest env str tm = example $
-  case runParser (runReaderT standardParser env) "(test)" str of
+  case runParser (runReaderT standardParser' env) "(test)" str of
     Left err       -> crash $ errorBundlePretty err
     Right parsedTm -> parsedTm === tm
 

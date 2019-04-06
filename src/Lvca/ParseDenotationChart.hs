@@ -19,13 +19,18 @@ type DenotationChartParser a = Parsec
   Text -- stream type
   a
 
+parseDenotationChart'
+  :: DenotationChartParser a
+  -> DenotationChartParser (DenotationChart a)
+parseDenotationChart' parseA = parseDenotationChart parseA <* eof
+
 -- TODO: add tagged / untagged options for consistency with standard parser
 parseDenotationChart
   :: DenotationChartParser a
   -> DenotationChartParser (DenotationChart a)
 parseDenotationChart parseA = do
   _ <- scn -- TODO: principled whitespace handling
-  DenotationChart <$> many (parseDenotationLine parseA) <* eof
+  DenotationChart <$> many (parseDenotationLine parseA)
   <?> "denotation chart"
 
 parseDenotationLine
@@ -51,15 +56,15 @@ parsePattern'
   -> DenotationChartParser (Pattern a)
 parsePattern' parseA = asum
   [ PatternVar Nothing <$ symbol "_" <?> "wildcard pattern"
-  , do let betweenSemis = label "binding or term pattern" $ parsePattern parseA
+  , do let betweenParens = parsePattern parseA <?> "binding or term pattern"
 
        name <- parseName
        option (PatternVar (Just name)) $ asum
-         [ parens $ PatternTm name <$> betweenSemis `sepBy` symbol ";"
-         , braces $ PatternPrimVal <$> (asum
+         [ parens $ PatternTm name <$> betweenParens `sepBy` symbol ";"
+         , braces $ PatternPrimVal <$> asum
              [ Nothing <$  symbol "_" <?> "wildcard pattern"
              , Just    <$> parseA
-             ])
+             ]
          ]
   ] <?> "non-union pattern"
 
@@ -67,22 +72,22 @@ parseBinders :: DenotationChartParser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
--- This is gross, right?
+-- Q: This is gross, right?
 parsePat :: DenotationChartParser Pat
 parsePat = asum
-  [ symbol "_" $> Core.PatternDefault
+  [ symbol' "_" $> Core.PatternDefault
   , Core.PatternLit <$> parseLit
   , do name <- parseName
        -- TODO: remove Maybe?
        option (Core.PatternVar (Just name)) $ parens $
          Core.PatternTm name <$> many parsePat
-  ]
+  ] <?> "core pattern"
 
 parseLit :: DenotationChartParser Literal
 parseLit = asum
   [ LitInteger <$> intLiteral
   , LitText <$> stringLiteral
-  ]
+  ] <?> "core literal"
 
 -- TODO: awkward level of duplication
 parseVal :: DenotationChartParser Val
@@ -92,26 +97,31 @@ parseVal = asum
   , ValLit <$> parseLit
   , ValPrimop <$> parsePrimop
   -- No lam
-  ]
+  ] <?> "core value"
 
 parseCore :: DenotationChartParser Core
 parseCore = asum
   [ CoreVal . ValLit <$> parseLit
-  , do _ <- symbol "app"
+  -- TODO: we should not steal the names app, lam, and case from the namespace
+  , do _ <- symbol' "app"
        parens $ do
-         f:args <- some parseCore
+         f:args <- parseCore `sepBy` symbol ";"
          pure $ App f args
 
-  , do _ <- symbol "lam"
+  , do _ <- symbol' "lam"
        parens $ Lam <$> parseBinders <*> parseCore
 
-  , do _ <- symbol "case"
+  , do _ <- symbol' "case"
        parens $ do
          scrutinee <- parseCore
          -- TODO: ty
+         _ <- symbol ";"
 
          -- Q:
-         branches <- some $ (,) <$> parsePat <*> parseCore
+         branches <-
+           ((,) <$> parsePat <* symbol' "->" <*> parseCore)
+           `sepBy`
+           symbol ";"
          pure $ Case scrutinee Ty branches
 
   , CoreVal . ValPrimop <$> parsePrimop
@@ -121,7 +131,7 @@ parseCore = asum
          CoreVal . ValTm name <$> many parseVal
 
   , Metavar <$> oxfordBrackets parseName
-  ] <?> "non-union pattern"
+  ] <?> "core term"
 
 parsePrimop :: DenotationChartParser Text
 parsePrimop = pack

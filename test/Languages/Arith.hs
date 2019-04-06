@@ -25,6 +25,7 @@ import           Text.Megaparsec
   (ParseErrorBundle, choice, errorBundlePretty, parseTest, runParser)
 
 import           Lvca
+import           Lvca.DenotationChart
 import           Test.ParseTerm
   (earleyConcreteParseTermTest, prop_parse_abstract_pretty,
   standardParseTermTest)
@@ -44,7 +45,7 @@ instance Pretty E where
     Right t -> "\"" <> pretty t <> "\""
 
 syntax :: SyntaxChart
-Right syntax = runParser parseSyntaxDescription "(syntax)"
+Right syntax = runParser parseSyntaxDescription' "(syntax)"
   [text|
   Arith ::=
     Add(Arith; Arith)
@@ -73,11 +74,9 @@ concreteArith = mkConcreteSyntax
 
 -- | This should be the same as the manually specified concrete syntax
 concreteArith2 :: Either (ParseErrorBundle Text Void) ConcreteSyntax
-concreteArith2 = runParser
-  (parseConcreteSyntaxDescription
-    (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
+concreteArith2 = runParser parseConcreteSyntaxDescription
+    -- (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
   "(concreteArith2)" [text|
-  concrete syntax:
     - Z()       ~ "Z";
     - S(x)      ~ "S " x;
     - Mul(x; y) ~ infixl x "*" y;
@@ -87,10 +86,9 @@ concreteArith2 = runParser
 
 pt :: IO ()
 pt = parseTest
-  (fmap pretty $ parseConcreteSyntaxDescription
-    (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
+  (fmap pretty parseConcreteSyntaxDescription)
+    -- (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
   [text|
-  concrete syntax:
     - Z()       ~ "Z";
     - S(x)      ~ "S" x;
     - Mul(x; y) ~ infixl x "*" y;
@@ -98,8 +96,8 @@ pt = parseTest
       Sub(x; y) ~ infixl x "-" y;
   |]
 
-stackMachineDenotation :: DenotationChart a (Either Text b)
-Right stackMachineDenotation = runParser (parseDenotationChart noParse noParse)
+stackMachineDenotation :: DenotationChart a
+Right stackMachineDenotation = runParser (parseDenotationChart noParse)
   "(stack machine dynamics)"
   [text|
   [[ Add(a; b) ]] = Cons([[ a ]]; Cons([[ b ]]; Cons(Add(); Nil())))
@@ -122,8 +120,8 @@ parsePrim = E <$> choice
 
 peanoDynamics :: Either
   (ParseErrorBundle Text Void)
-  (DenotationChart Text (Either Text Void))
-peanoDynamics = runParser (parseDenotationChart noParse noParse)
+  (DenotationChart Text)
+peanoDynamics = runParser (parseDenotationChart noParse)
   "(arith peano dynamics)"
   [text|
   // Rec as defined in pfpl section 9.1
@@ -222,7 +220,8 @@ arithTests = tests
 
   , scope "concrete parsing with earley" $
     let expectEq1 str tm = earleyConcreteParseTermTest concreteArith str tm
-        expectEq2 str tm = earleyConcreteParseTermTest (forceRight concreteArith2) str tm
+        expectEq2 str tm = earleyConcreteParseTermTest
+          (forceRight concreteArith2) str tm
     in tests
          [ "S Z + S Z"                           `expectEq1` addOneOne
          , "Z + Z + (Z + Z)"                     `expectEq1` addAssoc
@@ -243,7 +242,7 @@ arithTests = tests
     _example2 :: Term E
     _example2 =
       let env = ParseEnv syntax "Arith" UntaggedExternals primParsers
-          parse = runReaderT standardParser env
+          parse = runReaderT standardParser' env
           exampleTerm :: Text
           exampleTerm = "Add(Mul(1; Sub(500; 498)); 3)"
       in case runParser parse "(example term)" exampleTerm of

@@ -8,8 +8,10 @@ import Data.Monoid (First(First, getFirst))
 import Data.String (IsString(fromString))
 import Data.Text (Text, unpack)
 import           Data.Text.Prettyprint.Doc
+import           Data.Void (Void)
 
 import Lvca.Types (pattern (:->))
+import qualified Lvca.Types as Types
 import Lvca.Util (pair, pairWith, (??), (???))
 
 -- TODO: consistency btw Var / Text
@@ -23,11 +25,11 @@ data Literal
 
 instance Num Literal where
   fromInteger = LitInteger
-  (+)         = error "TODO"
-  (-)         = error "TODO"
-  (*)         = error "TODO"
-  abs         = error "TODO"
-  signum      = error "TODO"
+  (+)         = error "error: num instance used for fromInteger only"
+  (-)         = error "error: num instance used for fromInteger only"
+  (*)         = error "error: num instance used for fromInteger only"
+  abs         = error "error: num instance used for fromInteger only"
+  signum      = error "error: num instance used for fromInteger only"
 
 instance IsString Literal where
   fromString = LitText . fromString
@@ -40,13 +42,21 @@ data Val
   | ValLam ![Var] !Core
   deriving (Eq, Show)
 
+valToTerm :: Val -> Maybe (Types.Term Void)
+valToTerm = \case
+  ValTm tag vals -> Types.Term tag <$>
+    traverse (fmap (Types.Scope []) . valToTerm) vals
+  ValLit{}       -> Nothing
+  ValPrimop{}    -> Nothing
+  ValLam{}       -> Nothing
+
 instance Num Val where
   fromInteger = ValLit . fromInteger
-  (+)         = error "TODO"
-  (-)         = error "TODO"
-  (*)         = error "TODO"
-  abs         = error "TODO"
-  signum      = error "TODO"
+  (+)         = error "error: num instance used for fromInteger only"
+  (-)         = error "error: num instance used for fromInteger only"
+  (*)         = error "error: num instance used for fromInteger only"
+  abs         = error "error: num instance used for fromInteger only"
+  signum      = error "error: num instance used for fromInteger only"
 
 instance IsString Val where
   fromString = ValLit . fromString
@@ -73,11 +83,11 @@ instance Pretty Core where
 
 instance Num Core where
   fromInteger = CoreVal . ValLit . fromInteger
-  (+)         = error "TODO"
-  (-)         = error "TODO"
-  (*)         = error "TODO"
-  abs         = error "TODO"
-  signum      = error "TODO"
+  (+)         = error "error: num instance used for fromInteger only"
+  (-)         = error "error: num instance used for fromInteger only"
+  (*)         = error "error: num instance used for fromInteger only"
+  abs         = error "error: num instance used for fromInteger only"
+  signum      = error "error: num instance used for fromInteger only"
 
 -- TODO: Patterns matching lambdas?
 data Pat
@@ -89,11 +99,11 @@ data Pat
 
 instance Num Pat where
   fromInteger = PatternLit . fromInteger
-  (+)         = error "TODO"
-  (-)         = error "TODO"
-  (*)         = error "TODO"
-  abs         = error "TODO"
-  signum      = error "TODO"
+  (+)         = error "error: num instance used for fromInteger only"
+  (-)         = error "error: num instance used for fromInteger only"
+  (*)         = error "error: num instance used for fromInteger only"
+  abs         = error "error: num instance used for fromInteger only"
+  signum      = error "error: num instance used for fromInteger only"
 
 -- TODO: pattern coverage checker (type-informed)
 
@@ -173,5 +183,3 @@ runEval a = runReaderT a Map.empty
 
 evalCore :: Core -> Either String Val
 evalCore = runEval . evalCore'
-
-

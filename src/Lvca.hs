@@ -18,13 +18,13 @@ module Lvca
 import           Lvca.Bidirectional hiding (_conclusion, Term, Scope)
 import           Lvca.Brick
 import           Lvca.Languages.Edits
-import           Lvca.ParseConcreteSyntaxDescription
+import           Lvca.ParseConcreteSyntaxDescription hiding (Scope)
 import           Lvca.ParseBidirectional
 import           Lvca.ParseDenotationChart
   (DenotationChartParser, parseDenotationChart)
 import           Lvca.ParseLanguage
 import           Lvca.ParseSyntaxDescription
-  (SyntaxDescriptionParser, parseSyntaxDescription)
+  (SyntaxDescriptionParser, parseSyntaxDescription, parseSyntaxDescription')
 import           Lvca.ParseTerm
 import           Lvca.ParseUtil                      hiding (re)
 import           Lvca.Printer

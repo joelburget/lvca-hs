@@ -10,6 +10,7 @@ import qualified Languages.Stlc          as Stlc
 import qualified Test.Bidirectional as BD
 import           Test.Core
 import           Test.ParseBidirectional
+import           Test.ParseConcreteSyntaxDescription
 
 -- import Test.Inspection
 import           Test.Types
@@ -35,6 +36,7 @@ allTests = scope "all tests" $ tests
   , scope "arith"                  Arith.arithTests
   , scope "bidirectional"          BD.checkingTests
   , scope "bidirectional.parse"    testParseBidirectional
+  , scope "concrete.parse"         testParseConcreteSyntax
   , scope "core"                   coreEvalTests
   ]
 

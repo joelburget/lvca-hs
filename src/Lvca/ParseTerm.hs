@@ -66,8 +66,8 @@ type Parser a b = ReaderT (ParseEnv a) (Parsec Void Text) b
 -- primParsers.
 checkPrimParsers :: Parser a ()
 checkPrimParsers = do
-  SyntaxChart syntax <- view parseChart
-  primParsers        <- view externalParsers
+  SyntaxChart syntax _ <- view parseChart
+  primParsers          <- view externalParsers
 
   --
   -- Example:
@@ -98,8 +98,9 @@ checkPrimParsers = do
         "). Please specify all parsers (hint: use `noParse` for cases where \
         \the external should not be parsed at all)"
 
-standardParser :: forall a. Parser a (Term a)
-standardParser = standardParser' <* eof
+-- | Parse a term using the standard syntax, consuming the entire file.
+standardParser' :: forall a. Parser a (Term a)
+standardParser' = standardParser <* eof
 
 -- | Generates a parser for any language parsing a standard syntax. Example:
 --
@@ -110,10 +111,10 @@ standardParser = standardParser' <* eof
 -- >     3
 -- >   )
 -- > )
-standardParser' :: forall a. Parser a (Term a)
-standardParser' = do
-  SyntaxChart syntax <- view parseChart
-  primParsers        <- view externalParsers
+standardParser :: forall a. Parser a (Term a)
+standardParser = do
+  SyntaxChart syntax _ <- view parseChart
+  primParsers          <- view externalParsers
 
   checkPrimParsers
 

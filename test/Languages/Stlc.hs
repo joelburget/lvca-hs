@@ -17,7 +17,7 @@ import           Test.ParseTerm
 import           Test.Types
 
 stlcChart :: SyntaxChart
-stlcChart = SyntaxChart $ Map.fromList
+stlcChart = SyntaxChart (Map.fromList
   [ ("Typ", SortDef []
     [ Operator "nat" (Arity []) "natural numbers"
     , Operator "arr" (Arity ["Typ", "Typ"]) "arrows"
@@ -30,7 +30,7 @@ stlcChart = SyntaxChart $ Map.fromList
     -- , Operator "s"   (Arity ["Exp"])                        "successor"
     -- , Operator "z"   (Arity [])                             "zero"
     ])
-  ]
+  ]) "Exp"
 
 -- denotation :: DenotationChart Void Text
 -- denotation = mkDenotationChart
@@ -82,27 +82,27 @@ stlcTests = tests
           ])
         stlcTm1
   , scope "parsing chart" $ example $
-    let result = runParser parseSyntaxDescription "(test)"
+    let result = runParser parseSyntaxDescription' "(test)"
           [text|
-            Typ ::= nat               "natural numbers"
-                    arr(Typ; Typ)     "arrows"
             Exp ::= lam(Typ; Exp.Exp) "abstraction"
                     ap(Exp; Exp)      "application"
+            Typ ::= nat               "natural numbers"
+                    arr(Typ; Typ)     "arrows"
           |]
     in case result of
          Left err     -> crash $ errorBundlePretty err
          Right parsed -> parsed === stlcChart
   , scope "different indentation" $ example $
-    let result = runParser parseSyntaxDescription "(test)"
+    let result = runParser parseSyntaxDescription' "(test)"
           [text|
-            Typ ::= // testing comments
-              nat               "natural numbers"
-              arr(Typ; Typ)     "arrows"
-
             /* more comments */
             Exp ::=
               lam(Typ; Exp.Exp) "abstraction"
               ap(Exp; Exp)      "application"
+
+            Typ ::= // testing comments
+              nat               "natural numbers"
+              arr(Typ; Typ)     "arrows"
           |]
     in case result of
          Left err     -> crash $ errorBundlePretty err

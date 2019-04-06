@@ -50,7 +50,7 @@ sortDeps = \case
 -- | Find the strongly connected components / compilation units of a family of
 -- data types.
 findChartComponents :: SyntaxChart -> SyntaxComponents
-findChartComponents (SyntaxChart sorts) =
+findChartComponents (SyntaxChart sorts start) =
   let sortsWithDeps :: [(SortDef, SortName, [SortName])]
       sortsWithDeps = Map.toList sorts <&> \(name, sortDef@(SortDef _ ops)) ->
         (sortDef,name,) $ concat3 $
@@ -77,7 +77,7 @@ findChartComponents (SyntaxChart sorts) =
             vars = preChart <&> \(_, SortDef sortVars _) -> sortVars
 
             component = SyntaxComponent
-              (SyntaxChart (Map.fromList preChart))
+              (SyntaxChart (Map.fromList preChart) start)
               vars
         in (component, Map.fromList $ zip names $ repeat component)
   in SyntaxComponents components' (Map.unions mappings)

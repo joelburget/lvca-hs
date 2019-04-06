@@ -25,6 +25,7 @@ module Lvca.Types
   , _External
   , SyntaxChart(..)
   , syntaxChartContents
+  , startSort
   , SortDef(..)
   , sortOperators
   , sortVariables
@@ -50,6 +51,7 @@ module Lvca.Types
   , ConcreteSyntaxRule(..)
   , Fixity(..)
   , ConcreteSyntax(..)
+  , keywords
   , mkConcreteSyntax
 
   -- * Denotation charts
@@ -124,6 +126,8 @@ import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First(First, getFirst))
 import           Data.Sequence             (Seq)
 import qualified Data.Sequence             as Seq
+import           Data.Set                  (Set)
+import qualified Data.Set                  as Set
 import           Data.String               (IsString(fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
@@ -184,8 +188,11 @@ sortSubst varVals = \case
 --         len(Exp)           length
 --         let(Exp; Exp.Exp)  definition
 -- @
-newtype SyntaxChart = SyntaxChart
-  { _syntaxChartContents :: Map SortName SortDef }
+data SyntaxChart = SyntaxChart
+  { _syntaxChartContents :: !(Map SortName SortDef)
+  , _startSort           :: !SortName
+  -- ^ The top-level sort for this language
+  }
   deriving (Eq, Show, Data)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
@@ -256,18 +263,31 @@ data MixfixDirective
   | Nest !Int !MixfixDirective
   | Group !MixfixDirective
   | (:<+) !MixfixDirective !MixfixDirective
+  | VarName !Text
   | SubTerm !Text
   deriving (Eq, Show)
 
 instance Pretty MixfixDirective where
   pretty = \case
-    Literal str -> dquotes $ pretty str
+    Literal str  -> dquotes $ pretty str
     Sequence a b -> hsep [pretty a, pretty b]
-    Line -> hardline
-    Nest _ _ -> "TODO Nest"
-    Group d -> "group(" <> pretty d <> ")"
-    _ :<+ _ -> "TODO :<+"
+    Line         -> hardline
+    Nest _ _     -> "TODO Nest"
+    Group d      -> "group(" <> pretty d <> ")"
+    _ :<+ _      -> "TODO :<+"
+    VarName name -> pretty name
     SubTerm name -> pretty name
+
+mixfixDirectiveKeywords :: MixfixDirective -> Set Text
+mixfixDirectiveKeywords = \case
+  Literal kw -> Set.singleton kw
+  Sequence a b -> Set.union (mixfixDirectiveKeywords a) (mixfixDirectiveKeywords b)
+  Line -> Set.empty
+  Nest _ directive -> mixfixDirectiveKeywords directive
+  Group directive -> mixfixDirectiveKeywords directive
+  a :<+ b -> Set.union (mixfixDirectiveKeywords a) (mixfixDirectiveKeywords b)
+  VarName _ -> Set.empty
+  SubTerm _ -> Set.empty
 
 infixr 5 >>:
 (>>:) :: MixfixDirective -> MixfixDirective -> MixfixDirective
@@ -304,6 +324,11 @@ data OperatorDirective
   | MixfixDirective !MixfixDirective
   deriving (Eq, Show)
 
+operatorDirectiveKeywords :: OperatorDirective -> Set Text
+operatorDirectiveKeywords = \case
+  InfixDirective kw _ -> Set.singleton kw
+  MixfixDirective directive -> mixfixDirectiveKeywords directive
+
 instance Pretty OperatorDirective where
   pretty = \case
     InfixDirective name fixity ->
@@ -312,9 +337,13 @@ instance Pretty OperatorDirective where
 
 data ConcreteSyntaxRule = ConcreteSyntaxRule
   { _csOperatorName    :: !OperatorName
-  , _boundVars         :: ![Text]
+  , _slots             :: ![([Text], Text)]
   , _operatorDirective :: !OperatorDirective
   } deriving (Eq, Show)
+
+ruleKeywords :: ConcreteSyntaxRule -> Set Text
+ruleKeywords (ConcreteSyntaxRule _ _ directive)
+  = operatorDirectiveKeywords directive
 
 -- | A concrete syntax chart specifies how to parse and pretty-print a language
 --
@@ -334,18 +363,25 @@ newtype ConcreteSyntax = ConcreteSyntax (Seq [ConcreteSyntaxRule])
 -- TODO: randomly generate syntax descriptions and test that they round-trip
 -- parsing and pretty-printing
 
+keywords :: ConcreteSyntax -> Set Text
+keywords (ConcreteSyntax rules)
+  = Set.unions $ fmap (Set.unions . fmap ruleKeywords) rules
+
 instance Pretty ConcreteSyntax where
-  pretty (ConcreteSyntax precLevels) = vsep $ "concrete syntax:" : prettyLevels
-    where prettyLevels = toList precLevels <&> \decls -> indent 2 $
-            ("-" PP.<+>) $ align $ vsep $ decls <&>
-              \(ConcreteSyntaxRule op vars directive) -> hsep
-                [ pretty op <> encloseSep "(" ")" "; " (map pretty vars)
-                , "~"
-                , pretty directive
-                ]
+  pretty (ConcreteSyntax precLevels) = vsep $
+    toList precLevels <&> \decls -> indent 2 $
+      ("-" PP.<+>) $ align $ vsep $ decls <&>
+        \(ConcreteSyntaxRule op slots directive) -> hsep
+          [ pretty op <> encloseSep "(" ")" "; " (map prettySlot slots)
+          , "~"
+          , pretty directive
+          ]
+    where prettySlot (binderNames, bodyName)
+            = sep $ punctuate "." $ fmap pretty $ binderNames <> [bodyName]
 
 mkConcreteSyntax :: [[ConcreteSyntaxRule]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
+
 
 data Scope a = Scope ![Text] !(Term a)
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
@@ -617,7 +653,7 @@ runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
 getSort :: Matching a SortDef
 getSort = do
-  MatchesEnv (SyntaxChart syntax) sort <- ask
+  MatchesEnv (SyntaxChart syntax _) sort <- ask
   lift $ syntax ^? ix sort
 
 completePattern :: Matching a (Pattern a)
@@ -652,7 +688,8 @@ minus x@PatternPrimVal{} _           = pure x
 minus x@PatternTm{} PatternPrimVal{} = pure x
 
 instance Pretty SyntaxChart where
-  pretty (SyntaxChart sorts) =
+  -- TODO: show start sort?
+  pretty (SyntaxChart sorts _) =
     let f (title, SortDef vars operators) = vsep
           [ let vars' = case vars of
                   [] -> ""

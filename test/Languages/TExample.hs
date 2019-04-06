@@ -35,7 +35,7 @@ _T = prism absurd Left
 {-# INLINE _T #-}
 
 syntax' :: SyntaxChart
-syntax' = SyntaxChart $ Map.fromList
+syntax' = SyntaxChart (Map.fromList
   [ ("Typ", SortDef []
     [ Operator "nat" [] "naturals"
     , Operator "arr" [Valence [] "Typ", Valence [] "Typ"] "functions"
@@ -54,7 +54,7 @@ syntax' = SyntaxChart $ Map.fromList
     -- TODO: sugar for these definitions
     , Operator "ap" [Valence [] "Exp", Valence [] "Exp"] "application"
     ])
-  ]
+  ]) "Exp"
 
 -- dynamics2 :: DenotationChart T (Either Text Void)
 -- dynamics2 = DenotationChart
@@ -79,8 +79,8 @@ syntax' = SyntaxChart $ Map.fromList
 --       ]
 --   ]
 
-dynamics :: DenotationChart T (Either Text Void)
-dynamics = undefined -- mkDenotationChart customPatP valP dynamics'
+-- dynamics :: DenotationChart T (Either Text Void)
+-- dynamics = mkDenotationChart customPatP valP dynamics'
 
 z, sz, ssz, succ, lamapp, lamapp2 :: Term T
 z = Term "Z" []

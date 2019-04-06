@@ -141,7 +141,7 @@ pattern VI x = PrimValue' "NumV" (Left x)
 
 -- Chart of the language @e@. We use this for testing.
 syntax :: SyntaxChart
-syntax = SyntaxChart $ Map.fromList
+syntax = SyntaxChart (Map.fromList
   [ ("Typ", SortDef []
     [ Operator "Num" (Arity []) "numbers"
     , Operator "Str" (Arity []) "strings"
@@ -167,7 +167,7 @@ syntax = SyntaxChart $ Map.fromList
     [ Operator "Nil" (Arity []) ""
     , Operator "Cons" (Arity ["a", Valence [] (SortAp "List" ["a"])]) ""
     ])
-  ]
+  ]) "Exp"
 
 genText :: Gen Text
 genText = Gen.text (Range.exponential 0 1000) Gen.unicode
@@ -369,7 +369,7 @@ matchesTests = scope "matches" $
 parseTests :: Test
 parseTests =
   let runP sty str = runParser
-        (runReaderT standardParser (ParseEnv syntax "Exp" sty primParsers))
+        (runReaderT standardParser' (ParseEnv syntax "Exp" sty primParsers))
         "(test)" str
       expectParse sty str tm = scope (Text.unpack str) $ example $
         case runP sty str of

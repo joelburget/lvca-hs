@@ -78,6 +78,7 @@ parseName = pack
        <*  scn)
   <?> "variable"
 
+-- TODO: isn't this really countEndBy?
 countSepBy :: MonadPlus m => Int -> m a -> m sep -> m [a]
 countSepBy 0 _ _ = pure []
 countSepBy n ma sep = do
