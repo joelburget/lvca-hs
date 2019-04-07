@@ -12,7 +12,7 @@ import Lvca.ParseBidirectional
 import Lvca.ParseConcreteSyntaxDescription
 import Lvca.ParseDenotationChart
 import Lvca.ParseSyntaxDescription
-import Lvca.ParseUtil (parseVoid, symbol, symbol', parseName, sc, scn)
+import Lvca.ParseUtil (symbol, symbol', parseName, sc, scn)
 
 type LanguageParser a = Parsec
   Void -- error type
@@ -24,7 +24,7 @@ data Lang = Lang
   , _abstractSyntax :: !SyntaxChart
   , _concreteSyntax :: !ConcreteSyntax
   , _statics        :: ![Bidir.Rule]
-  , _dynamics       :: !(DenotationChart Void)
+  , _dynamics       :: !DenotationChart
   }
 
 parseHeader :: MonadParsec e Text m => m b -> m b
@@ -50,6 +50,6 @@ parseLang = do
   statics        <- parseBidirectional
 
   _ <- parseSubheader $ string "dynamics"
-  dynamics       <- parseDenotationChart parseVoid
+  dynamics       <- parseDenotationChart
 
   pure $ Lang name abstractSyntax concreteSyntax statics dynamics

@@ -66,7 +66,7 @@ data Core
   | CoreVal !Val
   | App !Core ![Core]
   | Lam ![Text] !Core
-  | Case !Core !Ty ![ (Pat, Core) ]
+  | Case !Core !Ty ![ (CorePat, Core) ]
   -- everything from ghc core except
   -- * let
   -- * cast
@@ -90,14 +90,14 @@ instance Num Core where
   signum      = error "error: num instance used for fromInteger only"
 
 -- TODO: Patterns matching lambdas?
-data Pat
-  = PatternTm !Text [Pat]
+data CorePat
+  = PatternTm !Text ![CorePat]
   | PatternVar !(Maybe Text)
   | PatternLit !Literal
   | PatternDefault -- TODO is this redundant with PatternVar? Switch to AltCon?
   deriving (Eq, Show)
 
-instance Num Pat where
+instance Num CorePat where
   fromInteger = PatternLit . fromInteger
   (+)         = error "error: num instance used for fromInteger only"
   (-)         = error "error: num instance used for fromInteger only"
@@ -110,10 +110,10 @@ instance Num Pat where
 data Ty = Ty -- TODO
   deriving (Eq, Show)
 
-matchBranch :: Val -> Pat -> Core -> Maybe (Map Var Val, Core)
+matchBranch :: Val -> CorePat -> Core -> Maybe (Map Var Val, Core)
 matchBranch val pat core = (,core) <$> matchBranch' val pat
 
-matchBranch' :: Val -> Pat -> Maybe (Map Var Val)
+matchBranch' :: Val -> CorePat -> Maybe (Map Var Val)
 matchBranch' (ValTm tag1 vals) (PatternTm tag2 pats)
   | tag1 == tag2
   = do mMaps <- pairWith matchBranch' vals pats
@@ -135,6 +135,15 @@ matchBranch' _val PatternDefault
 -- TODO: match ValLam?
 matchBranch' _ _
   = Nothing
+
+-- matchBranch'' :: Val -> ScopePat -> Maybe (Map Var Val)
+-- matchBranch'' val (ScopePat [] pat) = matchBranch' val pat
+-- matchBranch'' (ValLam binders1 body) (ScopePat binders2 pat)
+--   -- XXX actually match binders
+--   | length binders1 == length binders2
+--   = matchBranch' body pat
+--   | otherwise
+--   = Nothing
 
 -- Q:
 -- * this holds vals, also have term context?

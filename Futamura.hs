@@ -31,11 +31,13 @@ main = do
       Left bad -> die (errorBundlePretty bad)
       Right good -> pure good
 
-  putStrLn $ "concrete syntax:\n" ++ show concreteSyntax
+  -- putStrLn $ "concrete syntax:\n" ++ show concreteSyntax
 
   tmTokens <- case tokenizeConcrete (keywords concreteSyntax) prog of
     Left err   -> die $ errorBundlePretty err
     Right good -> pure good
+
+  -- putStrLn $ "tokens: " ++ show tmTokens
 
   parsedTm <- case fullParses (concreteParser concreteSyntax) tmTokens of
     ([parsedTm], _)  -> pure parsedTm
@@ -46,6 +48,8 @@ main = do
       , show report
       ]
 
+  -- putStrLn $ "parsed term: " ++ show parsedTm
+
   -- TODO: typecheck!
   -- runCheck (Env statics Map.empty) (check parsedTm)
 
@@ -53,8 +57,8 @@ main = do
         (dynamics, abstractSyntax, _startSort abstractSyntax)
 
   core <- case mCore of
-    Nothing   -> die "failed to translate term to core"
-    Just core -> pure core
+    Left err   -> die $ "failed to translate term to core:\n" ++ err
+    Right core -> pure core
 
   val <- case evalCore core of
     Left msg  -> die msg

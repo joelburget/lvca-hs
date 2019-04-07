@@ -20,11 +20,11 @@ ty ::=
 - true()          ~ "true";
   false()         ~ "false";
   bool()          ~ "bool";
-- annot(tm; ty)   ~ tm ":" ty;
 - ite(t1; t2; t3) ~ "if" t1 "then" t2 "else" t3;
 - lam(x. t)       ~ "lam" x "." t;
 - app(t1; t2)     ~ t1 t2;
 - arr(t1; t2)     ~ t1 "->" t2;
+- annot(tm; ty)   ~ tm ":" ty;
 
 == statics ==
 
@@ -66,9 +66,9 @@ ctx |- tm1 => arr(ty1; ty2)  ctx |- tm2 <= ty1
 
 == dynamics ==
 
-[[ true()  ]] = true()
-[[ false() ]] = false()
-[[ annot(tm; ty) ]] = [[ tm ]]
+[[ true()          ]] = true()
+[[ false()         ]] = false()
+[[ annot(tm; ty)   ]] = [[ tm ]]
 [[ ite(t1; t2; t3) ]] = case([[ t1 ]]; true() -> [[ t2 ]]; false() -> [[ t3 ]])
-// [[ lam(x. body) ]] = lam(x.
-[[ app(fun; arg) ]] = app([[ fun ]]; [[ arg ]])
+[[ lam(x. body)    ]] = lam(x. [[ body ]])
+[[ app(fun; arg)   ]] = app([[ fun ]]; [[ arg ]])

@@ -7,11 +7,11 @@ import           Data.Void       (Void)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 
-import           Lvca.Core (Core(..), Literal(..), Val(..), Var(..), Pat, Ty(..))
+import           Lvca.Core (Core(..), Literal(..), Val(..), Var(..),
+  CorePat, Ty(..))
 import qualified Lvca.Core as Core
 import           Lvca.DenotationChart
 import           Lvca.ParseUtil
-import           Lvca.Types hiding (Var)
 
 
 type DenotationChartParser a = Parsec
@@ -19,61 +19,41 @@ type DenotationChartParser a = Parsec
   Text -- stream type
   a
 
-parseDenotationChart'
-  :: DenotationChartParser a
-  -> DenotationChartParser (DenotationChart a)
-parseDenotationChart' parseA = parseDenotationChart parseA <* eof
+parseDenotationChart' :: DenotationChartParser DenotationChart
+parseDenotationChart' = parseDenotationChart <* eof
 
 -- TODO: add tagged / untagged options for consistency with standard parser
-parseDenotationChart
-  :: DenotationChartParser a
-  -> DenotationChartParser (DenotationChart a)
-parseDenotationChart parseA = do
+parseDenotationChart :: DenotationChartParser DenotationChart
+parseDenotationChart = do
   _ <- scn -- TODO: principled whitespace handling
-  DenotationChart <$> many (parseDenotationLine parseA)
+  DenotationChart <$> many parseDenotationLine
   <?> "denotation chart"
 
-parseDenotationLine
-  :: DenotationChartParser a -> DenotationChartParser (Pattern a, Core)
-parseDenotationLine parseA = (,)
-  <$> oxfordBrackets (parsePattern parseA)
+parseDenotationLine :: DenotationChartParser (DenotationPat, Core)
+parseDenotationLine = (,)
+  <$> oxfordBrackets parsePattern
   <*  symbol "="
   <*> parseCore
   <?> "denotation line"
 
-parsePattern
-  :: DenotationChartParser a
-  -> DenotationChartParser (Pattern a)
-parsePattern parseA
-  = mkUnion <$> parsePattern' parseA `sepBy1` symbol "|"
-  <?> "union of patterns"
-  where mkUnion = \case
-          [pat] -> pat
-          pats  -> PatternUnion pats
-
-parsePattern'
-  :: DenotationChartParser a
-  -> DenotationChartParser (Pattern a)
-parsePattern' parseA = asum
-  [ PatternVar Nothing <$ symbol "_" <?> "wildcard pattern"
-  , do let betweenParens = parsePattern parseA <?> "binding or term pattern"
-
-       name <- parseName
-       option (PatternVar (Just name)) $ asum
-         [ parens $ PatternTm name <$> betweenParens `sepBy` symbol ";"
-         , braces $ PatternPrimVal <$> asum
-             [ Nothing <$  symbol "_" <?> "wildcard pattern"
-             , Just    <$> parseA
-             ]
-         ]
+parsePattern :: DenotationChartParser DenotationPat
+parsePattern = asum
+  [ DVar Nothing <$ symbol "_" <?> "wildcard pattern"
+  , do name <- parseName
+       option (DVar (Just name)) $
+         parens $ DPatternTm name <$> parseScopePat `sepBy` symbol ";"
   ] <?> "non-union pattern"
+
+parseScopePat :: DenotationChartParser DenotationScopePat
+parseScopePat = DenotationScopePat <$> parseBinders <*> parsePattern
+  <?> "scope pattern"
 
 parseBinders :: DenotationChartParser [Text]
 parseBinders = try parseName `endBy'` symbol "."
   <?> "binders"
 
 -- Q: This is gross, right?
-parsePat :: DenotationChartParser Pat
+parsePat :: DenotationChartParser CorePat
 parsePat = asum
   [ symbol' "_" $> Core.PatternDefault
   , Core.PatternLit <$> parseLit

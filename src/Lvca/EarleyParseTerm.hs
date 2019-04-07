@@ -2,16 +2,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Lvca.EarleyParseTerm (concreteParser) where
 
-import           Control.Applicative  (many, (<|>))
-import           Control.Lens         (ALens', ifor, ix, view, (<&>), (^?!))
+import           Control.Applicative  ((<|>))
+import           Control.Lens         (ALens', ifor, ix, (<&>), (^?!))
 import           Control.Lens.TH      (makeLenses)
 import           Control.Monad.Fix
 import           Control.Monad.Reader
-import           Data.Char            (isSpace, isAlpha, isAlphaNum)
 import           Data.Foldable        (asum)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
-import           Data.Sequence        (Seq(Empty, (:|>), (:<|)))
+import           Data.Sequence        (Seq(Empty, (:|>)))
 import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
@@ -19,7 +18,7 @@ import           Data.Void            (Void)
 import           GHC.Stack            (HasCallStack)
 import           Prelude              hiding ((!!))
 import           Text.Earley
-  (Grammar, Parser, Prod, parser, rule, satisfy, terminal, token, (<?>))
+  (Grammar, Parser, Prod, parser, rule, terminal, token, (<?>))
 
 import           Lvca.TokenizeConcrete
 import           Lvca.Types           hiding (space)
@@ -46,8 +45,6 @@ concreteParserGrammar
      ConcreteSyntax
   -> Grammar r (Prod r Text ConcreteToken (Term Void))
 concreteParserGrammar (ConcreteSyntax directives) = mdo
-  -- whitespace <- rule $ many $ satisfy isSpace
-
   it <- mfix $ \prods ->
     -- highest precedence to lowest
     ifor directives $ \precedence precedenceLevel -> do
@@ -119,8 +116,7 @@ parseMixfixDirective
   :: MixfixDirective
   -> Reader (Parsers r) (Prod r Text ConcreteToken MixfixResult)
 parseMixfixDirective directive = do
-  -- Parsers whitespace _ _ <- ask
-  Parsers higherPrecParser _ <- ask
+  Parsers higherPrecParser' _ <- ask
 
   let returnVar concreteGrammarName parsedName
         = MixfixResult (Map.singleton concreteGrammarName parsedName) Map.empty
@@ -143,22 +139,12 @@ parseMixfixDirective directive = do
     VarName concreteGrammarName -> pure $
       fmap (returnVar concreteGrammarName) parseVar
     SubTerm name -> pure $
-      fmap (returnSubtm name) higherPrecParser <|>
-      fmap (returnVar name) parseVar
+      fmap (returnSubtm name) (higherPrecParser' <|> fmap Var parseVar)
 
 parseVar :: Prod r Text ConcreteToken Text
 parseVar = terminal $ \case
   VarToken v -> Just v
   _          -> Nothing
-
---   let char0 = satisfy $ \c ->
---            isAlpha c
---         || c == '_'
---       chars = many $ satisfy $ \c ->
---            isAlphaNum c
---         || c == '\''
---         || c == '_'
---   in Text.pack <$> ((:) <$> char0 <*> chars)
 
 -- | Parse an infix operator
 parseInfix
@@ -181,5 +167,8 @@ parseInfix opName opRepr fixity
          -- <*  whitespace
          <*> subparser2
 
-_unused :: ALens' (Parsers r) (Prod r Text ConcreteToken (Term Void))
-_unused = samePrecParser
+_unused ::
+  ( ALens' (Parsers r) (Prod r Text ConcreteToken (Term Void))
+  , ALens' (Parsers r) (Prod r Text ConcreteToken (Term Void))
+  )
+_unused = (samePrecParser, higherPrecParser)

@@ -1,15 +1,17 @@
 module Lvca.DenotationChart where
 
-import Control.Lens
+import Data.Text (Text)
+import Control.Lens hiding ((??))
 import Control.Monad.Reader
 import Data.Monoid (First(First, getFirst))
 import           Data.Text.Prettyprint.Doc
 import           Data.Traversable
+import           Data.Map (Map)
 import qualified Data.Map as Map
 
 import Lvca.Core  (Core(..), Val(..))
-import Lvca.Types
-  (SortName, SyntaxChart, Matching, Pattern, PatternCheckResult(..), IsRedudant(..), Term, MatchResult(..), Scope(..), completePattern, minus, matches, runMatches)
+import qualified Lvca.Core as Core
+import Lvca.Types (SortName, SyntaxChart, Term(..), Scope(..))
 import Lvca.Util
 
 -- | Denotation charts
@@ -20,63 +22,92 @@ import Lvca.Util
 -- We check for completeness and redundancy using a very similar algorithm to
 -- Haskell's pattern match checks. These could also be compiled efficiently in
 -- a similar way.
-newtype DenotationChart a = DenotationChart [(Pattern a, Core)]
+newtype DenotationChart = DenotationChart [(DenotationPat, Core)]
   deriving Show
 
-instance Pretty a => Pretty (DenotationChart a) where
+data DenotationPat
+  = DPatternTm !Text ![DenotationScopePat]
+  | DVar !(Maybe Text)
+  deriving Show
+
+data DenotationScopePat
+  = DenotationScopePat ![Text] !DenotationPat
+  deriving Show
+
+instance Pretty DenotationPat where
+  pretty = \case
+    DPatternTm name subpats
+      -> pretty name <> parens (hsep $ punctuate semi $ fmap pretty subpats)
+    DVar Nothing
+      -> "_"
+    DVar (Just v)
+      -> pretty v
+
+instance Pretty DenotationScopePat where
+  pretty (DenotationScopePat binders pat)
+    = hsep $ punctuate dot $ fmap pretty binders <> [ pretty pat ]
+
+instance Pretty DenotationChart where
   pretty (DenotationChart rows) = vsep $ rows <&> \(pat, tm) ->
     "[[ " <> pretty pat <> " ]] = " <> pretty tm
 
--- | Check a chart for uncovered and overlapping patterns.
-patternCheck
-  :: forall a. Eq a => DenotationChart a -> Matching a (PatternCheckResult a)
-patternCheck (DenotationChart chart) = do
-  unmatched <- completePattern -- everything unmatched
-  (overlaps, unmatched') <- mapAccumM
-    (\unmatchedAcc (pat, _denotation) -> go unmatchedAcc pat)
-    unmatched
-    chart
-  pure $ PatternCheckResult unmatched' overlaps
-
-  -- go:
-  -- - takes the set of uncovered values
-  -- - returns the (set of covered values, set of remaining uncovered values)
-  where go :: Pattern a
-           -> Pattern a
-           -> Matching a ((Pattern a, IsRedudant), Pattern a)
-        go unmatched pat = do
-          pat' <- unmatched `minus` pat
-          let redundant = if pat == pat' then IsRedudant else IsntRedundant
-          pure ((pat, redundant), pat')
-
 findMatch
-  :: (Eq a, Show a)
-  => DenotationChart a
+  :: DenotationChart
   -> Term a
-  -> Matching a (MatchResult a, Core)
-findMatch (DenotationChart pats) tm = do
-  env <- ask
-  let results = pats <&> \(pat, rhs) ->
-        runReaderT (matches pat tm) env & _Just %~ (, rhs)
+  -> Maybe ([(Text, Text)], Map Text (Term a), Core)
+findMatch (DenotationChart pats) tm
+  = getFirst $ foldMap (First . uncurry (matches tm)) pats
 
-  lift $ getFirst $ foldMap First results
+matches
+  :: Term a
+  -> DenotationPat
+  -> Core
+  -> Maybe ([(Text, Text)], Map Text (Term a), Core)
+matches (Var v) _ _ = Just ([], Map.empty, CoreVar (Core.Var v))
+matches tm pat core = matches' tm pat <&> \(a, b) -> (a, b, core)
 
-type Translator a = ReaderT (DenotationChart a, SyntaxChart, SortName) Maybe
+matches'
+  :: Term a -> DenotationPat -> Maybe ([(Text, Text)], Map Text (Term a))
+matches' (Term tag2 subtms) (DPatternTm tag1 subpats)
+  | tag1 == tag2
+  = do submatches <- pairWith matches'' subtms subpats
+       mconcat <$> sequence submatches
+  | otherwise
+  = Nothing
+matches' _  DPatternTm{} -- TODO: is this right when term is a var?
+  = Nothing
+matches' _ (DVar Nothing)
+  = Just ([], Map.empty)
+matches' tm (DVar (Just v))
+  = Just ([], Map.singleton v tm)
 
--- TODO: use Either
-termToCore :: (Eq a, Show a) => Term a -> Translator a Core
+matches''
+  :: Scope a
+  -> DenotationScopePat
+  -> Maybe ([(Text, Text)], Map Text (Term a))
+matches'' (Scope binders tm) (DenotationScopePat patBinders pat)
+  | Just binderPairs <- pair patBinders binders
+  -- TODO: we need a richer notion of binder pairing!
+  = do (assocs, tmMatches) <- matches' tm pat
+       pure (binderPairs <> assocs, tmMatches)
+  | otherwise
+  = Nothing
+
+type Translator = ReaderT (DenotationChart, SyntaxChart, SortName) (Either String)
+
+termToCore :: Show a => Term a -> Translator Core
 termToCore tm = do
-  (dynamics, syntax, sort) <- ask
-  (matchRes, protoCore)
-    <- lift $ runMatches syntax sort $ findMatch dynamics tm
-  fillInCore matchRes protoCore
+  (dynamics, syntax, sort)      <- ask
+  (assocs, matchRes, protoCore) <- findMatch dynamics tm
+    -- TODO: pretty
+    ?? "failed to find match for " ++ show tm
+  fillInCore (assocs, matchRes) protoCore
 
-fillInCore :: (Eq a, Show a) => MatchResult a -> Core -> Translator a Core
-fillInCore mr@(MatchResult assignments) c = case c of
+fillInCore :: Show a => ([(Text, Text)], Map Text (Term a)) -> Core -> Translator Core
+fillInCore mr@(assocs, assignments) c = case c of
   Metavar name -> case Map.lookup name assignments of
-    Just (Scope [] tm) -> termToCore tm
-    -- TODO!
-    _                  -> lift Nothing
+    Just tm -> termToCore tm
+    Nothing -> lift $ Left "TODO"
   CoreVar{} -> pure c
   CoreVal val -> CoreVal <$> fillInVal mr val
   App fun args -> App <$> fillInCore mr fun <*> traverse (fillInCore mr) args
@@ -86,9 +117,9 @@ fillInCore mr@(MatchResult assignments) c = case c of
     branches'  <- for branches $ \(pat, core) -> (pat,) <$> fillInCore mr core
     pure $ Case scrutinee' ty branches'
 
-fillInVal :: (Eq a, Show a) => MatchResult a -> Val -> Translator a Val
+fillInVal :: Show a => ([(Text, Text)], Map Text (Term a)) -> Val -> Translator Val
 fillInVal mr val = case val of
-  ValTm tag vals -> ValTm tag <$> traverse (fillInVal mr) vals
-  ValLit{} -> pure val
-  ValPrimop{} -> pure val
+  ValTm tag vals      -> ValTm tag <$> traverse (fillInVal mr) vals
+  ValLit{}            -> pure val
+  ValPrimop{}         -> pure val
   ValLam binders core -> ValLam binders <$> fillInCore mr core
