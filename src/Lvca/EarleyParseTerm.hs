@@ -21,12 +21,13 @@ import           Text.Earley
   (Grammar, Parser, Prod, parser, rule, terminal, token, (<?>))
 
 import           Lvca.TokenizeConcrete
-import           Lvca.Types           hiding (space)
+import           Lvca.Types           hiding (space, Var)
+import qualified Lvca.Types           as Types
 
 data Parsers r = Parsers
   -- { _whitespaceParser :: !(Prod r Text Char String)
-  { _higherPrecParser :: !(Prod r Text ConcreteToken (Term Void))
-  , _samePrecParser   :: !(Prod r Text ConcreteToken (Term Void))
+  { _higherPrecParser :: !(Prod r Text Token (Term Void))
+  , _samePrecParser   :: !(Prod r Text Token (Term Void))
   }
 makeLenses ''Parsers
 
@@ -37,13 +38,13 @@ as !! i = case Seq.lookup i as of
 
 -- | Parse 'Text' to a 'Term' for some 'ConcreteSyntax'
 concreteParser
-  :: ConcreteSyntax -> Parser Text [ConcreteToken] (Term Void)
+  :: ConcreteSyntax -> Parser Text [Token] (Term Void)
 concreteParser concreteSyntax = parser (concreteParserGrammar concreteSyntax)
 
 concreteParserGrammar
   :: forall r.
      ConcreteSyntax
-  -> Grammar r (Prod r Text ConcreteToken (Term Void))
+  -> Grammar r (Prod r Text Token (Term Void))
 concreteParserGrammar (ConcreteSyntax directives) = mdo
   it <- mfix $ \prods ->
     -- highest precedence to lowest
@@ -99,8 +100,8 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
     Empty
       -> error "no concrete parsing precedence levels found"
 
-parens :: Prod r e ConcreteToken a -> Prod r e ConcreteToken a
-parens p = token (LiteralToken "(") *> p <* token (LiteralToken ")")
+parens :: Prod r e Token a -> Prod r e Token a
+parens p = token (Symbols "(") *> p <* token (Symbols ")")
 
 data MixfixResult = MixfixResult
   !(Map Text Text)
@@ -114,7 +115,7 @@ instance Monoid MixfixResult where
 
 parseMixfixDirective
   :: MixfixDirective
-  -> Reader (Parsers r) (Prod r Text ConcreteToken MixfixResult)
+  -> Reader (Parsers r) (Prod r Text Token MixfixResult)
 parseMixfixDirective directive = do
   Parsers higherPrecParser' _ <- ask
 
@@ -124,7 +125,7 @@ parseMixfixDirective directive = do
         = MixfixResult Map.empty (Map.singleton concreteGrammarName tm)
 
   case directive of
-    Literal text -> pure $ mempty <$ token (LiteralToken text) -- <* whitespace
+    Literal text -> pure $ mempty <$ token (Keyword text)
     Sequence d1 d2 -> do
       d1' <- parseMixfixDirective d1
       d2' <- parseMixfixDirective d2
@@ -139,19 +140,19 @@ parseMixfixDirective directive = do
     VarName concreteGrammarName -> pure $
       fmap (returnVar concreteGrammarName) parseVar
     SubTerm name -> pure $
-      fmap (returnSubtm name) (higherPrecParser' <|> fmap Var parseVar)
+      fmap (returnSubtm name) (higherPrecParser' <|> fmap Types.Var parseVar)
 
-parseVar :: Prod r Text ConcreteToken Text
+parseVar :: Prod r Text Token Text
 parseVar = terminal $ \case
-  VarToken v -> Just v
-  _          -> Nothing
+  Var v -> Just v
+  _     -> Nothing
 
 -- | Parse an infix operator
 parseInfix
   :: Text -- ^ Operator name (in abstract syntax), eg @"Add"@
   -> Text -- ^ Operator representation (in concrete syntax), eg @"+"@
   -> Fixity
-  -> Reader (Parsers r) (Prod r Text ConcreteToken (Term Void))
+  -> Reader (Parsers r) (Prod r Text Token (Term Void))
 parseInfix opName opRepr fixity
   = reader $ \(Parsers higherPrec samePrec) ->
     -- Allow expressions of the same precedence on the side we're associative
@@ -163,12 +164,12 @@ parseInfix opName opRepr fixity
     in BinaryTerm opName
          <$> subparser1
          -- <*  whitespace
-         <*  token (LiteralToken opRepr)
+         <*  token (Keyword opRepr)
          -- <*  whitespace
          <*> subparser2
 
 _unused ::
-  ( ALens' (Parsers r) (Prod r Text ConcreteToken (Term Void))
-  , ALens' (Parsers r) (Prod r Text ConcreteToken (Term Void))
+  ( ALens' (Parsers r) (Prod r Text Token (Term Void))
+  , ALens' (Parsers r) (Prod r Text Token (Term Void))
   )
 _unused = (samePrecParser, higherPrecParser)

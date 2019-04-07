@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 
 import Lvca.Core  (Core(..), Val(..))
 import qualified Lvca.Core as Core
-import Lvca.Types (SortName, SyntaxChart, Term(..), Scope(..))
+import Lvca.Types (Term(..), Scope(..))
 import Lvca.Util
 
 -- | Denotation charts
@@ -93,17 +93,17 @@ matches'' (Scope binders tm) (DenotationScopePat patBinders pat)
   | otherwise
   = Nothing
 
-type Translator = ReaderT (DenotationChart, SyntaxChart, SortName) (Either String)
+type Translator = ReaderT DenotationChart (Either String)
 
-termToCore :: Show a => Term a -> Translator Core
+termToCore :: Pretty a => Term a -> Translator Core
 termToCore tm = do
-  (dynamics, syntax, sort)      <- ask
+  dynamics                      <- ask
   (assocs, matchRes, protoCore) <- findMatch dynamics tm
-    -- TODO: pretty
-    ?? "failed to find match for " ++ show tm
+    ?? "failed to find match for " ++ show (pretty tm)
   fillInCore (assocs, matchRes) protoCore
 
-fillInCore :: Show a => ([(Text, Text)], Map Text (Term a)) -> Core -> Translator Core
+fillInCore
+  :: Pretty a => ([(Text, Text)], Map Text (Term a)) -> Core -> Translator Core
 fillInCore mr@(assocs, assignments) c = case c of
   Metavar name -> case Map.lookup name assignments of
     Just tm -> termToCore tm
@@ -117,7 +117,8 @@ fillInCore mr@(assocs, assignments) c = case c of
     branches'  <- for branches $ \(pat, core) -> (pat,) <$> fillInCore mr core
     pure $ Case scrutinee' ty branches'
 
-fillInVal :: Show a => ([(Text, Text)], Map Text (Term a)) -> Val -> Translator Val
+fillInVal
+  :: Pretty a => ([(Text, Text)], Map Text (Term a)) -> Val -> Translator Val
 fillInVal mr val = case val of
   ValTm tag vals      -> ValTm tag <$> traverse (fillInVal mr) vals
   ValLit{}            -> pure val

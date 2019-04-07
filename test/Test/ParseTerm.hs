@@ -17,6 +17,7 @@ import           Text.Megaparsec
 import           Lvca.EarleyParseTerm
 import           Lvca.ParseTerm
 import           Lvca.Printer
+import           Lvca.TokenizeConcrete (tokenizeConcrete)
 import           Lvca.Types
 import           Test.Types
 
@@ -44,9 +45,13 @@ prop_parse_concrete_pretty chart sort concrete = property $ do
 
   let pretty' tm' = renderStrict $ layoutPretty defaultLayoutOptions $
         runReader (prettyTm tm') (-1, concrete)
-      parse' str = case fullParses (concreteParser concrete) str of
-        ([parsed], _) -> Just parsed
-        _             -> Nothing
+      parse' str = do
+        tmTokens <- case tokenizeConcrete (keywords concrete) str of
+          Left err   -> Nothing
+          Right good -> Just good
+        case fullParses (concreteParser concrete) tmTokens of
+          ([parsed], _) -> Just parsed
+          _             -> Nothing
 
   annotate $ unpack $ pretty' tm
   parse' (pretty' tm) === Just tm
@@ -62,6 +67,8 @@ standardParseTermTest env str tm = example $
 earleyConcreteParseTermTest
   :: ConcreteSyntax -> Text -> Term Void -> Test
 earleyConcreteParseTermTest concrete str tm = example $
-  case fullParses (concreteParser concrete) str of
-    ([parsed], _report) -> parsed === tm
-    (_,        report') -> crash $ show report'
+  case tokenizeConcrete (keywords concrete) str of
+    Left err     -> crash $ errorBundlePretty err
+    Right tokens -> case fullParses (concreteParser concrete) tokens of
+      ([parsed], _report) -> parsed === tm
+      (_,        report') -> crash $ show report'

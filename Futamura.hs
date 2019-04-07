@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Monad.Reader
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
 import Data.Text.Prettyprint.Doc (hardline)
@@ -9,6 +10,7 @@ import System.Environment (getArgs)
 import System.Exit
 import           Text.Earley                           (fullParses)
 import Text.Megaparsec
+import System.Console.Haskeline
 
 import Lvca.Core
 import Lvca.DenotationChart
@@ -18,18 +20,19 @@ import Lvca.Printer (prettyTm)
 import Lvca.Types (_startSort, keywords)
 import Lvca.TokenizeConcrete (tokenizeConcrete)
 
-main :: IO ()
-main = do
-  args <- getArgs
-  (languageFile, prog) <- case args of
-    [languageFile, prog] -> pure (languageFile, Text.pack prog)
-    _ -> die "bad arguments"
+interpretLanguage :: Lang -> IO ()
+interpretLanguage lang = runInputT defaultSettings $ loop where
+  loop :: InputT IO ()
+  loop = do
+    minput <- getInputLine "> "
+    case minput of
+      Nothing     -> return ()
+      Just input  -> do
+        liftIO $ eval lang $ Text.pack input
+        loop
 
-  langFileContents <- TIO.readFile languageFile
-  Lang _name abstractSyntax concreteSyntax statics dynamics
-    <- case runParser parseLang languageFile langFileContents of
-      Left bad -> die (errorBundlePretty bad)
-      Right good -> pure good
+eval :: Lang -> Text -> IO ()
+eval (Lang _name abstractSyntax concreteSyntax statics dynamics) prog = do
 
   -- putStrLn $ "concrete syntax:\n" ++ show concreteSyntax
 
@@ -53,8 +56,7 @@ main = do
   -- TODO: typecheck!
   -- runCheck (Env statics Map.empty) (check parsedTm)
 
-  let mCore = runReaderT (termToCore parsedTm)
-        (dynamics, abstractSyntax, _startSort abstractSyntax)
+  let mCore = runReaderT (termToCore parsedTm) dynamics
 
   core <- case mCore of
     Left err   -> die $ "failed to translate term to core:\n" ++ err
@@ -69,3 +71,18 @@ main = do
     Just tm -> pure tm
 
   putDoc $ runReader (prettyTm valTm) (0, concreteSyntax) <> hardline
+
+main :: IO ()
+main = do
+  args <- getArgs
+  languageFile <- case args of
+    [languageFile] -> pure languageFile
+    _              -> die "expected one argument (language file)"
+
+  langFileContents <- TIO.readFile languageFile
+  lang
+    <- case runParser parseLang languageFile langFileContents of
+      Left bad -> die (errorBundlePretty bad)
+      Right good -> pure good
+
+  interpretLanguage lang

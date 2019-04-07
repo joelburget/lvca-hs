@@ -62,7 +62,7 @@ concreteArith :: ConcreteSyntax
 concreteArith = mkConcreteSyntax
   [ [ ConcreteSyntaxRule "Z" [] (MixfixDirective "Z") ]
 
-  , [ ConcreteSyntaxRule "S" ["x"] $
+  , [ ConcreteSyntaxRule "S" [([], "x")] $
         MixfixDirective $ "S" >>: space >>: SubTerm "x"
     ]
 
@@ -96,8 +96,8 @@ pt = parseTest
       Sub(x; y) ~ infixl x "-" y;
   |]
 
-stackMachineDenotation :: DenotationChart a
-Right stackMachineDenotation = runParser (parseDenotationChart noParse)
+stackMachineDenotation :: DenotationChart
+Right stackMachineDenotation = runParser parseDenotationChart
   "(stack machine dynamics)"
   [text|
   [[ Add(a; b) ]] = Cons([[ a ]]; Cons([[ b ]]; Cons(Add(); Nil())))
@@ -118,10 +118,8 @@ parsePrim = E <$> choice
   , Right "mul" <$ symbol "mul"
   ]
 
-peanoDynamics :: Either
-  (ParseErrorBundle Text Void)
-  (DenotationChart Text)
-peanoDynamics = runParser (parseDenotationChart noParse)
+peanoDynamics :: Either (ParseErrorBundle Text Void) DenotationChart
+peanoDynamics = runParser parseDenotationChart
   "(arith peano dynamics)"
   [text|
   // Rec as defined in pfpl section 9.1
