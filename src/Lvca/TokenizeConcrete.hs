@@ -20,6 +20,7 @@ data Token
   | StringLiteral !Text
   | NatLiteral !Integer
   | Symbols !Text
+  | Paren !Char
   deriving (Eq, Show)
 
 tokenizeConcrete
@@ -38,6 +39,8 @@ tokenizeConcrete' kws = some $ asum
        pure $ if str `Set.member` kws
          then Keyword str
          else Var str
+
+  , fmap Paren (char '(' <|> char ')') <* sc
 
   , do str <- symbols
        pure $ if str `Set.member` kws

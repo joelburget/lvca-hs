@@ -102,7 +102,7 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
       -> error "no concrete parsing precedence levels found"
 
 parens :: Prod r e Token a -> Prod r e Token a
-parens p = token (Symbols "(") *> p <* token (Symbols ")")
+parens p = token (Paren '(') *> p <* token (Paren ')')
 
 data MixfixResult = MixfixResult
   !(Map Text Text)
