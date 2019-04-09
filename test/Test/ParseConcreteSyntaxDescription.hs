@@ -37,7 +37,7 @@ testFile = [text|
   bool()          ~ "bool";
 - annot(tm; ty)   ~ tm ":" ty;
 - ite(t1; t2; t3) ~ "if" t1 "then" t2 "else" t3;
-- lam(x. t)       ~ "\" x "." t;
+- lam(x. t)       ~ "\\" x "." t;
 - app(t1; t2)     ~ t1 t2;
 - arr(t1; t2)     ~ t1 "->" t2;
   |]
