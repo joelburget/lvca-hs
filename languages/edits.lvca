@@ -1,0 +1,21 @@
+= language edits =
+
+== abstract syntax ==
+
+pattern ::=
+  patternTm([text]; list(pattern))
+  patternVar(maybe(text))               "a variable with an optional name"
+  patternPrimVal(text; maybe(text))     "a prim val is an external name, eg 'str', and an optional variable name"
+  patternUnion(list(pattern))
+
+list a ::=
+  emptyList
+  cons(a; list a)
+
+maybe a ::=
+  nothing
+  just(a)
+
+== concrete syntax ==
+
+== statics ==

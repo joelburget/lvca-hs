@@ -1,7 +1,6 @@
 module Lvca
   ( module Lvca.Bidirectional
   , module Lvca.Brick
-  , module Lvca.Languages.Edits
   , module Lvca.ParseBidirectional
   , module Lvca.ParseDenotationChart
   , module Lvca.ParseLanguage
@@ -17,7 +16,6 @@ module Lvca
 
 import           Lvca.Bidirectional hiding (_conclusion, Term, Scope)
 import           Lvca.Brick
-import           Lvca.Languages.Edits
 import           Lvca.ParseConcreteSyntaxDescription hiding (Scope)
 import           Lvca.ParseBidirectional
 import           Lvca.ParseDenotationChart
