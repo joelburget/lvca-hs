@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Monad.Except
 import Control.Monad.Reader
 import qualified Data.Map as Map
 import           Data.Text (Text)
@@ -13,13 +14,13 @@ import           Text.Earley                           (fullParses)
 import Text.Megaparsec
 import System.Console.Haskeline
 
-import Lvca.Bidirectional
+import Lvca.Bidirectional hiding (name)
 import Lvca.Core
 import Lvca.DenotationChart
 import Lvca.EarleyParseTerm
 import Lvca.ParseLanguage
 import Lvca.Printer (prettyTm)
-import Lvca.Types (_startSort, keywords)
+import Lvca.Types (keywords)
 import Lvca.TokenizeConcrete (tokenizeConcrete)
 
 interpretLanguage :: Lang -> IO ()
@@ -32,51 +33,46 @@ interpretLanguage lang@(Lang name _ _ _ _) = runInputT settings loop where
     case minput of
       Nothing     -> return ()
       Just input  -> do
-        liftIO $ eval lang $ Text.pack input
+        liftIO $ do
+          it <- runExceptT $ eval lang $ Text.pack input
+          case it of
+            Left err -> putStrLn err
+            Right () -> pure ()
         loop
 
-eval :: Lang -> Text -> IO ()
-eval (Lang _name abstractSyntax concreteSyntax statics dynamics) prog = do
-
-  -- putStrLn $ "concrete syntax:\n" ++ show concreteSyntax
+eval :: Lang -> Text -> ExceptT String IO ()
+eval (Lang _name _abstractSyntax concreteSyntax statics dynamics) prog = do
 
   tmTokens <- case tokenizeConcrete (keywords concreteSyntax) prog of
-    Left err   -> die $ errorBundlePretty err
+    Left err   -> throwError $ errorBundlePretty err
     Right good -> pure good
-
-  -- putStrLn $ "tokens: " ++ show tmTokens
 
   parsedTm <- case fullParses (concreteParser concreteSyntax) tmTokens of
     ([parsedTm], _)  -> pure parsedTm
-    (parses, report) -> die $ unlines $
+    (parses, report) -> throwError $ unlines $
       [ "failed to parse term:"
       , show (length parses) ++ " parses found:"
       , show parses
       , show report
       ]
 
-  -- putStrLn $ "parsed term: " ++ show parsedTm
-
-  -- TODO: typecheck!
   case runCheck (Env statics Map.empty) (infer (convert [] parsedTm)) of
-    Left err -> die $ "failed to typecheck:\n" ++ err
-    Right ty -> putStrLn $ "inferred type: " ++ show ty -- TODO: pretty
+    Left err -> throwError $ "failed to typecheck:\n" ++ err
+    Right ty -> liftIO $ putStrLn $ "inferred type: " ++ show ty -- TODO: pretty
 
-  let mCore = runReaderT (termToCore parsedTm) dynamics
-
-  core <- case mCore of
-    Left err   -> die $ "failed to translate term to core:\n" ++ err
+  core <- case runReaderT (termToCore parsedTm) dynamics of
+    Left err   -> throwError $ "failed to translate term to core:\n" ++ err
     Right core -> pure core
 
   val <- case evalCore core of
-    Left msg  -> die msg
+    Left msg  -> throwError msg
     Right val -> pure val
 
   valTm <- case valToTerm val of
-    Nothing -> die "failed to translate value to term"
+    Nothing -> throwError "failed to translate value to term"
     Just tm -> pure tm
 
-  putDoc $ runReader (prettyTm valTm) (0, concreteSyntax) <> hardline
+  liftIO $ putDoc $ runReader (prettyTm valTm) (0, concreteSyntax) <> hardline
 
 main :: IO ()
 main = do
@@ -86,9 +82,8 @@ main = do
     _              -> die "expected one argument (language file)"
 
   langFileContents <- TIO.readFile languageFile
-  lang
-    <- case runParser parseLang languageFile langFileContents of
-      Left bad -> die (errorBundlePretty bad)
-      Right good -> pure good
+  lang <- case runParser parseLang languageFile langFileContents of
+    Left bad -> die (errorBundlePretty bad)
+    Right good -> pure good
 
   interpretLanguage lang
