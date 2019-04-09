@@ -8,7 +8,7 @@ import qualified Data.Map.Strict           as Map
 import           Data.Maybe                (fromMaybe, isJust)
 import qualified Data.Sequence             as Seq
 import           Data.Text                 (Text)
-import           Data.Text.Prettyprint.Doc hiding (space, (<+>))
+import           Data.Text.Prettyprint.Doc hiding (space)
 import           Data.Void                 (Void)
 import           Prelude                   hiding (lookup)
 
@@ -73,7 +73,7 @@ prettyMixfix :: PrintInfo -> Printer
 prettyMixfix = \case
   PrintInfo (Literal str)  _      -> pure $ pretty str
 
-  PrintInfo (Sequence a b) m -> (<>)
+  PrintInfo (Sequence a b) m -> (<+>)
     <$> prettyMixfix (PrintInfo a m)
     <*> prettyMixfix (PrintInfo b m)
 

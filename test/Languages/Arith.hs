@@ -63,7 +63,7 @@ concreteArith = mkConcreteSyntax
   [ [ ConcreteSyntaxRule "Z" [] (MixfixDirective "Z") ]
 
   , [ ConcreteSyntaxRule "S" [([], "x")] $
-        MixfixDirective $ "S" >>: space >>: SubTerm "x"
+        MixfixDirective $ "S" >>: SubTerm "x"
     ]
 
   , [ ConcreteSyntaxRule "Mul" [] (InfixDirective "*" Infixl) ]
@@ -78,7 +78,7 @@ concreteArith2 = runParser parseConcreteSyntaxDescription
     -- (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
   "(concreteArith2)" [text|
     - Z()       ~ "Z";
-    - S(x)      ~ "S " x;
+    - S(x)      ~ "S" x;
     - Mul(x; y) ~ infixl x "*" y;
     - Add(x; y) ~ infixl x "+" y;
       Sub(x; y) ~ infixl x "-" y;
