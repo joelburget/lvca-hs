@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Monad.Reader
+import qualified Data.Map as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TIO
@@ -12,6 +13,7 @@ import           Text.Earley                           (fullParses)
 import Text.Megaparsec
 import System.Console.Haskeline
 
+import Lvca.Bidirectional
 import Lvca.Core
 import Lvca.DenotationChart
 import Lvca.EarleyParseTerm
@@ -56,7 +58,9 @@ eval (Lang _name abstractSyntax concreteSyntax statics dynamics) prog = do
   -- putStrLn $ "parsed term: " ++ show parsedTm
 
   -- TODO: typecheck!
-  -- runCheck (Env statics Map.empty) (check parsedTm)
+  case runCheck (Env statics Map.empty) (infer (convert [] parsedTm)) of
+    Left err -> die $ "failed to typecheck:\n" ++ err
+    Right ty -> putStrLn $ "inferred type: " ++ show ty -- TODO: pretty
 
   let mCore = runReaderT (termToCore parsedTm) dynamics
 

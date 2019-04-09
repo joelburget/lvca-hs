@@ -12,6 +12,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Class (lift)
 import Data.Foldable             (for_)
+import Data.List (elemIndex)
 import Data.Map.Strict                  (Map)
 import qualified Data.Map.Strict        as Map
 import qualified Data.Set        as Set
@@ -19,7 +20,9 @@ import Data.Monoid               (First(First, getFirst))
 import Data.Text                 (Text)
 import qualified Data.Text       as Text
 import Data.Traversable          (for)
+import Data.Void (Void)
 
+import qualified Lvca.Types as Types
 import Lvca.Util
 
 -- Note: order matters (!), both the ordering of a set of rules and the
@@ -30,6 +33,21 @@ import Lvca.Util
 --   hyps first.
 --
 -- Bidirectional typechecking is, after all, a strategy for algorithmization.
+
+convert :: [Text] -> Types.Term Void -> Term
+convert env = \case
+  Types.Term tag scopes
+    -> Term tag (fmap (convertScope env) scopes)
+  Types.Var v
+    -> case elemIndex v env of
+      Nothing -> Free v
+      Just i  -> Bound i
+  Types.PrimValue{}
+    -> error "vacuous match"
+
+convertScope :: [Text] -> Types.Scope Void -> Scope
+convertScope env (Types.Scope binders tm)
+  = Scope binders (convert (binders <> env) tm)
 
 data Scope = Scope ![Text] !Term
   deriving (Eq, Show)

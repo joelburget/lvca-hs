@@ -123,4 +123,4 @@ test-suite tests
 
 executable futamura
   main-is: Futamura.hs
-  build-depends: base, Earley, lvca, megaparsec, mtl, text, prettyprinter, haskeline
+  build-depends: base, containers, Earley, lvca, megaparsec, mtl, text, prettyprinter, haskeline
