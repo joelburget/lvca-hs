@@ -56,6 +56,7 @@ prettyTm tm = do
                 slots
                 subtms
             InfixDirective str fixity -> prettyInfix str fixity subtms'
+            AssocDirective assoc      -> prettyAssoc assoc subtms'
 
       -- If the child has a lower precedence than the parent you must
       -- parenthesize it
@@ -98,3 +99,15 @@ prettyInfix str fixity subtms = case subtms of
       Infixl -> ret <$> assoc (prettyTm l) <*> prettyTm r
       Infixr -> ret <$> prettyTm l         <*> assoc (prettyTm r)
   _ -> error "expected two subterms for infix directive"
+
+prettyAssoc :: Associativity -> [Term Void] -> Printer
+prettyAssoc assoc = \case
+  [l, r] -> do
+    -- We call `pred` on the side that *should not* show a paren in the case of
+    -- an operator of the same precedence.
+    let assocPred = local (_1 %~ pred)
+        ret l' r' = mconcat [ l', " ", r' ]
+    case assoc of
+      Assocl -> ret <$> assocPred (prettyTm l) <*> prettyTm r
+      Assocr -> ret <$> prettyTm l <*> assocPred (prettyTm r)
+  _ -> error "expected two subterms for assoc directive"

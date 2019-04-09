@@ -22,8 +22,8 @@ ty ::=
   bool()          ~ "bool";
 - ite(t1; t2; t3) ~ "if" t1 "then" t2 "else" t3;
 - lam(x. t)       ~ "lam" x "." t;
-- app(t1; t2)     ~ t1 t2;
-- arr(t1; t2)     ~ t1 "->" t2;
+- app(t1; t2)     ~ assocl t1 t2;
+- arr(t1; t2)     ~ infixr t1 "->" t2;
 - annot(tm; ty)   ~ tm ":" ty;
 
 == statics ==

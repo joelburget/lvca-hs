@@ -49,6 +49,7 @@ module Lvca.Types
   , OperatorDirective(..)
   , ConcreteSyntaxRule(..)
   , Fixity(..)
+  , Associativity(..)
   , ConcreteSyntax(..)
   , keywords
   , mkConcreteSyntax
@@ -318,21 +319,36 @@ instance Pretty Fixity where
     Infixr -> "infixr"
     Infix  -> "infix"
 
+data Associativity
+  = Assocl
+  | Assocr
+  deriving (Show, Eq)
+
+instance Pretty Associativity where
+  pretty = \case
+    Assocl -> "assocl"
+    Assocr -> "assocr"
+
 data OperatorDirective
   = InfixDirective  !Text !Fixity
   | MixfixDirective !MixfixDirective
+  | AssocDirective  !Associativity
   deriving (Eq, Show)
 
 operatorDirectiveKeywords :: OperatorDirective -> Set Text
 operatorDirectiveKeywords = \case
-  InfixDirective kw _ -> Set.singleton kw
+  InfixDirective kw _       -> Set.singleton kw
   MixfixDirective directive -> mixfixDirectiveKeywords directive
+  AssocDirective{}          -> Set.empty
 
 instance Pretty OperatorDirective where
   pretty = \case
-    InfixDirective name fixity ->
-      hsep [pretty fixity, "x", dquotes (pretty name), "y"]
-    MixfixDirective dir -> pretty dir
+    InfixDirective name fixity
+      -> hsep [ pretty fixity, "x", dquotes (pretty name), "y" ]
+    MixfixDirective dir
+      -> pretty dir
+    AssocDirective fixity
+      -> hsep [ pretty fixity, "x", "y" ]
 
 data ConcreteSyntaxRule = ConcreteSyntaxRule
   { _csOperatorName    :: !OperatorName

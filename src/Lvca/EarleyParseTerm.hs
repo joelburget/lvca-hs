@@ -70,7 +70,8 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
           thisLevelProds = precedenceLevel <&>
             \(ConcreteSyntaxRule opName slots directive) ->
               let parser' = case directive of
-                    InfixDirective str fixity  -> parseInfix opName str fixity
+                    InfixDirective str fixity -> parseInfix opName str fixity
+                    AssocDirective assoc      -> parseAssoc opName assoc
                     MixfixDirective directive' -> do
                       prodMap <- parseMixfixDirective directive'
 
@@ -167,6 +168,18 @@ parseInfix opName opRepr fixity
          <*  token (Keyword opRepr)
          -- <*  whitespace
          <*> subparser2
+
+parseAssoc
+  :: Text -- ^ Operator name (in abstract syntax), eg @"App"@
+  -> Associativity
+  -> Reader (Parsers r) (Prod r Text Token (Term Void))
+parseAssoc opName assoc = reader $ \(Parsers higherPrec samePrec) ->
+    -- Allow expressions of the same precedence on the side we're associative
+    -- on
+    let (subparser1, subparser2) = case assoc of
+          Assocl -> (samePrec  , higherPrec)
+          Assocr -> (higherPrec, samePrec  )
+    in BinaryTerm opName <$> subparser1 <*> subparser2
 
 _unused ::
   ( ALens' (Parsers r) (Prod r Text Token (Term Void))

@@ -104,6 +104,7 @@ parsePrecedenceLine = do
 parseDirective :: [Text] -> ConcreteSyntaxDescriptionParser OperatorDirective
 parseDirective subtmNames
   = parseInfixDirective <|>
+    parseAssocDirective <|>
     fmap MixfixDirective (parseMixfixDirective subtmNames)
 
 -- | Parse an infix directive, eg:
@@ -122,6 +123,21 @@ parseInfixDirective = do
   _   <- parseName
 
   pure $ InfixDirective str fixity
+
+-- | Parse an assoc directive, eg:
+--
+-- > assocl f g
+parseAssocDirective :: ConcreteSyntaxDescriptionParser OperatorDirective
+parseAssocDirective = do
+  fixity <- asum
+    [ Assocl <$ "assocl"
+    , Assocr <$ "assocr"
+    ] <* sc
+
+  _   <- parseName
+  _   <- parseName
+
+  pure $ AssocDirective fixity
 
 -- | Parse a mixfix directive, eg:
 --
