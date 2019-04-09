@@ -6,10 +6,9 @@ import           Data.Text.Prettyprint.Doc
   (Pretty(pretty), defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Void                             (Void)
-import           EasyTest                              -- (Test, property, (===))
+import           EasyTest
+import           GHC.Stack                             (withFrozenCallStack)
 import           Hedgehog                              (Gen)
--- import           Hedgehog                              hiding
---   (Test, Var, concrete)
 import           Text.Earley                           (fullParses)
 import           Text.Megaparsec
   (errorBundlePretty, parseMaybe, runParser)
@@ -59,14 +58,14 @@ prop_parse_concrete_pretty chart sort concrete = property $ do
 standardParseTermTest
   :: (Eq a, Show a)
   => ParseEnv a -> Text -> Term a -> Test
-standardParseTermTest env str tm = example $
+standardParseTermTest env str tm = withFrozenCallStack $ example $
   case runParser (runReaderT standardParser' env) "(test)" str of
     Left err       -> crash $ errorBundlePretty err
     Right parsedTm -> parsedTm === tm
 
 earleyConcreteParseTermTest
   :: ConcreteSyntax -> Text -> Term Void -> Test
-earleyConcreteParseTermTest concrete str tm = example $
+earleyConcreteParseTermTest concrete str tm = withFrozenCallStack $ example $
   case tokenizeConcrete (keywords concrete) str of
     Left err     -> crash $ errorBundlePretty err
     Right tokens -> case fullParses (concreteParser concrete) tokens of
