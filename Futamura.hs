@@ -21,10 +21,12 @@ import Lvca.Types (_startSort, keywords)
 import Lvca.TokenizeConcrete (tokenizeConcrete)
 
 interpretLanguage :: Lang -> IO ()
-interpretLanguage lang = runInputT defaultSettings $ loop where
+interpretLanguage lang@(Lang name _ _ _ _) = runInputT settings loop where
+  historyFileName = ".futamura-" ++ Text.unpack name
+  settings        = Settings noCompletion (Just historyFileName) True
   loop :: InputT IO ()
   loop = do
-    minput <- getInputLine "> "
+    minput <- getInputLine $ Text.unpack name ++ "> "
     case minput of
       Nothing     -> return ()
       Just input  -> do
