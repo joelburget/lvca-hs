@@ -127,6 +127,6 @@ checkingTests = tests
     runCheck env (check (ite true true false :< bool)) === Right ()
   , scope "12" $ example $
     runCheck env (check (notTm :< b2b))                === Right ()
-  , scope "12" $ example $
+  , scope "13" $ example $
     runCheck env (infer notTm')                        === Right b2b
   ]
