@@ -44,10 +44,6 @@ ctx |- false() => bool()
 // -------------- (var)
 // ctx |- x => ty
 
-ctx |- tm => ty
---------------- (switch)
-ctx |- tm <= ty
-
       ctx |- tm <= ty
 -------------------------- (annot)
 ctx |- annot(tm; ty) => ty
@@ -63,6 +59,11 @@ ctx |- lam(x. tm) <= arr(ty1; ty2)
 ctx |- tm1 => arr(ty1; ty2)  ctx |- tm2 <= ty1
 ---------------------------------------------- (lam elim)
         ctx |- app(tm1; tm2) => ty2
+
+// important: this rule must go last or else it will subsume all others
+ctx |- tm => ty
+--------------- (switch)
+ctx |- tm <= ty
 
 == dynamics ==
 
