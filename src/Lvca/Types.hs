@@ -180,13 +180,15 @@ sortSubst varVals = \case
 -- Typ ::= num                numbers
 --         str                strings
 --
--- Exp ::= {num}              numeral
---         {str}              literal
+-- Exp ::= val(Val)
 --         plus(Exp; Exp)     addition
 --         times(Exp; Exp)    multiplication
 --         cat(Exp; Exp)      concatenation
 --         len(Exp)           length
 --         let(Exp; Exp.Exp)  definition
+--
+-- Val ::= {num}              numeral
+--         {str}              literal
 -- @
 newtype SyntaxChart
   = SyntaxChart { _syntaxChartContents :: (Map SortName SortDef) }

@@ -15,7 +15,7 @@ import qualified Lvca.Types as Types
 import Lvca.Util (pair, pairWith, (??), (???))
 
 -- TODO: consistency btw Var / Text
-newtype Var = Var Text
+newtype Var = Var { unVar :: Text }
   deriving (Eq, Ord, Show, IsString)
 
 data Literal
@@ -46,9 +46,14 @@ valToTerm :: Val -> Maybe (Types.Term Void)
 valToTerm = \case
   ValTm tag vals -> Types.Term tag <$>
     traverse (fmap (Types.Scope []) . valToTerm) vals
-  ValLit{}       -> Nothing
-  ValPrimop{}    -> Nothing
-  ValLam{}       -> Nothing
+  ValLit{}            -> Nothing
+  ValPrimop{}         -> Nothing
+  ValLam binders body
+    -> Types.Term "lam" . (:[]) . Types.Scope (unVar <$> binders)
+      <$> coreToTerm body
+
+coreToTerm :: Core -> Maybe (Types.Term Void)
+coreToTerm _ = pure $ Types.Term "TODO" []
 
 instance Num Val where
   fromInteger = ValLit . fromInteger

@@ -2,14 +2,16 @@
 
 == abstract syntax ==
 
-// first is considered the start
 tm ::=
-  true()
-  false()
+  val(val)
   annot(tm; ty)
   ite(tm; tm; tm)
-  lam(tm. tm)
   app(tm; tm)
+
+val ::=
+  true()
+  false()
+  lam(val. tm)
 
 ty ::=
   bool()
@@ -25,6 +27,7 @@ ty ::=
 - app(t1; t2)     ~ assocl t1 t2;
 - arr(t1; t2)     ~ infixr t1 "->" t2;
 - annot(tm; ty)   ~ tm ":" ty;
+- val(v)          ~ v;
 
 == statics ==
 
@@ -39,6 +42,10 @@ ctx |- true() => bool()
 
 ------------------------ (bool intro 2)
 ctx |- false() => bool()
+
+  ctx >> v => ty
+------------------- (val)
+ctx >> val(v) => ty
 
 //  ctx[x -> ty]
 // -------------- (var)
@@ -67,9 +74,9 @@ ctx |- tm <= ty
 
 == dynamics ==
 
-[[ true()          ]] = true()
-[[ false()         ]] = false()
+[[ value(v)        ]] = v
 [[ annot(tm; ty)   ]] = [[ tm ]]
 [[ ite(t1; t2; t3) ]] = case([[ t1 ]]; true() -> [[ t2 ]]; false() -> [[ t3 ]])
-[[ lam(x. body)    ]] = lam(x. [[ body ]])
 [[ app(fun; arg)   ]] = app([[ fun ]]; [[ arg ]])
+
+// [[ lam(x. body)    ]] = lam(x. [[ body ]])
