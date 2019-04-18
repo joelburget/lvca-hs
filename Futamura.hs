@@ -83,7 +83,7 @@ main = do
 
   langFileContents <- TIO.readFile languageFile
   lang <- case runParser parseLang languageFile langFileContents of
-    Left bad -> die (errorBundlePretty bad)
+    Left bad   -> die (errorBundlePretty bad)
     Right good -> pure good
 
   interpretLanguage lang

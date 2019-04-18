@@ -169,9 +169,9 @@ evalCore' = \case
   Lam binders body -> pure $ ValLam (Var <$> binders) body
   Case tm _ty branches -> do
     val <- evalCore' tm
-    (newVars, branch) <- getFirst (
-      foldMap (fmap First $ uncurry $ matchBranch val) branches
-      ) ?? "couldn't find a matching branch"
+    (newVars, branch)
+      <- getFirst (foldMap (fmap First $ uncurry $ matchBranch val) branches)
+      ?? "couldn't find a matching branch"
     local (Map.union newVars) (evalCore' branch)
   Metavar v -> lift $ Left $ "found a metavar! (" ++ unpack v ++ ")"
 
