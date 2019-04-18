@@ -66,8 +66,8 @@ type Parser a b = ReaderT (ParseEnv a) (Parsec Void Text) b
 -- primParsers.
 checkPrimParsers :: Parser a ()
 checkPrimParsers = do
-  SyntaxChart syntax _ <- view parseChart
-  primParsers          <- view externalParsers
+  SyntaxChart syntax <- view parseChart
+  primParsers        <- view externalParsers
 
   --
   -- Example:
@@ -113,8 +113,8 @@ standardParser' = standardParser <* eof
 -- > )
 standardParser :: forall a. Parser a (Term a)
 standardParser = do
-  SyntaxChart syntax _ <- view parseChart
-  primParsers          <- view externalParsers
+  SyntaxChart syntax <- view parseChart
+  primParsers        <- view externalParsers
 
   checkPrimParsers
 

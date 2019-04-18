@@ -22,9 +22,7 @@ parseSyntaxDescription' :: SyntaxDescriptionParser SyntaxChart
 parseSyntaxDescription' = parseSyntaxDescription <* eof
 
 parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
-parseSyntaxDescription = do
-  defs@((start, _):_) <- some parseSortDef
-  pure $ SyntaxChart (Map.fromList defs) start
+parseSyntaxDescription = SyntaxChart . Map.fromList <$> some parseSortDef
 
 -- | Parse a sort definition, eg:
 --

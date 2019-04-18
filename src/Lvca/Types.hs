@@ -24,7 +24,7 @@ module Lvca.Types
   , _External
   , SyntaxChart(..)
   , syntaxChartContents
-  , startSort
+  -- , termSort
   , SortDef(..)
   , sortOperators
   , sortVariables
@@ -188,11 +188,8 @@ sortSubst varVals = \case
 --         len(Exp)           length
 --         let(Exp; Exp.Exp)  definition
 -- @
-data SyntaxChart = SyntaxChart
-  { _syntaxChartContents :: !(Map SortName SortDef)
-  , _startSort           :: !SortName
-  -- ^ The top-level sort for this language
-  }
+newtype SyntaxChart
+  = SyntaxChart { _syntaxChartContents :: (Map SortName SortDef) }
   deriving (Eq, Show, Data)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
@@ -668,7 +665,7 @@ runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
 getSort :: Matching a SortDef
 getSort = do
-  MatchesEnv (SyntaxChart syntax _) sort <- ask
+  MatchesEnv (SyntaxChart syntax) sort <- ask
   lift $ syntax ^? ix sort
 
 completePattern :: Matching a (Pattern a)
@@ -704,7 +701,7 @@ minus x@PatternTm{} PatternPrimVal{} = pure x
 
 instance Pretty SyntaxChart where
   -- TODO: show start sort?
-  pretty (SyntaxChart sorts _) =
+  pretty (SyntaxChart sorts) =
     let f (title, SortDef vars operators) = vsep
           [ let vars' = case vars of
                   [] -> ""
