@@ -69,6 +69,10 @@ concreteParserGrammar (ConcreteSyntax directives) = mdo
 
           thisLevelProds = precedenceLevel <&>
             \(ConcreteSyntaxRule opName slots directive) ->
+
+              -- TODO: look up opName in abstract syntax so we know which sorts
+              -- to recurse to
+
               let parser' = case directive of
                     InfixDirective str fixity -> parseInfix opName str fixity
                     AssocDirective assoc      -> parseAssoc opName assoc
