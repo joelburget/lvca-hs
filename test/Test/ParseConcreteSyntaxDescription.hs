@@ -46,9 +46,9 @@ tm :=
   | annot(tm; ty)
   ~ tm ":" ty
   | ite(t1: tm; t2: tm; t3: tm)
-  ~ "if" t1 "then" t2 "else" t3;
+  ~ "if" t1 "then" t2 "else" t3
   | lam(x: tm. t: tm)
-  ~ "\\" x "." t;
+  ~ "\\" x "." t
   | app(tm; tm)
   ~ assocl
   |]
@@ -56,5 +56,11 @@ tm :=
 testParseConcreteSyntax :: Test
 testParseConcreteSyntax = example $
   case runParser (syntaxDescription <* eof) "test" testFile of
+    Left err       -> crash $ errorBundlePretty err
+    Right rules'   -> success
+
+testParseMatch :: Test
+testParseMatch = example $
+  case runParser stringLiteral "test" [text|"true"|] of
     Left err       -> crash $ errorBundlePretty err
     Right rules'   -> success

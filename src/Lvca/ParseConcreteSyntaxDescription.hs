@@ -2,6 +2,7 @@ module Lvca.ParseConcreteSyntaxDescription where
 
 import           Data.Char                     (isAscii, isLower, isUpper)
 import           Data.Foldable                 (asum)
+import           Data.Maybe                    (isJust)
 import           Data.Text                     (Text, pack)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
@@ -10,7 +11,8 @@ import qualified Text.Megaparsec.Char.Lexer    as L
 
 -- import           Lvca.ParseDenotationChart     (parsePattern)
 import           Lvca.Judgements (SortName)
-import           Lvca.ParseUtil  (endBy', sc, scn, symbol', parseName)
+import qualified Lvca.ParseUtil  as PU
+import           Lvca.ParseUtil  (endBy', sc, scn, symbol, symbol', parseName)
 import           Lvca.Types      (Fixity(..) , Associativity(..))
 -- import           Lvca.Types                    hiding (Scope)
 import           Text.Megaparsec.Char          (char, eol)
@@ -55,7 +57,7 @@ nonterminalIdent = pack
   <?> "NONTERMINAL_IDENT"
 
 stringLiteral :: ConcreteSyntaxDescriptionParser Text
-stringLiteral = stringLiteral -- TODO: audit
+stringLiteral = PU.stringLiteral <* sc -- TODO: audit
   <?> "STRING_LITERAL"
 
 metachars :: String
@@ -83,10 +85,10 @@ parseMetachar = oneOf metachars <?> "METACHAR"
 -- > ty := bool()              ~ "bool"
 syntaxDescription
   :: ConcreteSyntaxDescriptionParser ConcreteSyntax
-syntaxDescription = label "syntax description" $ do
-  terminals    <- many terminalRule
-  nonterminals <- some nonterminalRule
-  pure $ ConcreteSyntax terminals nonterminals
+syntaxDescription = ConcreteSyntax
+  <$> many terminalRule
+  <*> some nonterminalRule
+  <?> "syntax-description"
 
 -- terminal-rule
 data TerminalRule = TerminalRule !Text !Regex
@@ -96,7 +98,7 @@ data TerminalRule = TerminalRule !Text !Regex
 --
 -- > TRUE := true
 terminalRule :: ConcreteSyntaxDescriptionParser TerminalRule
-terminalRule = TerminalRule <$> terminalIdent <* symbol' ":=" <*> regex
+terminalRule = TerminalRule <$> terminalIdent <* symbol' ":=" <*> regex <* scn
   <?> "terminal-rule"
 
 -- nonterminal-rule
@@ -111,32 +113,48 @@ data NonterminalRule = NonterminalRule
 -- > val :=
 -- > | true()  ~ TRUE
 -- > | false() ~ FALSE
-nonterminalRule
-  :: ConcreteSyntaxDescriptionParser NonterminalRule
+nonterminalRule :: ConcreteSyntaxDescriptionParser NonterminalRule
 nonterminalRule = label "nonterminal-rule" $ do
   name <- nonterminalIdent
   vars <- many nonterminalIdent
-  _    <- symbol' ":="
+  _    <- symbol ":="
   rhs  <- nonterminalCtors
+  scn
 
   pure $ NonterminalRule name vars rhs
 
 -- nonterminal-ctors
 nonterminalCtors :: ConcreteSyntaxDescriptionParser [NonterminalCtor]
-nonterminalCtors = dbg "nonterminal-ctors" ( asum
+nonterminalCtors = asum
   [ do indentBlock $ symbol' "|" *> nonterminalCtor
   -- , (nonterminalCtor `sepBy` symbol' "|") <* eol
   ] <?> "nonterminal-ctors"
-  )
 
 indentBlock
-  :: ConcreteSyntaxDescriptionParser a
+  :: Show a
+  => ConcreteSyntaxDescriptionParser a
   -> ConcreteSyntaxDescriptionParser [a]
 indentBlock parseA = do
   scn
   level <- L.indentLevel
-  a <- parseA
-  pure [a]
+  indentedItems level parseA
+
+indentedItems
+  :: Show b
+  => Pos                                 -- ^ Level of the first indented item ('lookAhead'ed)
+  -> ConcreteSyntaxDescriptionParser b   -- ^ How to parse indented tokens
+  -> ConcreteSyntaxDescriptionParser [b]
+indentedItems lvl p = go
+  where
+    go = do
+      sc
+      pos  <- L.indentLevel
+      done <- isJust <$> optional eof
+      if done
+        then return []
+        else if | pos <  lvl -> return []
+                | pos == lvl -> (:) <$> p <*> go
+                | otherwise  -> mempty -- incorrectIndent EQ lvl pos
 
 data NonterminalCtor = NonterminalCtor
   !AbstractPat
@@ -145,8 +163,9 @@ data NonterminalCtor = NonterminalCtor
 
 nonterminalCtor :: ConcreteSyntaxDescriptionParser NonterminalCtor
 nonterminalCtor = label "nonterminal-ctor" $ do
-  pat     <- abstractPat
-  matches <- many $ optional eol *> sc *> symbol' "~" *> nonterminalMatch
+  pat <- abstractPat
+  scn
+  matches <- many $ symbol' "~" *> nonterminalMatch <* scn
   pure $ NonterminalCtor pat matches
 
 data AbstractPat = AbstractPat
@@ -156,12 +175,10 @@ data AbstractPat = AbstractPat
   deriving Show
 
 abstractPat :: ConcreteSyntaxDescriptionParser AbstractPat
-abstractPat = do
+abstractPat = label "abstract-pat" $ do
   name <- parseName
   n    <- optional $ symbol' "[" *> L.decimal <* symbol' "]" -- TODO: fnat?
-  _    <- symbol' "("
-  args <- abstractArg `sepBy` symbol' ";"
-  _    <- symbol' ")"
+  args <- symbol' "(" *> abstractArg `sepBy` symbol' ";" <* symbol' ")"
   pure $ AbstractPat name n args
 
 data AbstractArg = AbstractArg
@@ -204,7 +221,7 @@ data NonterminalMatch
 nonterminalMatch :: ConcreteSyntaxDescriptionParser NonterminalMatch
 nonterminalMatch = asum
   [ AssociativeMatch <$> associativity
-  , InfixMatch       <$> parseName <*> fixity
+  , try $ InfixMatch       <$> parseName <*> fixity
   , MixfixMatch      <$> some nonterminalToken
   ] <?> "nonterminal-match"
 
@@ -238,10 +255,11 @@ nonterminalToken = asum
   [ TerminalName    <$> terminalIdent
   , NonterminalName <$> nonterminalIdent
   , StringLiteral   <$> stringLiteral
-  , NtParenthesized <$> (symbol' "(" *> nonterminalScope <* symbol' ")")
-  , NtOption        <$> nonterminalToken <* symbol' "?"
-  , NtStarred       <$> nonterminalToken <* symbol' "*"
-  , NtPlussed       <$> nonterminalToken <* symbol' "+"
+  , NtParenthesized <$> (symbol' "(" *> nonterminalScope <* symbol' ")" <* sc)
+  -- XXX
+  -- , NtOption        <$> nonterminalToken <* symbol' "?"
+  -- , NtStarred       <$> nonterminalToken <* symbol' "*"
+  -- , NtPlussed       <$> nonterminalToken <* symbol' "+"
   -- NtCount TODO
   , Ellipsis <$ symbol' "..."
   ] <?> "nonterminal-token"
