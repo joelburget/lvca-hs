@@ -69,18 +69,14 @@ parseOperator :: SyntaxDescriptionParser Operator
 parseOperator = asum
   [ do -- sugar for `{Num}`
        name <- braces parseName
-       Operator name (ExternalArity name) <$> option "" stringLiteral
+       pure $ Operator name (ExternalArity name)
   , do
        name <- parseName
        asum
          [ -- sugar for `Num{Num}`
-           Operator name
-           <$> braces (ExternalArity <$> parseName)
-           <*> option "" stringLiteral
+           Operator name <$> braces (ExternalArity <$> parseName)
            -- unsweetened
-         , Operator name
-           <$> parseArity
-           <*> option "" stringLiteral
+         , Operator name <$> parseArity
          ]
   ]
 
@@ -98,7 +94,7 @@ parseOperator = asum
 -- A. {External}
 -- @
 parseArity :: SyntaxDescriptionParser Arity
-parseArity = fmap Arity $ option [] $
+parseArity = fmap FixedArity $ option [] $ -- TODO: variable arity
   parens $ option [] $ parseValence `sepBy1` symbol ";"
 
 -- | Parse a valence, which is a list of sorts separated by @.@, eg any of:
@@ -115,7 +111,7 @@ parseValence :: SyntaxDescriptionParser Valence
 parseValence = do
   names <- parseSort `sepBy1` symbol "."
   let Just (sorts, result) = unsnoc names
-  pure $ Valence sorts result
+  pure $ FixedValence sorts result -- TODO: variable valence
 
 -- | Parse a sort, which is a regular sort name or an external sort name in
 -- braces, eg any of:

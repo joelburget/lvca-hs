@@ -1,0 +1,2 @@
+> (lam x. x : bool -> bool)
+> (lam f. f : (bool -> bool) -> (bool -> bool)) (lam x. x : bool -> bool) true

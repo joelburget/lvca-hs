@@ -74,21 +74,9 @@ concreteArith = mkConcreteSyntax
 
 -- | This should be the same as the manually specified concrete syntax
 concreteArith2 :: Either (ParseErrorBundle Text Void) ConcreteSyntax
-concreteArith2 = runParser parseConcreteSyntaxDescription
+concreteArith2 = runParser (error "parseConcreteSyntaxDescription")
     -- (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
   "(concreteArith2)" [text|
-    - Z()       ~ "Z";
-    - S(x)      ~ "S" x;
-    - Mul(x; y) ~ infixl x "*" y;
-    - Add(x; y) ~ infixl x "+" y;
-      Sub(x; y) ~ infixl x "-" y;
-  |]
-
-pt :: IO ()
-pt = parseTest
-  (fmap pretty parseConcreteSyntaxDescription)
-    -- (ParseEnv syntax "Arith" UntaggedExternals noExternalParsers))
-  [text|
     - Z()       ~ "Z";
     - S(x)      ~ "S" x;
     - Mul(x; y) ~ infixl x "*" y;

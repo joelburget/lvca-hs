@@ -1,168 +1,339 @@
 module Lvca.ParseConcreteSyntaxDescription where
 
+import           Data.Char                     (isAscii, isLower, isUpper)
 import           Data.Foldable                 (asum)
-import           Data.List                     (elem)
-import qualified Data.Sequence                 as Seq
-import           Data.Text                     (Text)
-import           Data.Traversable              (for)
+import           Data.Text                     (Text, pack)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
+import           Text.Megaparsec.Char          (digitChar)
 import qualified Text.Megaparsec.Char.Lexer    as L
 
 -- import           Lvca.ParseDenotationChart     (parsePattern)
-import           Lvca.ParseUtil
-import           Lvca.Types                    hiding (Scope)
+import           Lvca.Judgements (SortName)
+import           Lvca.ParseUtil  (endBy', sc, scn, symbol', parseName)
+import           Lvca.Types      (Fixity(..) , Associativity(..))
+-- import           Lvca.Types                    hiding (Scope)
 import           Text.Megaparsec.Char          (char, eol)
-import           Text.Megaparsec.Char.LexerAlt (indentBlock)
+
+import Text.Megaparsec.Debug
+
+type Name = Text
+type Nat  = Integer
+
+data ConcreteSyntax = ConcreteSyntax
+  { syntaxTerminals    :: ![TerminalRule]    -- (Map Text OperatorDirective)
+  , syntaxNonterminals :: ![NonterminalRule] -- (Map Text Regex)
+  } deriving Show
 
 type ConcreteSyntaxDescriptionParser a = Parsec
   Void -- error type
   Text -- stream type
   a
 
-parseConcreteSyntaxDescription'
-  :: ConcreteSyntaxDescriptionParser ConcreteSyntax
-parseConcreteSyntaxDescription' = parseConcreteSyntaxDescription <* eof
+upperChar :: ConcreteSyntaxDescriptionParser Char
+upperChar = satisfy (\c -> isUpper c && isAscii c) <?> "[A-Z]"
+
+lowerChar :: ConcreteSyntaxDescriptionParser Char
+lowerChar = satisfy (\c -> isLower c && isAscii c) <?> "[a-z]"
+
+terminalIdent :: ConcreteSyntaxDescriptionParser Text
+terminalIdent = pack
+  <$> ((:)
+       <$> upperChar
+       <*> many (upperChar <|> digitChar <|> char '_' <|> char '-'
+         <?> "[A-Z0-9_-]")
+       <*  sc)
+  <?> "TERMINAL_IDENT"
+
+nonterminalIdent :: ConcreteSyntaxDescriptionParser Text
+nonterminalIdent = pack
+  <$> ((:)
+       <$> lowerChar
+       <*> many (lowerChar <|> digitChar <|> char '_' <|> char '-'
+         <?> "[a-z0-9_-]")
+       <*  sc)
+  <?> "NONTERMINAL_IDENT"
+
+stringLiteral :: ConcreteSyntaxDescriptionParser Text
+stringLiteral = stringLiteral -- TODO: audit
+  <?> "STRING_LITERAL"
+
+metachars :: String
+metachars = "\\|*+.[()"
+
+parseRegularChar :: ConcreteSyntaxDescriptionParser Char
+parseRegularChar = noneOf metachars <?> "REGULAR_CHAR"
+
+parseMetachar :: ConcreteSyntaxDescriptionParser Char
+parseMetachar = oneOf metachars <?> "METACHAR"
 
 -- | Parse a concrete syntax description, eg:
 --
--- > - Z()       ~ "Z";
--- > - S(x)      ~ "S" x;
--- > - Mul(x; y) ~ infixl x "*" y;
--- > - Add(x; y) ~ infixl x "+" y;
--- >   Sub(x; y) ~ infixl x "-" y;
-parseConcreteSyntaxDescription
+-- > TRUE  := true
+-- > FALSE := false
+-- >
+-- > tm :=
+-- >   | val(val)              ~ val
+-- >   | or(v1: val; v2: val)  ~ v1 "||" v2
+-- >   | and(v1: val; v2: val) ~ v1 "&&" v2
+-- >   | not(val)              ~ "~" val
+-- > val :=
+-- >   | true()                ~ TRUE
+-- >   | false()               ~ FALSE
+-- > ty := bool()              ~ "bool"
+syntaxDescription
   :: ConcreteSyntaxDescriptionParser ConcreteSyntax
-parseConcreteSyntaxDescription = do
-  levels <- some parsePrecedenceLevel
-  pure $ ConcreteSyntax $ Seq.fromList levels
+syntaxDescription = label "syntax description" $ do
+  terminals    <- many terminalRule
+  nonterminals <- some nonterminalRule
+  pure $ ConcreteSyntax terminals nonterminals
 
--- | Parse a precedence level, eg:
---
--- > - Add(x; y) ~ infixl x "*" y;
--- >   Sub(x; y) ~ infixl x "-" y;
---
--- or
---
--- > - Let(x; def; body) ~ "let" x "=" def "in" body;
-parsePrecedenceLevel :: ConcreteSyntaxDescriptionParser [ConcreteSyntaxRule]
-parsePrecedenceLevel = indentBlock scn $ do
-  _ <- symbol "-"
-  pure $ L.IndentSome (Just (mkPos 3)) pure parsePrecedenceLine
-
--- TODO: problems with duplication
-data Pat
-  = PatTm !Text ![Scope]
-  | PatVar !(Maybe Text)
+-- terminal-rule
+data TerminalRule = TerminalRule !Text !Regex
   deriving Show
 
-data Scope = Scope ![Text] !Pat
+-- | Parse a terminal description, eg:
+--
+-- > TRUE := true
+terminalRule :: ConcreteSyntaxDescriptionParser TerminalRule
+terminalRule = TerminalRule <$> terminalIdent <* symbol' ":=" <*> regex
+  <?> "terminal-rule"
+
+-- nonterminal-rule
+data NonterminalRule = NonterminalRule
+  !SortName
+  ![Text]
+  ![NonterminalCtor]
   deriving Show
 
-parsePattern :: ConcreteSyntaxDescriptionParser Pat
-parsePattern = asum
-  [ PatVar Nothing <$ symbol "_" <?> "wildcard pattern"
-  , do let parseScope = label "binding or term pattern" $ do
-             binders <- parseName `endBy'` symbol "."
-             body    <- parsePattern
-             pure $ Scope binders body
-
-       name <- parseName
-       option (PatVar (Just name)) $ parens $ do
-         PatTm name <$> parseScope `sepBy` symbol ";"
-  ] <?> "non-union pattern"
-
--- | Parse a line, eg:
+-- | Parse a nonterminal description, eg:
 --
--- > Sub(x; y) ~ infixl x "-" y;
-parsePrecedenceLine :: ConcreteSyntaxDescriptionParser ConcreteSyntaxRule
-parsePrecedenceLine = do
-  pat <- parsePattern
-  _   <- sc
+-- > val :=
+-- > | true()  ~ TRUE
+-- > | false() ~ FALSE
+nonterminalRule
+  :: ConcreteSyntaxDescriptionParser NonterminalRule
+nonterminalRule = label "nonterminal-rule" $ do
+  name <- nonterminalIdent
+  vars <- many nonterminalIdent
+  _    <- symbol' ":="
+  rhs  <- nonterminalCtors
 
-  (name, slots) <- case pat of
-    PatTm name subpats -> fmap (name,) $
-      for subpats $ \(Scope binders tm) -> case tm of
-        -- each subterm must be just a variable name
-        PatVar (Just name') -> pure (binders, name')
-        _                   -> fail
-          "An abstract syntax operator must be specified with a unique \
-          \variable in each subterm slot"
-    x -> fail $
-      "Each line in a concrete syntax declaration must be an operator (got " ++
-      -- TODO: pretty
-      show x ++ ")"
+  pure $ NonterminalRule name vars rhs
 
-  _ <- symbol "~"
+-- nonterminal-ctors
+nonterminalCtors :: ConcreteSyntaxDescriptionParser [NonterminalCtor]
+nonterminalCtors = dbg "nonterminal-ctors" ( asum
+  [ do indentBlock $ symbol' "|" *> nonterminalCtor
+  -- , (nonterminalCtor `sepBy` symbol' "|") <* eol
+  ] <?> "nonterminal-ctors"
+  )
 
-  -- TODO: check uniqueness of all variables
-  let subtmNames = snd <$> slots
-  d <- parseDirective subtmNames <* char ';'
-  pure $ ConcreteSyntaxRule name slots d
+indentBlock
+  :: ConcreteSyntaxDescriptionParser a
+  -> ConcreteSyntaxDescriptionParser [a]
+indentBlock parseA = do
+  scn
+  level <- L.indentLevel
+  a <- parseA
+  pure [a]
 
--- | Parse an infix or mixfix directive
-parseDirective :: [Text] -> ConcreteSyntaxDescriptionParser OperatorDirective
-parseDirective subtmNames
-  = parseInfixDirective <|>
-    parseAssocDirective <|>
-    fmap MixfixDirective (parseMixfixDirective subtmNames)
+data NonterminalCtor = NonterminalCtor
+  !AbstractPat
+  ![NonterminalMatch]
+  deriving Show
 
--- | Parse an infix directive, eg:
---
--- > infixl x "*" y
-parseInfixDirective :: ConcreteSyntaxDescriptionParser OperatorDirective
-parseInfixDirective = do
-  fixity <- asum
-    [ Infixl <$ "infixl"
-    , Infixr <$ "infixr"
-    , Infix  <$ "infix"
-    ] <* sc
+nonterminalCtor :: ConcreteSyntaxDescriptionParser NonterminalCtor
+nonterminalCtor = label "nonterminal-ctor" $ do
+  pat     <- abstractPat
+  matches <- many $ optional eol *> sc *> symbol' "~" *> nonterminalMatch
+  pure $ NonterminalCtor pat matches
 
-  _   <- parseName
-  str <- stringLiteral <* sc
-  _   <- parseName
+data AbstractPat = AbstractPat
+  !Name
+  !(Maybe Nat)
+  ![AbstractArg]
+  deriving Show
 
-  pure $ InfixDirective str fixity
+abstractPat :: ConcreteSyntaxDescriptionParser AbstractPat
+abstractPat = do
+  name <- parseName
+  n    <- optional $ symbol' "[" *> L.decimal <* symbol' "]" -- TODO: fnat?
+  _    <- symbol' "("
+  args <- abstractArg `sepBy` symbol' ";"
+  _    <- symbol' ")"
+  pure $ AbstractPat name n args
 
--- | Parse an assoc directive, eg:
---
--- > assocl f g
-parseAssocDirective :: ConcreteSyntaxDescriptionParser OperatorDirective
-parseAssocDirective = do
-  fixity <- asum
-    [ Assocl <$ "assocl"
-    , Assocr <$ "assocr"
-    ] <* sc
+data AbstractArg = AbstractArg
+  !(Maybe Name)
+  !Name
+  ![Name]
+  !(Maybe FNat)
+  deriving Show
 
-  _   <- parseName
-  _   <- parseName
+abstractArg :: ConcreteSyntaxDescriptionParser AbstractArg
+abstractArg = do
+  name1 <- parseName
+  asum
+    [ do _        <- symbol' ":"
+         termName <- parseName
+         option (AbstractArg (Just name1) termName [] Nothing) $ do
+           args <- many parseName
+           n    <- optional $ symbol' "[" *> fnat <* symbol' "]"
+           pure $ AbstractArg (Just name1) termName args n
+    , pure $ AbstractArg Nothing name1 [] Nothing
+    ]
 
-  pure $ AssocDirective fixity
+data FNat
+  = Freenat !Name
+  | ConcreteNat !Nat
+  deriving Show
 
--- | Parse a mixfix directive, eg:
---
--- > "let" x "=" y "in" z
-parseMixfixDirective
-  :: [Text] -> ConcreteSyntaxDescriptionParser MixfixDirective
-parseMixfixDirective subtmNames = do
-  ds <- some $ parseMixfixDirectiveNoSeq subtmNames <* sc
-  case ds of
-    [d] -> pure d
-    _   -> pure $ foldr1 Sequence ds
-
-parseMixfixDirectiveNoSeq
-  :: [Text] -> ConcreteSyntaxDescriptionParser MixfixDirective
-parseMixfixDirectiveNoSeq subtmNames = asum
-  [ Literal <$> stringLiteral
-  , Line <$ eol
-  -- , TODO Nest
-  , do
-       _ <- "group"
-       parens $ Group <$> parseMixfixDirective subtmNames
-  -- TODO: remove left recursion
-  -- , (:<+) <$> parseMixfixDirective <* "<+" <*> parseMixfixDirective
-  , do name <- parseName
-       pure $ if name `elem` subtmNames
-         then SubTerm name
-         else VarName name
+fnat :: ConcreteSyntaxDescriptionParser FNat
+fnat = asum
+  [ Freenat     <$> parseName
+  , ConcreteNat <$> L.decimal
   ]
+
+data NonterminalMatch
+  = AssociativeMatch !Associativity
+  | InfixMatch !Name !Fixity
+  | MixfixMatch ![NonterminalToken]
+  deriving Show
+
+nonterminalMatch :: ConcreteSyntaxDescriptionParser NonterminalMatch
+nonterminalMatch = asum
+  [ AssociativeMatch <$> associativity
+  , InfixMatch       <$> parseName <*> fixity
+  , MixfixMatch      <$> some nonterminalToken
+  ] <?> "nonterminal-match"
+
+associativity :: ConcreteSyntaxDescriptionParser Associativity
+associativity = asum
+  [ Assocl <$ symbol' "assocl"
+  , Assocr <$ symbol' "assocr"
+  ] <?> "associativity"
+
+fixity :: ConcreteSyntaxDescriptionParser Fixity
+fixity = asum
+  [ Infixl <$ symbol' "infixl"
+  , Infixr <$ symbol' "infixr"
+  , Infix  <$ symbol' "infix"
+  ] <?> "fixity"
+
+data NonterminalToken
+  = TerminalName !Text
+  | NonterminalName !Text
+  | StringLiteral !Text
+  | NtParenthesized !NonterminalScope
+  | NtOption !NonterminalToken
+  | NtStarred !NonterminalToken
+  | NtPlussed !NonterminalToken
+  | NtCount !NonterminalToken !(Maybe Name) !(Either Text Nat)
+  | Ellipsis
+  deriving Show
+
+nonterminalToken :: ConcreteSyntaxDescriptionParser NonterminalToken
+nonterminalToken = asum
+  [ TerminalName    <$> terminalIdent
+  , NonterminalName <$> nonterminalIdent
+  , StringLiteral   <$> stringLiteral
+  , NtParenthesized <$> (symbol' "(" *> nonterminalScope <* symbol' ")")
+  , NtOption        <$> nonterminalToken <* symbol' "?"
+  , NtStarred       <$> nonterminalToken <* symbol' "*"
+  , NtPlussed       <$> nonterminalToken <* symbol' "+"
+  -- NtCount TODO
+  , Ellipsis <$ symbol' "..."
+  ] <?> "nonterminal-token"
+
+data NonterminalScope = NonterminalScope
+  ![(NonterminalToken, Binder)]
+  ![NonterminalToken]
+  deriving Show
+
+nonterminalScope :: ConcreteSyntaxDescriptionParser NonterminalScope
+nonterminalScope = do
+  binders <- ((,) <$> nonterminalToken <*> binder)
+    `endBy'` symbol' "."
+  toks <- many nonterminalToken
+  pure $ NonterminalScope binders toks
+
+data Binder
+  = SingleVarBinder !Name ![NonterminalToken]
+  | ManyVarBinder !Nat
+  deriving Show
+
+binder :: ConcreteSyntaxDescriptionParser Binder
+binder = do
+  _ <- symbol' "VAR"
+  asum
+    [ do _    <- symbol' ":"
+         name <- parseName
+         toks <- many nonterminalToken
+         pure $ SingleVarBinder name toks
+    -- , TODO
+    ]
+
+data Regex
+  = ReUnion  !RegexBranch !Regex
+  | ReBranch !RegexBranch
+  deriving Show
+
+newtype RegexBranch = Pieces [Piece]
+  deriving Show
+
+regex :: ConcreteSyntaxDescriptionParser Regex
+regex = label "regex" $ do
+  b1 <- regexBranch
+  option (ReBranch b1) $ ReUnion b1 <$> (symbol' "|" *> regex)
+
+regexBranch :: ConcreteSyntaxDescriptionParser RegexBranch
+regexBranch = Pieces <$> many piece
+  <?> "regex-branch"
+
+data Piece
+  = Atom    !Atom
+  | Option  !Atom
+  | Starred !Atom
+  | Plussed !Atom
+  deriving Show
+
+piece :: ConcreteSyntaxDescriptionParser Piece
+piece = label "regex-piece" $ do
+  a        <- atom
+  modifier <- optional (symbol' "?" <|> symbol' "*" <|> symbol' "+")
+  case modifier of
+    Nothing  -> pure $ Atom    a
+    Just "?" -> pure $ Option  a
+    Just "*" -> pure $ Starred a
+    Just "+" -> pure $ Plussed a
+    Just _   -> fail "expected \"?\", \"*\", or \"+\""
+
+data Atom
+  = PositiveSet   ![SetItem]
+  | NegativeSet   ![SetItem]
+  | Parenthesized !Regex
+  | Escaped       !Char
+  | Char          !Char
+  | Any
+  deriving Show
+
+atom :: ConcreteSyntaxDescriptionParser Atom
+atom = asum
+  [ NegativeSet   <$> (symbol' "[^" *> some setItem <* symbol' "]")
+  , PositiveSet   <$> (symbol' "["  *> some setItem <* symbol' "]")
+  , Parenthesized <$> (symbol' "("  *> regex        <* symbol' ")")
+  -- TODO Escaped, Char
+  , Any <$ symbol' "."
+  ] <?> "regex-atom"
+
+data SetItem
+  = SiRange !Char !Char
+  | SiChar  !Char
+  deriving Show
+
+setItem :: ConcreteSyntaxDescriptionParser SetItem
+setItem = label "regex-set-item" $ do
+  c <- parseRegularChar
+  -- XXX parseRegularChar
+  option (SiChar c) $ SiRange c <$> (symbol' "-" *> parseRegularChar)

@@ -7,7 +7,7 @@ import           Text.Megaparsec.Char
 
 import qualified Lvca.Bidirectional as Bidir
 import Lvca.DenotationChart
-import Lvca.Types (SyntaxChart, ConcreteSyntax)
+import Lvca.Types (SyntaxChart) -- , ConcreteSyntax)
 import Lvca.ParseBidirectional
 import Lvca.ParseConcreteSyntaxDescription
 import Lvca.ParseDenotationChart
@@ -42,14 +42,16 @@ parseLang = do
   _ <- scn
 
   _ <- parseSubheader $ string "concrete syntax"
-  concreteSyntax <- parseConcreteSyntaxDescription
-    -- TODO: we must check that the top-level sort has kind *
-    -- ParseEnv abstractSyntax (SortAp sort []) UntaggedExternals noExternalParsers
+  undefined
 
-  _ <- parseSubheader $ string "statics"
-  statics        <- parseBidirectional
+--   concreteSyntax <- parseConcreteSyntaxDescription
+--     -- TODO: we must check that the top-level sort has kind *
+--     -- ParseEnv abstractSyntax (SortAp sort []) UntaggedExternals noExternalParsers
 
-  _ <- parseSubheader $ string "dynamics"
-  dynamics       <- parseDenotationChart
+--   _ <- parseSubheader $ string "statics"
+--   statics        <- parseBidirectional
 
-  pure $ Lang name abstractSyntax concreteSyntax statics dynamics
+--   _ <- parseSubheader $ string "dynamics"
+--   dynamics       <- parseDenotationChart
+
+--   pure $ Lang name abstractSyntax concreteSyntax statics dynamics

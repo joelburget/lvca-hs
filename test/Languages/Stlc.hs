@@ -19,18 +19,18 @@ import           Test.Types
 stlcChart :: SyntaxChart
 stlcChart = SyntaxChart (Map.fromList
   [ ("Typ", SortDef []
-    [ Operator "nat" (Arity []) "natural numbers"
-    , Operator "arr" (Arity ["Typ", "Typ"]) "arrows"
+    [ Operator "nat" (FixedArity [])
+    , Operator "arr" (FixedArity ["Typ", "Typ"])
     ])
   , ("Exp", SortDef []
-    [ Operator "lam" (Arity ["Typ", Valence ["Exp"] "Exp"]) "abstraction"
-    , Operator "ap"  (Arity ["Exp", "Exp"])                 "application"
+    [ Operator "lam" (FixedArity ["Typ", FixedValence ["Exp"] "Exp"])
+    , Operator "ap"  (FixedArity ["Exp", "Exp"])
 
     --
-    -- , Operator "s"   (Arity ["Exp"])                        "successor"
-    -- , Operator "z"   (Arity [])                             "zero"
+    -- , Operator "s"   (FixedArity ["Exp"])
+    -- , Operator "z"   (FixedArity [])
     ])
-  ]) "Exp"
+  ])
 
 -- denotation :: DenotationChart Void Text
 -- denotation = mkDenotationChart
@@ -84,10 +84,10 @@ stlcTests = tests
   , scope "parsing chart" $ example $
     let result = runParser parseSyntaxDescription' "(test)"
           [text|
-            Exp ::= lam(Typ; Exp.Exp) "abstraction"
-                    ap(Exp; Exp)      "application"
-            Typ ::= nat               "natural numbers"
-                    arr(Typ; Typ)     "arrows"
+            Exp ::= lam(Typ; Exp.Exp)
+                    ap(Exp; Exp)
+            Typ ::= nat
+                    arr(Typ; Typ)
           |]
     in case result of
          Left err     -> crash $ errorBundlePretty err
@@ -97,12 +97,12 @@ stlcTests = tests
           [text|
             /* more comments */
             Exp ::=
-              lam(Typ; Exp.Exp) "abstraction"
-              ap(Exp; Exp)      "application"
+              lam(Typ; Exp.Exp)
+              ap(Exp; Exp)
 
             Typ ::= // testing comments
-              nat               "natural numbers"
-              arr(Typ; Typ)     "arrows"
+              nat
+              arr(Typ; Typ)
           |]
     in case result of
          Left err     -> crash $ errorBundlePretty err

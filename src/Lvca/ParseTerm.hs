@@ -127,7 +127,7 @@ standardParser = do
               -- - If we're using tagged externals, optionally allow elision of
               --   parens
               -- - If we're using untagged externals, parse the external here
-              Operator name (ExternalArity name') _desc
+              Operator name (ExternalArity name')
                 | name == name' -> do
                   externalStyle' <- view externalStyle
 
@@ -145,7 +145,7 @@ standardParser = do
                                  <|> parens (braces parsePrim')
                              pure $ Term name [ Scope [] $ PrimValue prim ]
 
-              Operator name (Arity valences') _ -> label (unpack name) $ do
+              Operator name (FixedArity valences') -> label (unpack name) $ do
                 _ <- try $ do
                   _ <- string name
                   notFollowedBy $ alphaNumChar <|> char '\'' <|> char '_'
@@ -183,7 +183,7 @@ standardParser = do
   parseTerm
 
 parseValence :: Parser a (Term a) -> Valence -> Parser a (Scope a)
-parseValence parseTerm valence@(Valence sorts bodySort) = do
+parseValence parseTerm valence@(FixedValence sorts bodySort) = do
   primParsers <- view externalParsers
   let parseTerm' = case bodySort of
         External name -> do

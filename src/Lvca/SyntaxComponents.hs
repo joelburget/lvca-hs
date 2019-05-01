@@ -54,8 +54,10 @@ findChartComponents (SyntaxChart sorts) =
   let sortsWithDeps :: [(SortDef, SortName, [SortName])]
       sortsWithDeps = Map.toList sorts <&> \(name, sortDef@(SortDef _ ops)) ->
         (sortDef,name,) $ concat3 $
-          ops <&> \(Operator _name (Arity valences) _) ->
-            valences <&> \(Valence vSorts result) ->
+          -- XXX partial
+          ops <&> \(Operator _name (FixedArity valences)) ->
+            -- XXX partial
+            valences <&> \(FixedValence vSorts result) ->
               fmap sortDeps $ result : vSorts
 
       components :: [SCC (SortDef, SortName, [SortName])]

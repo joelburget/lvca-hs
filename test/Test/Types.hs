@@ -25,15 +25,15 @@ toPatternTests = scope "toPattern" $
       toPat = toPattern
   in tests
     [ example $
-      toPat (Operator "num" (Arity []) "numbers")
+      toPat (Operator "num" (FixedArity []))
       ===
       PatternTm "num" []
     , example $
-      toPat (Operator "plus"  (Arity ["Exp", "Exp"]) "addition")
+      toPat (Operator "plus"  (FixedArity ["Exp", "Exp"]))
       ===
       PatternTm "plus" [PatternAny, PatternAny]
     , example $
-      toPat (Operator "num" (ExternalArity "num") "numbers")
+      toPat (Operator "num" (ExternalArity "num"))
       ===
       PatternTm "num" [ PatternPrimVal Nothing ]
     ]
@@ -54,7 +54,7 @@ genTerm _chart (External name) genPrim = case genPrim name of
   Nothing  -> Gen.discard
   Just gen -> PrimValue <$> gen
 genTerm
-  chart@(SyntaxChart chart' _startSort)
+  chart@(SyntaxChart chart')
   (SortAp sortHead sortArgs) genPrim = do
     let SortDef vars operators = chart' ^?! ix sortHead
         sortVarVals = Map.fromList $ zip vars sortArgs
@@ -73,7 +73,7 @@ genTerm
         genArity = foldrM
           -- TODO: handle applied sorts
           (\valence valences' -> case valence of
-            Valence binders sort -> do
+            FixedValence binders sort -> do
               tm <- genTerm chart (sortSubst sortVarVals sort) genPrim
               names <- Gen.list (Range.singleton (length binders)) genName
               pure $ Scope names tm : valences'
@@ -83,7 +83,7 @@ genTerm
         genTerm' :: Text -> [Valence] -> m (Term a)
         genTerm' name valences = Term name <$> genArity valences
 
-        rec = operators <&> \(Operator name (Arity valences) _desc) ->
+        rec = operators <&> \(Operator name (FixedArity valences)) ->
           genTerm' name valences
 
     Gen.sized $ \n ->

@@ -37,24 +37,23 @@ _T = prism absurd Left
 syntax' :: SyntaxChart
 syntax' = SyntaxChart (Map.fromList
   [ ("Typ", SortDef []
-    [ Operator "nat" [] "naturals"
-    , Operator "arr" [Valence [] "Typ", Valence [] "Typ"] "functions"
+    [ Operator "nat" []
+    , Operator "arr" [FixedValence [] "Typ", FixedValence [] "Typ"]
     ])
   , ("Exp", SortDef []
-    [ Operator "z" [] "zero"
-    , Operator "s" [Valence [] "Exp"] "successor"
+    [ Operator "z" []
+    , Operator "s" [FixedValence [] "Exp"]
     , Operator "rec"
-      [ Valence [] "Exp"
-      , Valence ["Exp", "Exp"] "Exp"
-      , Valence [] "Exp"
+      [ FixedValence [] "Exp"
+      , FixedValence ["Exp", "Exp"] "Exp"
+      , FixedValence [] "Exp"
       ]
-      "recursion"
-    , Operator "lam" [Valence [] "Typ", Valence ["Exp"] "Exp"] "abstraction"
+    , Operator "lam" [FixedValence [] "Typ", FixedValence ["Exp"] "Exp"]
     -- TODO: how to subscript?
     -- TODO: sugar for these definitions
-    , Operator "ap" [Valence [] "Exp", Valence [] "Exp"] "application"
+    , Operator "ap" [FixedValence [] "Exp", FixedValence [] "Exp"]
     ])
-  ]) "Exp"
+  ])
 
 -- dynamics2 :: DenotationChart T (Either Text Void)
 -- dynamics2 = DenotationChart

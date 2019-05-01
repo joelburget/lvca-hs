@@ -143,31 +143,31 @@ pattern VI x = PrimValue' "NumV" (Left x)
 syntax :: SyntaxChart
 syntax = SyntaxChart (Map.fromList
   [ ("Typ", SortDef []
-    [ Operator "Num" (Arity []) "numbers"
-    , Operator "Str" (Arity []) "strings"
+    [ Operator "Num" (FixedArity [])
+    , Operator "Str" (FixedArity [])
     ])
   , ("Exp", SortDef []
-    [ Operator "Num" (ExternalArity "Num") "literal number"
-    , Operator "Str" (ExternalArity "Str") "literal string"
+    [ Operator "Num" (ExternalArity "Num")
+    , Operator "Str" (ExternalArity "Str")
     , Operator "Plus"
-      (Arity ["Exp", "Exp"]) "addition"
+      (FixedArity ["Exp", "Exp"])
     , Operator "Times"
-      (Arity ["Exp", "Exp"]) "multiplication"
+      (FixedArity ["Exp", "Exp"])
     , Operator "Cat"
-      (Arity ["Exp", "Exp"]) "concatenation"
+      (FixedArity ["Exp", "Exp"])
     , Operator "Len"
-      (Arity ["Exp"]) "length"
+      (FixedArity ["Exp"])
     -- TODO:
     --   Check for anything matching this that it has a binding pattern in the
     --   second slot
-    , Operator "Let"   (Arity ["Exp", Valence ["Exp"] "Exp"]) "definition"
-    , Operator "Annotation" (Arity ["Exp", "Exp"]) "annotation"
+    , Operator "Let"   (FixedArity ["Exp", FixedValence ["Exp"] "Exp"])
+    , Operator "Annotation" (FixedArity ["Exp", "Exp"])
     ])
   , ("List", SortDef ["a"]
-    [ Operator "Nil" (Arity []) ""
-    , Operator "Cons" (Arity ["a", Valence [] (SortAp "List" ["a"])]) ""
+    [ Operator "Nil" (FixedArity [])
+    , Operator "Cons" (FixedArity ["a", FixedValence [] (SortAp "List" ["a"])])
     ])
-  ]) "Exp"
+  ])
 
 genText :: Gen Text
 genText = Gen.text (Range.exponential 0 1000) Gen.unicode

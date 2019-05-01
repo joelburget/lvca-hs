@@ -16,7 +16,8 @@ module Lvca
 
 import           Lvca.Bidirectional hiding (_conclusion, Term, Scope)
 import           Lvca.Brick
-import           Lvca.ParseConcreteSyntaxDescription hiding (Scope)
+import           Lvca.ParseConcreteSyntaxDescription hiding
+  (ConcreteSyntax, stringLiteral)
 import           Lvca.ParseBidirectional
 import           Lvca.ParseDenotationChart
   (DenotationChartParser, parseDenotationChart)

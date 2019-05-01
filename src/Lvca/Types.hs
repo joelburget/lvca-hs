@@ -31,7 +31,6 @@ module Lvca.Types
   , sortSubst
   , Operator(..)
   , operatorName
-  , operatorDesc
   , operatorArity
   , Arity(..)
   , valences
@@ -191,7 +190,7 @@ sortSubst varVals = \case
 --         {str}              literal
 -- @
 newtype SyntaxChart
-  = SyntaxChart { _syntaxChartContents :: (Map SortName SortDef) }
+  = SyntaxChart { _syntaxChartContents :: Map SortName SortDef }
   deriving (Eq, Show, Data)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
@@ -207,7 +206,6 @@ data SortDef = SortDef
 data Operator = Operator
   { _operatorName  :: !OperatorName -- ^ operator name
   , _operatorArity :: !Arity        -- ^ arity
-  , _operatorDesc  :: !Text         -- ^ description
   } deriving (Eq, Show, Data)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
@@ -217,42 +215,53 @@ data Operator = Operator
 --
 -- To specify an arity, the resulting sort (the last @Exp@ above) is
 -- unnecessary, since it's always clear from context.
-newtype Arity = Arity { _valences :: [Valence] }
+data Arity
+  = FixedArity    { _valences   :: ![Valence] }
+  | VariableArity { _arityIndex :: !Text, _valence :: !Valence }
   deriving (Eq, Show, Data)
 
 instance IsList Arity where
-  type Item Arity  = Valence
-  fromList         = Arity
-  toList (Arity l) = l
+  type Item Arity    = Valence
+  fromList           = FixedArity
+  toList = \case
+    FixedArity l    -> l
+    VariableArity{} -> error "toList VariableArity"
 
 -- | The arity of an operator holding only an external.
 pattern ExternalArity :: SortName -> Arity
-pattern ExternalArity name = Arity [ Valence [] (External name) ]
+pattern ExternalArity name = FixedArity [ FixedValence [] (External name) ]
 
 -- | Apply a sort-substitution to a valence
 valenceSubst :: Map Text Sort -> Valence -> Valence
-valenceSubst m (Valence as b) = Valence (sortSubst m <$> as) (sortSubst m b)
+valenceSubst m (FixedValence as b)
+  = FixedValence (sortSubst m <$> as) (sortSubst m b)
 
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
 --
 -- eg @Exp.Exp@.
-data Valence = Valence
+data Valence = FixedValence
   { _valenceSorts  :: ![Sort] -- ^ the sorts of all bound variables
   , _valenceResult :: !Sort   -- ^ the resulting sort
+  }
+  | VariableValence
+  { _valenceIndex  :: !Text
+  , _valenceResult :: !Sort
   } deriving (Eq, Show, Data)
 
 -- | Traverse the sorts of both binders and body.
 valenceSorts :: Traversal' Valence Sort
-valenceSorts f (Valence sorts result)
-  = Valence <$> traverse f sorts <*> f result
+valenceSorts f (FixedValence sorts result)
+  = FixedValence <$> traverse f sorts <*> f result
+valenceSorts f (VariableValence index result)
+  = VariableValence index <$> f result
 
 instance IsString Valence where
-  fromString = Valence [] . fromString
+  fromString = FixedValence [] . fromString
 
 -- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
 exampleArity :: Arity
-exampleArity = Arity [Valence ["Exp", "Exp"] "Exp"]
+exampleArity = FixedArity [FixedValence ["Exp", "Exp"] "Exp"]
 
 -- | Parsing / pretty-printing directive
 data MixfixDirective
@@ -374,8 +383,6 @@ ruleKeywords (ConcreteSyntaxRule _ _ directive)
 -- >   ]
 newtype ConcreteSyntax = ConcreteSyntax (Seq [ConcreteSyntaxRule])
   deriving (Eq, Show)
--- TODO: randomly generate syntax descriptions and test that they round-trip
--- parsing and pretty-printing
 
 keywords :: ConcreteSyntax -> Set Text
 keywords (ConcreteSyntax rules)
@@ -605,10 +612,11 @@ applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)
 
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern a
-toPattern (Operator name (Arity valences) _)
+toPattern (Operator name (FixedArity valences))
   = PatternTm name $ valences <&> \case
-      Valence [] External{} -> PatternPrimVal Nothing
-      _valence              -> PatternAny
+      FixedValence [] External{} -> PatternPrimVal Nothing
+      VariableValence a b -> error "TODO"
+      _valence                   -> PatternAny
 
 data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
@@ -667,8 +675,8 @@ runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
 getSort :: Matching a SortDef
 getSort = do
-  MatchesEnv (SyntaxChart syntax) sort <- ask
-  lift $ syntax ^? ix sort
+  MatchesEnv (SyntaxChart syntax) sortName <- ask
+  lift $ syntax ^? ix sortName
 
 completePattern :: Matching a (Pattern a)
 completePattern = do
@@ -714,13 +722,13 @@ instance Pretty SyntaxChart where
     in vsep $ f <$> Map.toList sorts
 
 instance Pretty Operator where
-  pretty (Operator name arity _) = case arity of
+  pretty (Operator name arity) = case arity of
     -- Elide parens if it's just an external
     ExternalArity name' -> pretty name <> braces (pretty name')
     _                   -> pretty name <> pretty arity
 
 instance Pretty Arity where
-  pretty (Arity valences) = case valences of
+  pretty (FixedArity valences) = case valences of
     [] -> mempty
     _  -> parens $ hsep $ punctuate semi $ fmap pretty valences
 
@@ -729,7 +737,7 @@ instance Pretty Sort where
   pretty (SortAp name args) = hsep $ pretty name : fmap pretty args
 
 instance Pretty Valence where
-  pretty (Valence boundVars result) = mconcat $
+  pretty (FixedValence boundVars result) = mconcat $
     punctuate dot (fmap pretty boundVars <> [pretty result])
 
 makeLenses ''SyntaxChart
@@ -737,7 +745,6 @@ makeLenses ''Sort
 makePrisms ''Sort
 makeLenses ''SortDef
 makeLenses ''Arity
-makeWrapped ''Arity
 makeLenses ''Pattern
 makePrisms ''Pattern
 makeLenses ''Operator

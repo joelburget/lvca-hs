@@ -1,0 +1,162 @@
+= language syntax =
+
+The syntax of an lvca syntax description.
+
+== syntax ==
+
+// it's encouraged to extend this to allow unicode identifiers (see
+// https://stackoverflow.com/a/48902765/383958), however, we only allow for
+// ascii here for the sake of stability and simplicity.
+
+TERMINAL_IDENT    := [A-Z][A-Z0-9_-]*
+NONTERMINAL_IDENT := [a-z][a-z0-9_-]*
+STRING_LITERAL    := \"(\\.|[^"\\])*\" // TODO: audit this
+METACHAR          := \\|\||\*|\+|\.|\[|\(|\)
+REGULAR_CHAR      := [^\\|\||\*|\+|\.|\[|\(|\)]
+
+// special?
+LINE_COMMENT      := \/\/.*$
+BLOCK_COMMENT     := [] // default
+SPACE             := \s // TODO: character classes
+VAR               := [a-zA-Z_][a-zA-Z_0-9]*
+
+// NEWLINE / INDENT / DEDENT
+
+// TERMINAL_IDENT := [A-Z][A-Z0-9_-]*
+terminal-rule := terminal-rule(name; regex) ~ name ":=" regex
+
+// tm : term := true() ~ TRUE | false() ~ FALSE
+nonterminal-rule :=
+  | nonterminal-rule[n](name; args[n]; nonterminal-ctors)
+  ~ name args* ? ":=" nonterminal-ctors
+
+// true() ~ TRUE | false() ~ FALSE
+//
+// | true()  ~ TRUE
+// | false() ~ false
+nonterminal-ctors :=
+  | nonterminal-ctors[n](opts: nonterminal-ctor[n])
+  ~ opt[1] "|" ... "|" opt[n]
+  ~ INDENT (NEWLINE "|" opt[i]){i:n}
+
+// true() ~ TRUE
+nonterminal-ctor :=
+  | nonterminal-ctor[n](abstract-pat; matches: nonterminal-match[n])
+  ~ abstract-pat ("~" match){n} // XXX `match` not bound
+
+// nonterminal-ctor[n](abstract-pat; match: nonterminal-match[n])
+// XXX allow abstractions
+abstract-pat :=
+  | abstract-pat[m](name; n: option nat. args: abstract-arg[m])
+  ~ name ("[" n "]")? "(" args[1] ";" ... ";" args[n] ")"
+
+// match: nonterminal-match[n]
+// TODO: args should be able to be applied, no? (eg option (option name))
+abstract-arg :=
+  | abstract-arg[m](option name; term-name: name; args: name[m]; n: option fnat)
+  // name not required (punned) when name is simple
+  ~ (name ":")? term-name
+  // name required when term name is not simple
+  ~ name ":" term-name args ("[" n "]")?
+
+// a variable name or literal nat
+fnat :=
+  | free-nat(name)    ~ name
+  | concrete-nat(nat) ~ nat:NAT
+
+nonterminal-match :=
+  | associative-match(associativity)
+  // TODO: combine with infix
+  ~ associativity nonterminal-token nonterminal-token
+  | infix-match(name; fixity)
+  ~ fixity name
+  | mixfix-match[n](toks: nonterminal-token[n])
+  ~ toks
+
+associativity :=
+  | assocl() ~ "assocl"
+  | assocr() ~ "assocr"
+
+fixity :=
+  | infixl() ~ "infixl"
+  | infixr() ~ "infixr"
+  | infix()  ~ "infix"
+
+name := name(str: string) ~ str
+
+nonterminal-token :=
+  | terminal-name(string)
+  ~ TERMINAL_IDENT
+  | nonterminal-name(string)
+  ~ NONTERMINAL_IDENT
+  | string-literal(string)
+  ~ STRING_LITERAL
+  | nt-parenthesized(nonterminal-scope)
+  ~ "(" nonterminal-scope ")"
+  | nt-option(nonterminal-token)
+  ~ nonterminal-token "?"
+  | nt-starred(nonterminal-token)
+  // TODO: do we still have * / +?
+  ~ nonterminal-token "*"
+  | nt-plus(nonterminal-token)
+  ~ nonterminal-token "+"
+  | nt-count(nonterminal-token; i: option name; n: fnat)
+  ~ nonterminal-token "{" (i ":")? n "}"
+  | ellipsis()
+  ~ "..."
+  | indexed-token(nonterminal-token; fnat)
+  ~ nonterminal-token "[" fnat "]"
+
+//
+nonterminal-scope :=
+  | nonterminal-scope[m; n](
+    binders: (pair nonterminal-token binder)[m]; toks: nonterminal-token[n])
+  ~ (t1 binder ".")* toks // XXX what's the syntax here?
+
+binder :=
+  | single-var-binder[n](name: name; toks: nonterminal-token[n])
+  ~ "VAR" ":" name toks
+  | many-var-binder(nat) // TODO
+  ~ "VAR" "[" "1" "]" "..." "VAR" "[" nat "]" ":" name "[" VAR "]"
+
+regex :=
+  | union(reb: regex-branch; re: regex)
+  ~ reb "|" re
+  | branch(reb: regex-branch)
+  ~ reb
+
+regex-branch :=
+  | pieces[n](pieces: regex-piece[n])
+  ~ pieces
+
+regex-piece :=
+  | atom(atom: regex-atom)
+  ~ atom
+  | option(atom: regex-atom)
+  ~ atom "?"
+  | re-star(atom: regex-atom)
+  ~ atom "*"
+  | re-plus(atom: regex-atom)
+  ~ atom "+"
+
+regex-atom :=
+  // TODO: n > 0
+  | positive-set[n](set: regex-set-item[n])
+  ~ "[" set "]"
+  // TODO: n > 0
+  | negative-set[n](set: regex-set-item[n])
+  ~ "[^" set "]"
+  | re-parenthesized(re: regex)
+  ~ "(" re ")"
+  | escaped(char)
+  ~ "\" METACHAR
+  | char(char)
+  ~ REGULAR_CHAR
+  | any()
+  ~ "."
+
+regex-set-item :=
+  | range(c1: char; c2: char)
+  ~ c1 "-" c2
+  | char(c: char)
+  ~ c

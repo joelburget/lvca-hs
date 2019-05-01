@@ -1,0 +1,24 @@
+= language match =
+
+PFPL 1st ed, section 13.1 -- A Pattern Language
+
+== syntax ==
+
+exp :=
+  | match: "match" exp "{" rules "}" ; case analysis
+
+rules :=
+  | rules[n](rule[1] "|" ... "|" rule[n])
+
+rule :=
+  | rule[k](pat "=>" (var[1]...var[k] : exp[k]. exp))
+
+pat :=
+  | wild()         ~ "_"
+  | var(var)       ~ var
+  | triv()         ~ "<>"
+  | pair(pat; pat) ~ "<" pat "," pat ">"
+  | inl(pat)       ~ "l" "." pat
+  | inr(pat)       ~ "r" "." pat
+
+var := var(STRING)

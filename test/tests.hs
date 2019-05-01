@@ -33,7 +33,7 @@ allTests = scope "all tests" $ tests
   , scope "simple-example.props"   SimpleExample.propTests
   -- , scope "t-example.eval"         TExample.evalTests
   , scope "document"               Document.documentTests
-  , scope "arith"                  Arith.arithTests
+  -- , scope "arith"                  Arith.arithTests
   , scope "bidirectional"          BD.checkingTests
   , scope "bidirectional.parse"    testParseBidirectional
   , scope "concrete.parse"         testParseConcreteSyntax
