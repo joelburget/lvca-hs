@@ -51,10 +51,21 @@ instance Pretty DenotationChart where
   pretty (DenotationChart rows) = vsep $ rows <&> \(pat, tm) ->
     "[[ " <> pretty pat <> " ]] = " <> pretty tm
 
+newtype TmAssocs = TmAssocs [ScopeAssocs]
+  deriving (Semigroup, Monoid)
+
+data ScopeAssocs
+  = ScopeAssocs ![BinderAssoc] !TmAssocs
+
+data BinderAssoc = BinderAssoc
+  { _patName :: !Text
+  , _tmName  :: !Text
+  }
+
 findMatch
   :: DenotationChart
   -> Term a
-  -> Maybe ([(Text, Text)], Map Text (Term a), Core)
+  -> Maybe (TmAssocs, Map Text (Term a), Core)
 findMatch (DenotationChart pats) tm
   = getFirst $ foldMap (First . uncurry (matches tm)) pats
 
@@ -62,34 +73,38 @@ matches
   :: Term a
   -> DenotationPat
   -> Core
-  -> Maybe ([(Text, Text)], Map Text (Term a), Core)
-matches (Var v) _ _ = Just ([], Map.empty, CoreVar (Core.Var v))
-matches tm pat core = matches' tm pat <&> \(a, b) -> (a, b, core)
+  -> Maybe (TmAssocs, Map Text (Term a), Core)
+matches tm pat core = matchTm tm pat <&> \(a, b) -> (a, b, core)
 
-matches'
-  :: Term a -> DenotationPat -> Maybe ([(Text, Text)], Map Text (Term a))
-matches' (Term tag2 subtms) (DPatternTm tag1 subpats)
+matchTm
+  :: Term a -> DenotationPat -> Maybe (TmAssocs, Map Text (Term a))
+matchTm (Term tag2 subtms) (DPatternTm tag1 subpats)
   | tag1 == tag2
-  = do submatches <- pairWith matches'' subtms subpats
-       mconcat <$> sequence submatches
+  = do submatches <- pairWith matchScope subtms subpats >>= sequence
+       let (scopeAssocs, submatches') = unzip submatches
+       pure (TmAssocs scopeAssocs, mconcat submatches')
+       -- mconcat <$> sequence submatches
   | otherwise
   = Nothing
-matches' _  DPatternTm{} -- TODO: is this right when term is a var?
+matchTm _  DPatternTm{} -- TODO: is this right when term is a var?
   = Nothing
-matches' _ (DVar Nothing)
-  = Just ([], Map.empty)
-matches' tm (DVar (Just v))
-  = Just ([], Map.singleton v tm)
+matchTm _ (DVar Nothing)
+  = Just (mempty, Map.empty)
+matchTm tm (DVar (Just v))
+  = Just (mempty, Map.singleton v tm)
 
-matches''
+matchScope
   :: Scope a
   -> DenotationScopePat
-  -> Maybe ([(Text, Text)], Map Text (Term a))
-matches'' (Scope binders tm) (DenotationScopePat patBinders pat)
+  -> Maybe (ScopeAssocs, Map Text (Term a))
+matchScope (Scope binders tm) (DenotationScopePat patBinders pat)
   | Just binderPairs <- pair patBinders binders
   -- TODO: we need a richer notion of binder pairing!
-  = do (assocs, tmMatches) <- matches' tm pat
-       pure (binderPairs <> assocs, tmMatches)
+  = do (assocs, tmMatches) <- matchTm tm pat
+       pure
+         ( ScopeAssocs (fmap (uncurry BinderAssoc) binderPairs) assocs
+         , tmMatches
+         )
   | otherwise
   = Nothing
 
@@ -98,17 +113,20 @@ type Translator = ReaderT DenotationChart (Either String)
 termToCore :: Pretty a => Term a -> Translator Core
 termToCore tm = do
   dynamics                      <- ask
-  (assocs, matchRes, protoCore) <- findMatch dynamics tm
-    ?? "failed to find match for " ++ show (pretty tm)
-  fillInCore (assocs, matchRes) protoCore
+  case tm of
+    Var v -> pure $ CoreVar $ Core.Var v
+    _ -> do
+      (assocs, matchRes, protoCore) <- findMatch dynamics tm
+        ?? "failed to find match for " ++ show (pretty tm)
+      fillInCore (assocs, matchRes) protoCore
 
 fillInCore
-  :: Pretty a => ([(Text, Text)], Map Text (Term a)) -> Core -> Translator Core
+  :: Pretty a => (TmAssocs, Map Text (Term a)) -> Core -> Translator Core
 fillInCore mr@(assocs, assignments) c = case c of
   Metavar name -> case Map.lookup name assignments of
     Just tm -> termToCore tm
     Nothing -> lift $ Left "TODO"
-  CoreVar{} -> pure c
+  CoreVar{} -> pure c -- TODO: change name?
   CoreVal val -> CoreVal <$> fillInVal mr val
   App fun args -> App <$> fillInCore mr fun <*> traverse (fillInCore mr) args
   Lam binders core -> Lam binders <$> fillInCore mr core
@@ -118,7 +136,7 @@ fillInCore mr@(assocs, assignments) c = case c of
     pure $ Case scrutinee' ty branches'
 
 fillInVal
-  :: Pretty a => ([(Text, Text)], Map Text (Term a)) -> Val -> Translator Val
+  :: Pretty a => (TmAssocs, Map Text (Term a)) -> Val -> Translator Val
 fillInVal mr val = case val of
   ValTm tag vals      -> ValTm tag <$> traverse (fillInVal mr) vals
   ValLit{}            -> pure val

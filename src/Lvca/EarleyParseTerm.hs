@@ -122,7 +122,7 @@ parseMixfixDirective
   :: MixfixDirective
   -> Reader (Parsers r) (Prod r Text Token MixfixResult)
 parseMixfixDirective directive = do
-  Parsers higherPrecParser' _ <- ask
+  Parsers higherPrecParser' samePrecParser' <- ask
 
   let returnVar concreteGrammarName parsedName
         = MixfixResult (Map.singleton concreteGrammarName parsedName) Map.empty
@@ -145,7 +145,7 @@ parseMixfixDirective directive = do
     VarName concreteGrammarName -> pure $
       fmap (returnVar concreteGrammarName) parseVar
     SubTerm name -> pure $
-      fmap (returnSubtm name) (higherPrecParser' <|> fmap Types.Var parseVar)
+      fmap (returnSubtm name) (samePrecParser' <|> fmap Types.Var parseVar)
 
 parseVar :: Prod r Text Token Text
 parseVar = terminal $ \case
