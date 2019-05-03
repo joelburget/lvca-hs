@@ -59,7 +59,6 @@ module Lvca.Types
   -- | Denotational semantics definition.
   -- , DenotationChart(..)
   , pattern (:->)
-  , (<->)
   , pattern PatternAny
   , pattern PatternEmpty
   , MatchResult(..)
@@ -141,9 +140,6 @@ import           Lvca.Util                 as Util
 
 pattern (:->) :: a -> b -> (a, b)
 pattern a :-> b = (a, b)
-
-(<->) :: a -> b -> (a, b)
-a <-> b = (a, b)
 
 -- syntax charts
 
