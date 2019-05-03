@@ -136,6 +136,7 @@ parseMixfixDirective directive = do
       d2' <- parseMixfixDirective d2
       pure $ (<>) <$> d1' <*> d2'
     Line              -> pure $ mempty <$ token Newline -- <* whitespace
+    -- TODO: require actual indentation
     Nest _ directive' -> parseMixfixDirective directive'
     Group  directive' -> parseMixfixDirective directive'
     d1 :<+ d2 -> do

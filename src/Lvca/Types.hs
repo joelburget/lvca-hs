@@ -125,8 +125,7 @@ import qualified Data.Set                  as Set
 import           Data.String               (IsString(fromString))
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
-import           Data.Text.Prettyprint.Doc hiding (space, (<+>))
-import qualified Data.Text.Prettyprint.Doc as PP
+import           Data.Text.Prettyprint.Doc hiding (space)
 import qualified Data.Vector               as Vector
 import           GHC.Exts                  (IsList(..))
 import           GHC.Generics              (Generic)
@@ -258,6 +257,7 @@ data MixfixDirective
   = Literal !Text
   | Sequence !MixfixDirective !MixfixDirective
   | Line
+  -- TODO: should this be called Indent?
   | Nest !Int !MixfixDirective
   | Group !MixfixDirective
   | (:<+) !MixfixDirective !MixfixDirective
@@ -270,22 +270,23 @@ instance Pretty MixfixDirective where
     Literal str  -> dquotes $ pretty str
     Sequence a b -> hsep [pretty a, pretty b]
     Line         -> hardline
-    Nest _ _     -> "TODO Nest"
+    Nest i a     -> "nest" <+> pretty i <+> pretty a
     Group d      -> "group(" <> pretty d <> ")"
-    _ :<+ _      -> "TODO :<+"
+    a :<+ b      -> pretty a <+> "<" <+> pretty b
     VarName name -> pretty name
     SubTerm name -> pretty name
 
 mixfixDirectiveKeywords :: MixfixDirective -> Set Text
 mixfixDirectiveKeywords = \case
-  Literal kw -> Set.singleton kw
-  Sequence a b -> Set.union (mixfixDirectiveKeywords a) (mixfixDirectiveKeywords b)
-  Line -> Set.empty
-  Nest _ directive -> mixfixDirectiveKeywords directive
-  Group directive -> mixfixDirectiveKeywords directive
-  a :<+ b -> Set.union (mixfixDirectiveKeywords a) (mixfixDirectiveKeywords b)
-  VarName _ -> Set.empty
-  SubTerm _ -> Set.empty
+  Literal kw       -> Set.singleton kw
+  Sequence a b     -> Set.union (mdk a) (mdk b)
+  Line             -> Set.empty
+  Nest _ directive -> mdk directive
+  Group directive  -> mdk directive
+  a :<+ b          -> Set.union (mdk a) (mdk b)
+  VarName _        -> Set.empty
+  SubTerm _        -> Set.empty
+  where mdk = mixfixDirectiveKeywords
 
 infixr 5 >>:
 (>>:) :: MixfixDirective -> MixfixDirective -> MixfixDirective
@@ -376,7 +377,7 @@ keywords (ConcreteSyntax rules)
 instance Pretty ConcreteSyntax where
   pretty (ConcreteSyntax precLevels) = vsep $
     toList precLevels <&> \decls -> indent 2 $
-      ("-" PP.<+>) $ align $ vsep $ decls <&>
+      ("-" <+>) $ align $ vsep $ decls <&>
         \(ConcreteSyntaxRule op slots directive) -> hsep
           [ pretty op <> encloseSep "(" ")" "; " (map prettySlot slots)
           , "~"
