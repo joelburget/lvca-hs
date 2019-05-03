@@ -33,6 +33,8 @@ module Lvca.Types
   , operatorName
   , operatorArity
   , Arity(..)
+  , arityIndex
+  , valence
   , valences
   , pattern ExternalArity
   , exampleArity
@@ -105,7 +107,8 @@ module Lvca.Types
 import           Codec.CBOR.Decoding       (decodeListLenOf, decodeWord)
 import           Codec.CBOR.Encoding       (encodeListLen, encodeWord)
 import           Codec.Serialise
-import           Control.Lens              hiding (Empty, mapping, op, prism)
+import           Control.Lens              hiding
+  (Empty, index, mapping, op, prism)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256        as SHA256
 import           Data.Aeson
@@ -226,11 +229,6 @@ instance IsList Arity where
 pattern ExternalArity :: SortName -> Arity
 pattern ExternalArity name = FixedArity [ FixedValence [] (External name) ]
 
--- | Apply a sort-substitution to a valence
-valenceSubst :: Map Text Sort -> Valence -> Valence
-valenceSubst m (FixedValence as b)
-  = FixedValence (sortSubst m <$> as) (sortSubst m b)
-
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
 --
@@ -243,6 +241,12 @@ data Valence = FixedValence
   { _valenceIndex  :: !Text
   , _valenceResult :: !Sort
   } deriving (Eq, Show, Data)
+
+-- | Apply a sort-substitution to a valence
+valenceSubst :: Map Text Sort -> Valence -> Valence
+valenceSubst m = \case
+  FixedValence as b -> FixedValence (sortSubst m <$> as) (sortSubst m b)
+  VariableValence index result -> VariableValence index (sortSubst m result)
 
 -- | Traverse the sorts of both binders and body.
 valenceSorts :: Traversal' Valence Sort
@@ -691,17 +695,23 @@ instance Pretty Operator where
     _                   -> pretty name <> pretty arity
 
 instance Pretty Arity where
-  pretty (FixedArity valences) = case valences of
-    [] -> mempty
-    _  -> parens $ hsep $ punctuate semi $ fmap pretty valences
+  pretty = \case
+    FixedArity valences -> case valences of
+      [] -> mempty
+      _  -> parens $ hsep $ punctuate semi $ fmap pretty valences
+    VariableArity index valence ->
+      brackets (pretty index) <> pretty valence
 
 instance Pretty Sort where
   pretty (External name)    = braces $ pretty name
   pretty (SortAp name args) = hsep $ pretty name : fmap pretty args
 
 instance Pretty Valence where
-  pretty (FixedValence boundVars result) = mconcat $
-    punctuate dot (fmap pretty boundVars <> [pretty result])
+  pretty = \case
+    FixedValence boundVars result -> mconcat $
+      punctuate dot (fmap pretty boundVars <> [pretty result])
+    VariableValence index result ->
+      pretty result <> braces (pretty index)
 
 makeLenses ''SyntaxChart
 makeLenses ''Sort
