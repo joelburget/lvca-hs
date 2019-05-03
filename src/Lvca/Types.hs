@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeFamilies           #-}
 -----------------------------------------------------------------------------
 -- |
--- Copyright   :  (C) 2018 Joel Burget
+-- Copyright   :  (C) 2018-2019 Joel Burget
 -- License     :  BSD-style (see the file LICENSE)
 --
 -- Maintainer  :  Joel Burget <joelburget@gmail.com>
