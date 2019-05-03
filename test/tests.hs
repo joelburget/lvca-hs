@@ -11,6 +11,7 @@ import qualified Test.Bidirectional as BD
 import           Test.Core
 import           Test.ParseBidirectional
 import           Test.ParseConcreteSyntaxDescription
+import           Test.ParseLanguage
 
 -- import Test.Inspection
 import           Test.Types
@@ -36,7 +37,7 @@ allTests = scope "all tests" $ tests
   -- , scope "arith"                  Arith.arithTests
   , scope "bidirectional"          BD.checkingTests
   , scope "bidirectional.parse"    testParseBidirectional
-  , scope "concrete.parse"         testParseConcreteSyntax
+  , scope "concrete.parse"         parseTests
   , scope "core"                   coreEvalTests
   ]
 

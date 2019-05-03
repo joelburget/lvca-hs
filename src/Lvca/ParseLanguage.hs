@@ -7,11 +7,11 @@ import           Text.Megaparsec.Char
 
 import qualified Lvca.Bidirectional as Bidir
 import Lvca.DenotationChart
-import Lvca.Types (SyntaxChart) -- , ConcreteSyntax)
+import qualified Lvca.Types as Core
 import Lvca.ParseBidirectional
-import Lvca.ParseConcreteSyntaxDescription
+import qualified Lvca.ParseConcreteSyntaxDescription as SD
 import Lvca.ParseDenotationChart
-import Lvca.ParseSyntaxDescription
+-- import Lvca.ParseSyntaxDescription
 import Lvca.ParseUtil (symbol, symbol', parseName, sc, scn)
 
 type LanguageParser a = Parsec
@@ -21,11 +21,16 @@ type LanguageParser a = Parsec
 
 data Lang = Lang
   { _languageName   :: !Text
-  , _abstractSyntax :: !SyntaxChart
-  , _concreteSyntax :: !ConcreteSyntax
+  , _abstractSyntax :: !Core.SyntaxChart
+  , _concreteSyntax :: !Core.ConcreteSyntax
   , _statics        :: ![Bidir.Rule]
   , _dynamics       :: !DenotationChart
   }
+
+translateSyntaxDesc
+  :: SD.ConcreteSyntax
+  -> Either String (Core.SyntaxChart, Core.ConcreteSyntax)
+translateSyntaxDesc = undefined
 
 parseHeader :: MonadParsec e Text m => m b -> m b
 parseHeader parseBody = symbol' "=" *> parseBody <* sc <* symbol "="
@@ -38,20 +43,17 @@ parseLang = do
   name <- parseHeader $ string "language " >> parseName
 
   _ <- parseSubheader $ string "abstract syntax"
-  abstractSyntax <- parseSyntaxDescription
+  syntaxDesc <- SD.syntaxDescription
   _ <- scn
 
-  _ <- parseSubheader $ string "concrete syntax"
-  undefined
+  (abstractSyntax, concreteSyntax) <- case translateSyntaxDesc syntaxDesc of
+    Left msg     -> error msg
+    Right (a, c) -> pure (a, c)
 
---   concreteSyntax <- parseConcreteSyntaxDescription
---     -- TODO: we must check that the top-level sort has kind *
---     -- ParseEnv abstractSyntax (SortAp sort []) UntaggedExternals noExternalParsers
+  _       <- parseSubheader $ string "statics"
+  statics <- parseBidirectional
 
---   _ <- parseSubheader $ string "statics"
---   statics        <- parseBidirectional
+  _        <- parseSubheader $ string "dynamics"
+  dynamics <- parseDenotationChart
 
---   _ <- parseSubheader $ string "dynamics"
---   dynamics       <- parseDenotationChart
-
---   pure $ Lang name abstractSyntax concreteSyntax statics dynamics
+  pure $ Lang name abstractSyntax concreteSyntax statics dynamics

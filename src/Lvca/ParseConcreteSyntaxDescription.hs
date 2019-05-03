@@ -9,15 +9,11 @@ import           Text.Megaparsec
 import           Text.Megaparsec.Char          (digitChar)
 import qualified Text.Megaparsec.Char.Lexer    as L
 
--- import           Lvca.ParseDenotationChart     (parsePattern)
 import           Lvca.Judgements (SortName)
 import qualified Lvca.ParseUtil  as PU
-import           Lvca.ParseUtil  (endBy', sc, scn, symbol, symbol', parseName)
+import           Lvca.ParseUtil  (endBy', sc, scn, symbol, symbol')
 import           Lvca.Types      (Fixity(..) , Associativity(..))
--- import           Lvca.Types                    hiding (Scope)
-import           Text.Megaparsec.Char          (char, eol)
-
-import Text.Megaparsec.Debug
+import           Text.Megaparsec.Char          (char)
 
 type Name = Text
 type Nat  = Integer
@@ -43,7 +39,7 @@ terminalIdent = pack
   <$> ((:)
        <$> upperChar
        <*> many (upperChar <|> digitChar <|> char '_' <|> char '-'
-         <?> "[A-Z0-9_-]")
+         <?> "[-_A-Z0-9]")
        <*  sc)
   <?> "TERMINAL_IDENT"
 
@@ -52,7 +48,7 @@ nonterminalIdent = pack
   <$> ((:)
        <$> lowerChar
        <*> many (lowerChar <|> digitChar <|> char '_' <|> char '-'
-         <?> "[a-z0-9_-]")
+         <?> "[-_a-z0-9]")
        <*  sc)
   <?> "NONTERMINAL_IDENT"
 
@@ -61,10 +57,11 @@ stringLiteral = PU.stringLiteral <* sc -- TODO: audit
   <?> "STRING_LITERAL"
 
 metachars :: String
-metachars = "\\|*+.[()"
+metachars = "\\|*+.[]()"
 
 parseRegularChar :: ConcreteSyntaxDescriptionParser Char
-parseRegularChar = noneOf metachars <?> "REGULAR_CHAR"
+-- TODO: more comprehensive list of whitespace chars
+parseRegularChar = noneOf (" \t\n" <> metachars) <?> "REGULAR_CHAR"
 
 parseMetachar :: ConcreteSyntaxDescriptionParser Char
 parseMetachar = oneOf metachars <?> "METACHAR"
@@ -86,7 +83,7 @@ parseMetachar = oneOf metachars <?> "METACHAR"
 syntaxDescription
   :: ConcreteSyntaxDescriptionParser ConcreteSyntax
 syntaxDescription = ConcreteSyntax
-  <$> many terminalRule
+  <$> many (terminalRule <* scn)
   <*> some nonterminalRule
   <?> "syntax-description"
 
@@ -98,7 +95,7 @@ data TerminalRule = TerminalRule !Text !Regex
 --
 -- > TRUE := true
 terminalRule :: ConcreteSyntaxDescriptionParser TerminalRule
-terminalRule = TerminalRule <$> terminalIdent <* symbol' ":=" <*> regex <* scn
+terminalRule = TerminalRule <$> terminalIdent <* symbol' ":=" <*> regex
   <?> "terminal-rule"
 
 -- nonterminal-rule
@@ -170,36 +167,50 @@ nonterminalCtor = label "nonterminal-ctor" $ do
 
 data AbstractPat = AbstractPat
   !Name
-  !(Maybe Nat)
-  ![AbstractArg]
+  !(Maybe FNat)
+  ![AbstractValence]
   deriving Show
 
 abstractPat :: ConcreteSyntaxDescriptionParser AbstractPat
 abstractPat = label "abstract-pat" $ do
-  name <- parseName
-  n    <- optional $ symbol' "[" *> L.decimal <* symbol' "]" -- TODO: fnat?
-  args <- symbol' "(" *> abstractArg `sepBy` symbol' ";" <* symbol' ")"
+  name <- nonterminalIdent
+  n    <- optional $ symbol' "[" *> fnat <* symbol' "]"
+  args <- symbol' "(" *> abstractValence `sepBy` symbol' ";" <* symbol' ")"
   pure $ AbstractPat name n args
 
-data AbstractArg = AbstractArg
-  !(Maybe Name)
-  !Name
-  ![Name]
-  !(Maybe FNat)
+data AbstractValence
+  = AbstractValence ![NamedSort] !NamedSort
   deriving Show
 
-abstractArg :: ConcreteSyntaxDescriptionParser AbstractArg
-abstractArg = do
-  name1 <- parseName
-  asum
-    [ do _        <- symbol' ":"
-         termName <- parseName
-         option (AbstractArg (Just name1) termName [] Nothing) $ do
-           args <- many parseName
-           n    <- optional $ symbol' "[" *> fnat <* symbol' "]"
-           pure $ AbstractArg (Just name1) termName args n
-    , pure $ AbstractArg Nothing name1 [] Nothing
-    ]
+abstractValence :: ConcreteSyntaxDescriptionParser AbstractValence
+abstractValence = AbstractValence
+  <$> namedSort `endBy'` symbol' "."
+  <*> namedSort
+  <?> "abstract-valence"
+
+data NamedSort = NamedSort !(Maybe Name) !Sort !(Maybe FNat)
+  deriving Show
+
+namedSort :: ConcreteSyntaxDescriptionParser NamedSort
+namedSort = label "named-sort" $ do
+  name  <- optional $ try $ nonterminalIdent <* symbol' ":"
+  sort' <- sort
+  n     <- optional $ symbol' "[" *> fnat <* symbol' "]"
+  pure $ NamedSort name sort' n
+
+data Sort
+  = SortName !Name
+  | SortAp !Sort !Sort
+  deriving Show
+
+sort :: ConcreteSyntaxDescriptionParser Sort
+sort = foldr1 SortAp <$> some sortAtom <?> "sort"
+
+sortAtom :: ConcreteSyntaxDescriptionParser Sort
+sortAtom = label "sortAtom" $ asum
+  [ symbol' "(" *> sort <* symbol' ")"
+  , SortName <$> nonterminalIdent
+  ]
 
 data FNat
   = Freenat !Name
@@ -208,7 +219,7 @@ data FNat
 
 fnat :: ConcreteSyntaxDescriptionParser FNat
 fnat = asum
-  [ Freenat     <$> parseName
+  [ Freenat     <$> nonterminalIdent
   , ConcreteNat <$> L.decimal
   ]
 
@@ -221,7 +232,7 @@ data NonterminalMatch
 nonterminalMatch :: ConcreteSyntaxDescriptionParser NonterminalMatch
 nonterminalMatch = asum
   [ AssociativeMatch <$> associativity
-  , try $ InfixMatch       <$> parseName <*> fixity
+  , try $ InfixMatch <$> nonterminalIdent <*> fixity
   , MixfixMatch      <$> some nonterminalToken
   ] <?> "nonterminal-match"
 
@@ -246,23 +257,52 @@ data NonterminalToken
   | NtOption !NonterminalToken
   | NtStarred !NonterminalToken
   | NtPlussed !NonterminalToken
-  | NtCount !NonterminalToken !(Maybe Name) !(Either Text Nat)
+  | NtIndexed !NonterminalToken !FNat
+  | NtCount !NonterminalToken !(Maybe Name) !FNat
   | Ellipsis
   deriving Show
 
 nonterminalToken :: ConcreteSyntaxDescriptionParser NonterminalToken
-nonterminalToken = asum
+nonterminalToken = label "nonterminal-token" $ do
+  ntAtom   <- nonterminalAtom
+  modifier <- optional nonterminalModifier
+  pure $ case modifier of
+    Nothing              -> ntAtom
+    Just AtomOption      -> NtOption ntAtom
+    Just AtomStarred     -> NtStarred ntAtom
+    Just AtomPlussed     -> NtPlussed ntAtom
+    Just (AtomIndex n)   -> NtIndexed ntAtom n
+    Just (AtomCount i n) -> NtCount ntAtom i n
+
+nonterminalAtom :: ConcreteSyntaxDescriptionParser NonterminalToken
+nonterminalAtom = asum
   [ TerminalName    <$> terminalIdent
   , NonterminalName <$> nonterminalIdent
   , StringLiteral   <$> stringLiteral
   , NtParenthesized <$> (symbol' "(" *> nonterminalScope <* symbol' ")" <* sc)
-  -- XXX
-  -- , NtOption        <$> nonterminalToken <* symbol' "?"
-  -- , NtStarred       <$> nonterminalToken <* symbol' "*"
-  -- , NtPlussed       <$> nonterminalToken <* symbol' "+"
-  -- NtCount TODO
   , Ellipsis <$ symbol' "..."
-  ] <?> "nonterminal-token"
+  ] <?> "nonterminal-atom"
+
+data NonterminalModifier
+  = AtomOption
+  | AtomStarred
+  | AtomPlussed
+  | AtomIndex !FNat
+  | AtomCount !(Maybe Name) !FNat
+
+nonterminalModifier :: ConcreteSyntaxDescriptionParser NonterminalModifier
+nonterminalModifier = asum
+  [ AtomOption  <$ symbol' "?"
+  , AtomStarred <$ symbol' "*"
+  , AtomPlussed <$ symbol' "+"
+  , AtomIndex <$> (symbol' "[" *> fnat <* symbol' "]")
+  , do
+    _ <- symbol' "{"
+    i <- optional $ nonterminalIdent <* symbol' ":"
+    n <- fnat
+    _ <- symbol' "}"
+    pure $ AtomCount i n
+  ] <?> "nonterminal-modifier"
 
 data NonterminalScope = NonterminalScope
   ![(NonterminalToken, Binder)]
@@ -271,9 +311,8 @@ data NonterminalScope = NonterminalScope
 
 nonterminalScope :: ConcreteSyntaxDescriptionParser NonterminalScope
 nonterminalScope = do
-  binders <- ((,) <$> nonterminalToken <*> binder)
-    `endBy'` symbol' "."
-  toks <- many nonterminalToken
+  binders <- ((,) <$> nonterminalToken <*> binder) `endBy'` symbol' "."
+  toks    <- many nonterminalToken
   pure $ NonterminalScope binders toks
 
 data Binder
@@ -286,7 +325,7 @@ binder = do
   _ <- symbol' "VAR"
   asum
     [ do _    <- symbol' ":"
-         name <- parseName
+         name <- nonterminalIdent
          toks <- many nonterminalToken
          pure $ SingleVarBinder name toks
     -- , TODO
@@ -325,7 +364,7 @@ piece = label "regex-piece" $ do
     Just "?" -> pure $ Option  a
     Just "*" -> pure $ Starred a
     Just "+" -> pure $ Plussed a
-    Just _   -> fail "expected \"?\", \"*\", or \"+\""
+    Just _   -> error "vacuous match"
 
 data Atom
   = PositiveSet   ![SetItem]
@@ -341,8 +380,9 @@ atom = asum
   [ NegativeSet   <$> (symbol' "[^" *> some setItem <* symbol' "]")
   , PositiveSet   <$> (symbol' "["  *> some setItem <* symbol' "]")
   , Parenthesized <$> (symbol' "("  *> regex        <* symbol' ")")
-  -- TODO Escaped, Char
-  , Any <$ symbol' "."
+  , Any           <$  symbol' "."
+  , Escaped       <$> (char '\\' *> parseMetachar)
+  , Char          <$> parseRegularChar
   ] <?> "regex-atom"
 
 data SetItem
@@ -350,8 +390,13 @@ data SetItem
   | SiChar  !Char
   deriving Show
 
+parsePossiblyEscapedChar :: ConcreteSyntaxDescriptionParser Char
+parsePossiblyEscapedChar = asum
+  [ char '\\' *> parseMetachar
+  , parseRegularChar
+  ] <?> "possibly-escaped-char"
+
 setItem :: ConcreteSyntaxDescriptionParser SetItem
 setItem = label "regex-set-item" $ do
-  c <- parseRegularChar
-  -- XXX parseRegularChar
-  option (SiChar c) $ SiRange c <$> (symbol' "-" *> parseRegularChar)
+  c <- parsePossiblyEscapedChar
+  option (SiChar c) $ SiRange c <$> (symbol' "-" *> parsePossiblyEscapedChar)

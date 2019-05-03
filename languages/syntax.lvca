@@ -42,22 +42,28 @@ nonterminal-ctors :=
 // true() ~ TRUE
 nonterminal-ctor :=
   | nonterminal-ctor[n](abstract-pat; matches: nonterminal-match[n])
-  ~ abstract-pat ("~" match){n} // XXX `match` not bound
+  ~ abstract-pat ("~" match[i]){i:n}
 
 // nonterminal-ctor[n](abstract-pat; match: nonterminal-match[n])
-// XXX allow abstractions
 abstract-pat :=
-  | abstract-pat[m](name; n: option nat. args: abstract-arg[m])
+  | abstract-pat[m](name; n: option nat. args: abstract-valence[m])
   ~ name ("[" n "]")? "(" args[1] ";" ... ";" args[n] ")"
 
-// match: nonterminal-match[n]
-// TODO: args should be able to be applied, no? (eg option (option name))
-abstract-arg :=
-  | abstract-arg[m](option name; term-name: name; args: name[m]; n: option fnat)
+// x: tm. t: tm
+abstract-valence :=
+  | abstract-valence[n](args: named-sort[n]; result: named-sort)
+  ~ (args[i] "."){n} result
+
+named-sort :=
+  | abstract-sort(name: option name; sort; n: option fnat)
   // name not required (punned) when name is simple
-  ~ (name ":")? term-name
-  // name required when term name is not simple
-  ~ name ":" term-name args ("[" n "]")?
+  ~ (name ":")? sort ("[" n "]")?
+
+sort :=
+  | sort-name(name)
+  ~ name
+  | sort-ap(s1: sort; s2: sort)
+  ~ assocl
 
 // a variable name or literal nat
 fnat :=

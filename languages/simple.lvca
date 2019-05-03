@@ -70,9 +70,9 @@ ctx >> tm <= ty
 
 == dynamics ==
 
+[[_]] : tm -> core(val)
+
 [[ value(v)        ]] = v
 [[ annot(tm; ty)   ]] = [[ tm ]]
 [[ ite(t1; t2; t3) ]] = case([[ t1 ]]; true() -> [[ t2 ]]; false() -> [[ t3 ]])
 [[ app(fun; arg)   ]] = app([[ fun ]]; [[ arg ]])
-
-// [[ lam(x. body)    ]] = lam(x. [[ body ]])
