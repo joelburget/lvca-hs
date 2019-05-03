@@ -138,9 +138,6 @@ import           Text.Show.Deriving
 import           Lvca.Judgements
 import           Lvca.Util                 as Util
 
-pattern (:->) :: a -> b -> (a, b)
-pattern a :-> b = (a, b)
-
 -- syntax charts
 
 data Sort

@@ -8,6 +8,9 @@ import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           GHC.Stack
 
+pattern (:->) :: a -> b -> (a, b)
+pattern a :-> b = (a, b)
+
 -- | Like 'zip', but lengths must match
 pair :: [a] -> [b] -> Maybe [(a, b)]
 pair = zipMatch
