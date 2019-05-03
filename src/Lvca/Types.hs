@@ -65,8 +65,6 @@ module Lvca.Types
   -- * Terms / Values
   , Scope(..)
   , Term(..)
-  -- ** Term patterns
-  , pattern BinaryTerm
   -- ** Term prisms / traversals
   , _Term
   , _Var
@@ -74,9 +72,6 @@ module Lvca.Types
   , subterms
   , termName
   , identify
-  -- ** TermRepresentable / PatternRepresentable
-  , patAdaptor
-  , termAdaptor
 
   -- * Patterns
   -- ** Pattern
@@ -442,38 +437,6 @@ instance FromJSON a => FromJSON (Term a) where
     [String "p", a   ] -> PrimValue <$> parseJSON a
     -- TODO: better message
     _                  -> fail "unexpected JSON format for Term"
-
-pattern BinaryTerm :: Text -> Term a -> Term a -> Term a
-pattern BinaryTerm name x y = Term name [Scope [] x, Scope [] y]
-
-patAdaptor :: Prism' a b -> Prism' (Pattern a) (Pattern b)
-patAdaptor p = prism' rtl ltr where
-  rtl = \case
-    PatternTm name subpats  -> PatternTm name $ rtl <$> subpats
-    PatternVar v            -> PatternVar v
-    PatternPrimVal Nothing  -> PatternPrimVal Nothing
-    PatternPrimVal (Just a) -> PatternPrimVal $ Just $ review p a
-    PatternUnion subpats    -> PatternUnion $ rtl <$> subpats
-  ltr = \case
-    PatternTm name subpats  -> PatternTm name <$> traverse ltr subpats
-    PatternVar v            -> pure $ PatternVar v
-    PatternPrimVal Nothing  -> pure $ PatternPrimVal Nothing
-    PatternPrimVal (Just a) -> PatternPrimVal . Just <$> preview p a
-    PatternUnion subpats    -> PatternUnion <$> traverse ltr subpats
-
-termAdaptor :: Prism' a b -> Prism' (Term a) (Term b)
-termAdaptor p = prism' rtl ltr where
-  rtl tm = case tm of
-    Term name subtms -> Term name $ rtl' <$> subtms
-    Var v            -> Var v
-    PrimValue a      -> PrimValue $ review p a
-  ltr tm = case tm of
-    Term name subtms -> Term name <$> traverse ltr' subtms
-    Var v            -> Just $ Var v
-    PrimValue a      -> PrimValue <$> preview p a
-
-  rtl' (Scope binders tm) = Scope binders $ rtl tm
-  ltr' (Scope binders tm) = Scope binders <$> ltr tm
 
 instance Serialise a => Serialise (Scope a) where
   encode (Scope names tm) = encodeListLen 2 <> encode names <> encode tm

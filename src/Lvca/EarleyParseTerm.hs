@@ -152,6 +152,9 @@ parseVar = terminal $ \case
   Var v -> Just v
   _     -> Nothing
 
+pattern BinaryTerm :: Text -> Term a -> Term a -> Term a
+pattern BinaryTerm name x y = Term name [Scope [] x, Scope [] y]
+
 -- | Parse an infix operator
 parseInfix
   :: Text -- ^ Operator name (in abstract syntax), eg @"Add"@
