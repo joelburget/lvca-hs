@@ -13,7 +13,7 @@ import           EasyTest
 import           NeatInterpolation
 import           Text.Megaparsec           (ParseErrorBundle, runParser)
 
-import           Lvca                      hiding (nil)
+import           Lvca
 
 import           Test.ParseTerm
 import           Test.Types

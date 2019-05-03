@@ -45,8 +45,6 @@ module Lvca.Types
   -- | Concrete syntax charts
   , MixfixDirective(..)
   , (>>:)
-  , nil
-  , space
   , OperatorDirective(..)
   , ConcreteSyntaxRule(..)
   , Fixity(..)
@@ -292,11 +290,6 @@ mixfixDirectiveKeywords = \case
 infixr 5 >>:
 (>>:) :: MixfixDirective -> MixfixDirective -> MixfixDirective
 a >>: b = Sequence a b
-
-nil, space :: MixfixDirective
-nil   = Literal "" :<+ space
-
-space = Literal " " :<+ Literal "\n" -- line instead of \n?
 
 instance IsString MixfixDirective where
   fromString = Literal . fromString
