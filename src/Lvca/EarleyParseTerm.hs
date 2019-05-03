@@ -122,7 +122,7 @@ parseMixfixDirective
   :: MixfixDirective
   -> Reader (Parsers r) (Prod r Text Token MixfixResult)
 parseMixfixDirective directive = do
-  Parsers higherPrecParser' samePrecParser' <- ask
+  Parsers _ samePrecParser' <- ask
 
   let returnVar concreteGrammarName parsedName
         = MixfixResult (Map.singleton concreteGrammarName parsedName) Map.empty
