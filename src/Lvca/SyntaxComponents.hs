@@ -43,9 +43,7 @@ data SyntaxComponents = SyntaxComponents
 
 -- | The list of sorts this sort (directly) depends on
 sortDeps :: Sort -> [SortName]
-sortDeps = \case
-  SortAp name sorts -> name : concatMap sortDeps sorts
-  External{}        -> []
+sortDeps (SortAp name sorts) = name : concatMap sortDeps sorts
 
 -- | Find the strongly connected components / compilation units of a family of
 -- data types.
@@ -55,10 +53,10 @@ findChartComponents (SyntaxChart sorts) =
       sortsWithDeps = Map.toList sorts <&> \(name, sortDef@(SortDef _ ops)) ->
         (sortDef,name,) $ concat3 $
           -- XXX partial
-          ops <&> \(Operator _name (FixedArity valences)) ->
+          ops <&> \(Operator _name (FixedArity valences) _syntax) ->
             -- XXX partial
             valences <&> \(FixedValence vSorts result) ->
-              fmap sortDeps $ result : vSorts
+              fmap (sortDeps . _namedSort) $ result : vSorts
 
       components :: [SCC (SortDef, SortName, [SortName])]
       components = stronglyConnCompR sortsWithDeps

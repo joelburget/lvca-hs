@@ -3,7 +3,7 @@
 module Lvca.EarleyParseTerm (concreteParser) where
 
 import           Control.Applicative  ((<|>))
-import           Control.Lens         (ALens', ifor, ix, (<&>), (^?!))
+import           Control.Lens         (ALens', ifor, ix, (<&>), (^?!), (^?))
 import           Control.Lens.TH      (makeLenses)
 import           Control.Monad.Fix
 import           Control.Monad.Reader
@@ -14,6 +14,7 @@ import           Data.Sequence        (Seq(Empty, (:|>)))
 import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
+import           Data.Traversable     (for)
 import           Data.Void            (Void)
 import           GHC.Stack            (HasCallStack)
 import           Prelude              hiding ((!!))
@@ -25,7 +26,6 @@ import           Lvca.Types           hiding (space, Var)
 import qualified Lvca.Types           as Types
 
 data Parsers r = Parsers
-  -- { _whitespaceParser :: !(Prod r Text Char String)
   { _higherPrecParser :: !(Prod r Text Token (Term Void))
   , _samePrecParser   :: !(Prod r Text Token (Term Void))
   }
@@ -37,73 +37,22 @@ as !! i = case Seq.lookup i as of
   Nothing -> error "Invariant violation: sequence too short"
 
 -- | Parse 'Text' to a 'Term' for some 'ConcreteSyntax'
-concreteParser
-  :: ConcreteSyntax -> Parser Text [Token] (Term Void)
-concreteParser concreteSyntax = parser (concreteParserGrammar concreteSyntax)
+concreteParser :: SyntaxChart -> SortName -> Parser Text [Token] (Term Void)
+concreteParser syntax startSort
+  = parser $ concreteParserGrammar syntax startSort
 
 concreteParserGrammar
   :: forall r.
-     ConcreteSyntax
+     SyntaxChart
+  -> SortName
   -> Grammar r (Prod r Text Token (Term Void))
-concreteParserGrammar (ConcreteSyntax directives) = mdo
-  it <- mfix $ \prods ->
-    -- highest precedence to lowest
-    ifor directives $ \precedence precedenceLevel -> do
+concreteParserGrammar (SyntaxChart sorts) startSort = mdo
+  sortParsers <- mfix $ \prods -> ifor sorts (parseSort prods)
 
-      let opNames = _csOperatorName <$> precedenceLevel
-          prodTag = Text.intercalate " | " opNames
-
-          -- parsers for every operator sharing this precedence (note the
-          -- knot-tying)
-          samePrecP = prods !! precedence
-
-          _ :|> lowestPrec = prods
-
-          -- If this is the highest precedence level then we allow
-          -- subexpressions of any precedence with parens, otherwise we allow
-          -- (unparenthesized) subexpressions of higher precedence (which of
-          -- course include parenthesized expressions)
-          higherPrecP = if precedence == 0
-            then parens lowestPrec
-            else prods !! pred precedence
-
-          thisLevelProds = precedenceLevel <&>
-            \(ConcreteSyntaxRule opName slots directive) ->
-
-              -- TODO: look up opName in abstract syntax so we know which sorts
-              -- to recurse to
-
-              let parser' = case directive of
-                    InfixDirective str fixity -> parseInfix opName str fixity
-                    AssocDirective assoc      -> parseAssoc opName assoc
-                    MixfixDirective directive' -> do
-                      prodMap <- parseMixfixDirective directive'
-
-                      -- convert @Map Text (Scope Void)@ to @[Scope Void]@ by
-                      -- order names appear in @slots@ (which is the order
-                      -- they occur in on the lhs of the concrete parser spec)
-                      let prodList = prodMap <&>
-                            \(MixfixResult varNameMap subTmMap) ->
-                              slots <&> \(binders, tmName) ->
-                                let binders' = binders <&> \varName ->
-                                      varNameMap ^?! ix varName
-                                    body = subTmMap ^?! ix tmName
-                                in Scope binders' body
-
-                      pure $ Term opName <$> prodList
-            in runReader parser' $ Parsers higherPrecP samePrecP
-
-      --  parse any expression with this, or higher, precedence
-      rule $ asum thisLevelProds
-        <|> higherPrecP
-        <?> prodTag
-
-  case it of
+  case sortParsers ^? ix startSort of
     -- enter the lowest precedence parser
-    _ :|> lowestPrecParser
-      -> pure $ lowestPrecParser
-    Empty
-      -> error "no concrete parsing precedence levels found"
+    Just parser -> pure parser
+    Nothing -> error "TODO"
 
 parens :: Prod r e Token a -> Prod r e Token a
 parens p = token (Paren '(') *> p <* token (Paren ')')
@@ -135,7 +84,7 @@ parseMixfixDirective directive = do
       d1' <- parseMixfixDirective d1
       d2' <- parseMixfixDirective d2
       pure $ (<>) <$> d1' <*> d2'
-    Line              -> pure $ mempty <$ token Newline -- <* whitespace
+    Line              -> pure $ mempty <$ token Newline
     -- TODO: require actual indentation
     Nest _ directive' -> parseMixfixDirective directive'
     Group  directive' -> parseMixfixDirective directive'
@@ -172,9 +121,7 @@ parseInfix opName opRepr fixity
           Infixr -> (higherPrec, samePrec  )
     in BinaryTerm opName
          <$> subparser1
-         -- <*  whitespace
          <*  token (Keyword opRepr)
-         -- <*  whitespace
          <*> subparser2
 
 parseAssoc
@@ -194,3 +141,56 @@ _unused ::
   , ALens' (Parsers r) (Prod r Text Token (Term Void))
   )
 _unused = (samePrecParser, higherPrecParser)
+
+aritySlots :: Arity -> [([Text], Text)]
+aritySlots = \case
+  FixedArity valences     -> valenceSlots <$> valences
+  VariableArity _ valence -> [valenceSlots valence]
+
+valenceSlots :: Valence -> ([Text], Text)
+valenceSlots = \case
+  FixedValence args result -> (_sortName <$> args, _sortName result)
+  VariableValence _ result -> ([],                 _sortName result)
+
+parseOperator
+  :: forall r.
+     Map SortName (Prod r Text Token (Term Void))
+  -> Operator
+  -> Grammar r (Prod r Text Token (Term Void))
+parseOperator sortParsers (Operator opName arity directives) = do
+  operatorParses <- for directives $ \directive -> do
+    let higherPrecP = undefined -- XXX
+        samePrecP = undefined -- XXX
+        parser' = case directive of
+          InfixDirective str fixity -> parseInfix opName str fixity
+          AssocDirective assoc      -> parseAssoc opName assoc
+          MixfixDirective directive' -> do
+            prodMap <- parseMixfixDirective directive'
+
+            let slots = aritySlots arity
+
+            -- convert @Map Text (Scope Void)@ to @[Scope Void]@ by
+            -- order names appear in @slots@ (which is the order
+            -- they occur in on the lhs of the concrete parser spec)
+            let prodList = prodMap <&>
+                  \(MixfixResult varNameMap subTmMap) ->
+                    slots <&> \(binders, tmName) ->
+                      let binders' = binders <&> \varName ->
+                            varNameMap ^?! ix varName
+                          body = subTmMap ^?! ix tmName
+                      in Scope binders' body
+
+            pure $ Term opName <$> prodList
+    pure $ runReader parser' $ Parsers higherPrecP samePrecP
+
+  rule $ asum operatorParses
+
+parseSort
+  :: forall r.
+     Map SortName (Prod r Text Token (Term Void))
+  -> SortName
+  -> SortDef
+  -> Grammar r (Prod r Text Token (Term Void))
+parseSort sortParsers sortName (SortDef sortVars operators) = do
+  operators' <- traverse (parseOperator sortParsers) operators
+  rule $ asum operators'

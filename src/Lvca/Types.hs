@@ -19,9 +19,10 @@ module Lvca.Types
     -- * Abstract syntax charts
     -- | Syntax definition.
   , Sort(..)
-  , externalName
   , _SortAp
-  , _External
+  , NamedSort(..)
+  , sortName
+  , namedSort
   , SyntaxChart(..)
   , syntaxChartContents
   -- , termSort
@@ -36,7 +37,6 @@ module Lvca.Types
   , arityIndex
   , valence
   , valences
-  , pattern ExternalArity
   , exampleArity
   , Valence(..)
   , valenceSubst
@@ -46,12 +46,11 @@ module Lvca.Types
   , MixfixDirective(..)
   , (>>:)
   , OperatorDirective(..)
-  , ConcreteSyntaxRule(..)
   , Fixity(..)
   , Associativity(..)
-  , ConcreteSyntax(..)
-  , keywords
-  , mkConcreteSyntax
+  -- , ConcreteSyntax(..)
+  -- , keywords
+  -- , mkConcreteSyntax
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -137,26 +136,25 @@ import           Lvca.Util                 as Util
 
 -- syntax charts
 
-data Sort
-  = SortAp !SortName ![Sort]
-  | External { _externalName :: !Text }
+data Sort = SortAp !SortName ![Sort]
   deriving (Eq, Show, Data)
 
 instance IsString Sort where
-  fromString s
-    |  head s == '{'
-    && last s == '}'
-    = External $ Text.init $ fromString $ tail s
-    | otherwise = SortAp (fromString s) []
+  fromString s = SortAp (fromString s) []
 
 sortSubst :: Map Text Sort -> Sort -> Sort
 sortSubst varVals = \case
-  e@External{} -> e
-  SortAp name [] -> Map.findWithDefault (SortAp name []) name varVals
-  SortAp name subSorts ->
-    -- TODO: we need to cleanly separate variables from concrete sort names
-    let subSorts' = sortSubst varVals <$> subSorts
-    in SortAp name subSorts'
+  SortAp name []       -> Map.findWithDefault (SortAp name []) name varVals
+  SortAp name subSorts -> SortAp name $ sortSubst varVals <$> subSorts
+  -- TODO: we need to cleanly separate variables from concrete sort names
+
+-- | Named sorts appear in syntax charts so we can refer to them.
+--
+-- eg @t1: tm@
+data NamedSort = NamedSort
+  { _sortName  :: !Text
+  , _namedSort :: !Sort
+  } deriving (Eq, Show, Data)
 
 -- | A syntax chart defines the abstract syntax of a language, specified by a
 -- collection of operators and their arities. The abstract syntax provides a
@@ -164,18 +162,18 @@ sortSubst varVals = \case
 -- the language.
 --
 -- @
--- Typ ::= num                numbers
---         str                strings
+-- typ := num                numbers
+--        str                strings
 --
--- Exp ::= val(Val)
---         plus(Exp; Exp)     addition
---         times(Exp; Exp)    multiplication
---         cat(Exp; Exp)      concatenation
---         len(Exp)           length
---         let(Exp; Exp.Exp)  definition
+-- exp := val(val)
+--        plus(exp; exp)     addition
+--        times(exp; exp)    multiplication
+--        cat(exp; exp)      concatenation
+--        len(exp)           length
+--        let(exp; exp. exp) definition
 --
--- Val ::= {num}              numeral
---         {str}              literal
+-- val := num                numeral
+--        str                literal
 -- @
 newtype SyntaxChart
   = SyntaxChart { _syntaxChartContents :: Map SortName SortDef }
@@ -185,21 +183,23 @@ newtype SyntaxChart
 -- languages often have a syntactic distinction between expressions and
 -- commands.
 data SortDef = SortDef
-  { _sortVariables :: ![Text]     -- ^ set of variables
-  , _sortOperators :: ![Operator] -- ^ set of operators
+  { _sortVariables :: ![Text]               -- ^ set of variables
+  , _sortOperators :: ![Operator]           -- ^ set of operators
   } deriving (Eq, Show, Data)
 
 -- | One of the fundamental constructions of a language. Operators are grouped
 -- into sorts. Each operator has an /arity/, specifying its arguments.
 data Operator = Operator
-  { _operatorName  :: !OperatorName -- ^ operator name
-  , _operatorArity :: !Arity        -- ^ arity
+  { _operatorName   :: !OperatorName -- ^ operator name
+  , _operatorArity  :: !Arity        -- ^ arity
+  , _operatorSyntax :: ![OperatorDirective]
+    -- ^ layouts (in order of preference / compactness)
   } deriving (Eq, Show, Data)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
 -- of its arguments.
 --
--- eg @(Exp.Exp; Nat)Exp@.
+-- eg @(exp. exp; nat)@.
 --
 -- To specify an arity, the resulting sort (the last @Exp@ above) is
 -- unnecessary, since it's always clear from context.
@@ -215,42 +215,46 @@ instance IsList Arity where
     FixedArity l    -> l
     VariableArity{} -> error "toList VariableArity"
 
--- | The arity of an operator holding only an external.
-pattern ExternalArity :: SortName -> Arity
-pattern ExternalArity name = FixedArity [ FixedValence [] (External name) ]
-
 -- | A /valence/ specifies the sort of an argument as well as the number and
 -- sorts of the variables bound within it.
 --
--- eg @Exp.Exp@.
+-- eg @exp. exp@.
 data Valence = FixedValence
-  { _valenceSorts  :: ![Sort] -- ^ the sorts of all bound variables
-  , _valenceResult :: !Sort   -- ^ the resulting sort
+  { _valenceSorts  :: ![NamedSort] -- ^ the sorts of all bound variables
+  , _valenceResult :: !NamedSort   -- ^ the resulting sort
   }
   | VariableValence
   { _valenceIndex  :: !Text
-  , _valenceResult :: !Sort
+  , _valenceResult :: !NamedSort -- ^ the resulting sort
   } deriving (Eq, Show, Data)
 
 -- | Apply a sort-substitution to a valence
 valenceSubst :: Map Text Sort -> Valence -> Valence
 valenceSubst m = \case
-  FixedValence as b -> FixedValence (sortSubst m <$> as) (sortSubst m b)
-  VariableValence index result -> VariableValence index (sortSubst m result)
+  FixedValence as b
+    -> FixedValence (sortSubst' m <$> as) (sortSubst' m b)
+  VariableValence index result
+    -> VariableValence index (sortSubst' m result)
+
+  where sortSubst' m (NamedSort name sort) = NamedSort name (sortSubst m sort)
 
 -- | Traverse the sorts of both binders and body.
-valenceSorts :: Traversal' Valence Sort
-valenceSorts f (FixedValence sorts result)
-  = FixedValence <$> traverse f sorts <*> f result
-valenceSorts f (VariableValence index result)
-  = VariableValence index <$> f result
+valenceSorts :: Traversal' Valence NamedSort
+valenceSorts f = \case
+  FixedValence sorts result
+    -> FixedValence <$> traverse f sorts <*> f result
+  VariableValence index result
+    -> VariableValence index <$> f result
+
+instance IsString NamedSort where
+  fromString str = NamedSort (fromString str) (fromString str)
 
 instance IsString Valence where
   fromString = FixedValence [] . fromString
 
--- | @exampleArity = 'Arity' ['Valence' [\"Exp\", \"Exp\"] \"Exp\"]@
+-- | @exampleArity = 'Arity' ['Valence' [\"exp\", \"exp\"] \"exp\"]@
 exampleArity :: Arity
-exampleArity = FixedArity [FixedValence ["Exp", "Exp"] "Exp"]
+exampleArity = FixedArity [ FixedValence ["exp", "exp"] "exp" ]
 
 -- | Parsing / pretty-printing directive
 data MixfixDirective
@@ -263,7 +267,7 @@ data MixfixDirective
   | (:<+) !MixfixDirective !MixfixDirective
   | VarName !Text
   | SubTerm !Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, Data)
 
 instance Pretty MixfixDirective where
   pretty = \case
@@ -305,7 +309,7 @@ data Fixity
   | Infixr -- ^ An operator associating to the right:
            -- (@x $ y $ z ~~ x $ (y $ z)@)
   | Infix  -- ^ A non-associative operator
-  deriving (Eq, Show)
+  deriving (Eq, Show, Data)
 
 instance Pretty Fixity where
   pretty = \case
@@ -316,7 +320,7 @@ instance Pretty Fixity where
 data Associativity
   = Assocl
   | Assocr
-  deriving (Show, Eq)
+  deriving (Show, Eq, Data)
 
 instance Pretty Associativity where
   pretty = \case
@@ -327,7 +331,7 @@ data OperatorDirective
   = InfixDirective  !Text !Fixity
   | MixfixDirective !MixfixDirective
   | AssocDirective  !Associativity
-  deriving (Eq, Show)
+  deriving (Eq, Show, Data)
 
 operatorDirectiveKeywords :: OperatorDirective -> Set Text
 operatorDirectiveKeywords = \case
@@ -344,12 +348,7 @@ instance Pretty OperatorDirective where
     AssocDirective fixity
       -> hsep [ pretty fixity, "x", "y" ]
 
-data ConcreteSyntaxRule = ConcreteSyntaxRule
-  { _csOperatorName    :: !OperatorName
-  , _slots             :: ![([Text], Text)]
-  , _operatorDirective :: !OperatorDirective
-  } deriving (Eq, Show)
-
+{-
 ruleKeywords :: ConcreteSyntaxRule -> Set Text
 ruleKeywords (ConcreteSyntaxRule _ _ directive)
   = operatorDirectiveKeywords directive
@@ -388,7 +387,7 @@ instance Pretty ConcreteSyntax where
 
 mkConcreteSyntax :: [[ConcreteSyntaxRule]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
-
+-}
 
 data Scope a = Scope ![Text] !(Term a)
   deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
@@ -500,6 +499,7 @@ data Pattern a
   | PatternPrimVal !(Maybe a)
   -- | The union of patterns
   | PatternUnion ![Pattern a]
+  | PatternVariableArity !(Pattern a)
   deriving (Eq, Show)
 
 pattern PatternAny :: Pattern a
@@ -566,11 +566,10 @@ applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)
 
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern a
-toPattern (Operator name (FixedArity valences))
+toPattern (Operator name (FixedArity valences) _layouts)
   = PatternTm name $ valences <&> \case
-      FixedValence [] External{} -> PatternPrimVal Nothing
-      VariableValence a b -> error "TODO"
-      _valence                   -> PatternAny
+      VariableValence _n _ -> PatternVariableArity PatternAny
+      _valence             -> PatternAny
 
 data MatchesEnv a = MatchesEnv
   { _envChart :: !SyntaxChart
@@ -670,16 +669,16 @@ instance Pretty SyntaxChart where
           [ let vars' = case vars of
                   [] -> ""
                   _  -> " " <> hsep (fmap pretty vars)
-            in pretty title <> vars' <> " ::="
+            in pretty title <> vars' <> " :="
           , indent 2 $ vsep $ fmap pretty operators
           ]
     in vsep $ f <$> Map.toList sorts
 
 instance Pretty Operator where
-  pretty (Operator name arity) = case arity of
-    -- Elide parens if it's just an external
-    ExternalArity name' -> pretty name <> braces (pretty name')
-    _                   -> pretty name <> pretty arity
+  pretty (Operator name arity layouts) =
+    let line1 = ("|" <+>) $ pretty name <> pretty arity
+        layoutLines = fmap (\layout -> "~" <+> pretty layout) layouts
+    in vsep $ line1 : layoutLines
 
 instance Pretty Arity where
   pretty = \case
@@ -690,8 +689,14 @@ instance Pretty Arity where
       brackets (pretty index) <> pretty valence
 
 instance Pretty Sort where
-  pretty (External name)    = braces $ pretty name
   pretty (SortAp name args) = hsep $ pretty name : fmap pretty args
+
+instance Pretty NamedSort where
+  pretty (NamedSort name sort@(SortAp name' args))
+    | name == name' && args == []
+    = pretty name
+    | otherwise
+    = pretty name <> ": " <> pretty sort
 
 instance Pretty Valence where
   pretty = \case
@@ -703,6 +708,7 @@ instance Pretty Valence where
 makeLenses ''SyntaxChart
 makeLenses ''Sort
 makePrisms ''Sort
+makeLenses ''NamedSort
 makeLenses ''SortDef
 makeLenses ''Arity
 makeLenses ''Pattern

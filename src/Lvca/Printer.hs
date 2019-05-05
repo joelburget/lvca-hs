@@ -14,12 +14,12 @@ import           Prelude                   hiding (lookup)
 
 import           Lvca.Types
 
-type Printer = Reader (Int, ConcreteSyntax) (Doc ())
+type Printer = Reader (Int, SyntaxChart) (Doc ())
 
 -- | Pretty-print a term given its conrete syntax chart.
 prettyTm :: Term Void -> Printer
 prettyTm tm = do
-  (envPrec, ConcreteSyntax directives) <- ask
+  (envPrec, SyntaxChart sorts) <- ask
   case tm of
     Term name subtms -> fromMaybe
 
@@ -31,19 +31,28 @@ prettyTm tm = do
       $ do
 
       -- Does this name, directive pair have the name we're looking for?
-      let sameName (ConcreteSyntaxRule name' _ _) = name' == name
+      let sameName (Operator name' _ _) = name' == name
 
-      ConcreteSyntaxRule _ slots directive
-        <- findOf (traverse . traverse) sameName directives
+      Operator _name arity (directive:_) -- TODO: case with no directives
+        <- findOf (traverse . sortOperators . traverse) sameName sorts
 
-      -- Find the precedence (determined by index) of the operator
-      reverseOpPrec
-        <- Seq.findIndexL (isJust . find sameName) directives
+      let getValenceName = _sortName . _valenceResult
+          slots :: [Text]
+          slots = case arity of
+            FixedArity valences     -> getValenceName <$> valences
+            VariableArity _ valence -> [getValenceName valence]
+
+--       ConcreteSyntaxRule _ slots directive
+--         <- findOf (traverse . traverse) sameName directives
+
+--       -- Find the precedence (determined by index) of the operator
+--       reverseOpPrec
+--         <- Seq.findIndexL (isJust . find sameName) directives
 
       -- reverseOperatorPrec counts from front to to back ([0..n]). But we want
       -- the first operators to have the highest precendence, so we reverse the
       -- precedence to [n..0].
-      let opPrec = Seq.length directives - reverseOpPrec
+      let opPrec = 0 -- TODO Seq.length directives - reverseOpPrec
 
           subtms' = subtms <&> \case
             Scope [] tm' -> tm'
@@ -51,10 +60,7 @@ prettyTm tm = do
 
           body = local (_1 .~ opPrec) $ case directive of
             MixfixDirective directive' -> prettyMixfix $ PrintInfo directive' $
-              Map.fromList $ zipWith
-                (\(binderNames, subtmName) subtm -> (subtmName, (binderNames, subtm)))
-                slots
-                subtms
+              Map.fromList $ zip slots subtms
             InfixDirective str fixity -> prettyInfix str fixity subtms'
             AssocDirective assoc      -> prettyAssoc assoc subtms'
 
@@ -67,7 +73,7 @@ prettyTm tm = do
 
 data PrintInfo = PrintInfo
   !MixfixDirective
-  !(Map Text ([Text], Scope Void))
+  !(Map Text (Scope Void))
 
 prettyMixfix :: PrintInfo -> Printer
 prettyMixfix = \case
@@ -84,7 +90,7 @@ prettyMixfix = \case
 
   PrintInfo (VarName absName) m -> pure $ pretty absName -- XXX convert name
   PrintInfo (SubTerm sym) m -> case m ^?! ix sym of
-    (_, Scope _ tm) -> prettyTm tm
+    Scope _ tm -> prettyTm tm
 
 prettyInfix :: Text -> Fixity -> [Term Void] -> Printer
 prettyInfix str fixity subtms = case subtms of
