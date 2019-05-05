@@ -66,7 +66,6 @@ module Lvca.Types
   -- ** Term prisms / traversals
   , _Term
   , _Var
-  , _PrimValue
   , subterms
   , termName
   , identify
@@ -76,7 +75,6 @@ module Lvca.Types
   , Pattern(..)
   , _PatternTm
   , _PatternVar
-  , _PatternPrimVal
   , _PatternUnion
   -- ** PatternCheckResult
   , PatternCheckResult(..)
@@ -389,58 +387,54 @@ mkConcreteSyntax :: [[ConcreteSyntaxRule]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
 -}
 
-data Scope a = Scope ![Text] !(Term a)
-  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+data Scope = Scope ![Text] !Term
+  deriving (Eq, Show, Generic)
 
 -- | An evaluated or unevaluated term
-data Term a
+data Term
   = Term
-    { _termName :: !Text      -- ^ name of this term
-    , _subterms :: ![Scope a] -- ^ subterms
+    { _termName :: !Text    -- ^ name of this term
+    , _subterms :: ![Scope] -- ^ subterms
     }
   | Var !Text
-  | PrimValue !a
-  deriving (Eq, Show, Functor, Foldable, Traversable, Generic)
+  deriving (Eq, Show, Generic)
 
 arr :: [Value] -> Value
 arr = Array . Vector.fromList
 
-instance ToJSON a => ToJSON (Scope a) where
+instance ToJSON Scope where
   toJSON (Scope names tm) = arr [toJSON names, toJSON tm]
 
-instance ToJSON a => ToJSON (Term a) where
+instance ToJSON Term where
   toJSON = \case
-    Term name subtms   -> arr [String "t", toJSON name, toJSON subtms]
-    Var name           -> arr [String "v", toJSON name]
-    PrimValue a        -> arr [String "p", toJSON a]
+    Term name subtms -> arr [String "t", toJSON name, toJSON subtms]
+    Var name         -> arr [String "v", toJSON name]
 
-instance FromJSON a => FromJSON (Scope a) where
+instance FromJSON Scope where
   parseJSON = withArray "Scope" $ \v -> case Vector.toList v of
     [names, tm] -> Scope <$> parseJSON names <*> parseJSON tm
     -- TODO: better message
     _           -> fail "unexpected JSON format for Scope"
 
-instance FromJSON a => FromJSON (Term a) where
+instance FromJSON Term where
   parseJSON = withArray "Term" $ \v -> case Vector.toList v of
     [String "t", a, b] -> Term      <$> parseJSON a <*> parseJSON b
     [String "v", a   ] -> Var       <$> parseJSON a
-    [String "p", a   ] -> PrimValue <$> parseJSON a
     -- TODO: better message
     _                  -> fail "unexpected JSON format for Term"
 
-instance Serialise a => Serialise (Scope a) where
+instance Serialise Scope where
   encode (Scope names tm) = encodeListLen 2 <> encode names <> encode tm
 
   decode = do
     decodeListLenOf 2
     Scope <$> decode <*> decode
 
-instance Serialise a => Serialise (Term a) where
+instance Serialise Term where
   encode tm =
     let (tag, content) = case tm of
           Term      name  subtms -> (0, encode name <> encode subtms)
           Var       name         -> (1, encode name                 )
-          PrimValue a            -> (2, encode a                    )
     in encodeListLen 2 <> encodeWord tag <> content
 
   decode = do
@@ -449,34 +443,35 @@ instance Serialise a => Serialise (Term a) where
     case tag of
       0 -> Term      <$> decode <*> decode
       1 -> Var       <$> decode
-      2 -> PrimValue <$> decode
       _ -> fail "invalid Term encoding"
 
 newtype Sha256 = Sha256 ByteString
 
 -- | Content-identify a term via the sha-256 hash of its cbor serialization.
-identify :: Serialise a => Term a -> Sha256
+identify :: Term -> Sha256
 identify = Sha256 . SHA256.hashlazy . serialise
 
-instance Pretty a => Pretty (Scope a) where
+instance Pretty Scope where
   pretty (Scope names tm)
     = hsep $ punctuate dot $ fmap pretty names <> [pretty tm]
 
-instance Pretty a => Pretty (Term a) where
+instance Pretty Term where
   pretty = \case
-    Term name subtms ->
-      pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
-    Var name    -> pretty name
-    PrimValue a -> braces (pretty a)
+    Term name subtms
+      -> pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
+    Var name
+      -> pretty name
 
-instance Pretty a => Pretty (Pattern a) where
+instance Pretty Pattern where
   pretty = \case
-    PatternTm name subpats ->
-      pretty name <> parens (hsep $ punctuate semi $ fmap pretty subpats)
-    PatternVar Nothing -> "_"
-    PatternVar (Just name) -> pretty name
-    PatternPrimVal a -> braces (pretty a)
-    PatternUnion pats -> group $ encloseSep
+    PatternTm name subpats
+      -> pretty name <> parens (hsep $ punctuate semi $ fmap pretty subpats)
+    PatternVar Nothing
+      -> "_"
+    PatternVar (Just name)
+      -> pretty name
+    PatternUnion pats
+      -> group $ encloseSep
       (flatAlt "( " "(")
       (flatAlt " )" ")")
       " | "
@@ -490,36 +485,28 @@ instance Pretty a => Pretty (Pattern a) where
 --     right-hand side
 --   * In addition to variables, patterns can match wildcards, which don't bind
 --     any variable.
-data Pattern a
+data Pattern
   -- | Matches the head of a term and any subpatterns
-  = PatternTm !Text ![Pattern a]
+  = PatternTm !Text ![Pattern]
   -- TODO: Add non-binding, yet named variables, eg _foo
   -- | A variable pattern that matches everything, generating a substitution
   | PatternVar !(Maybe Text)
-  | PatternPrimVal !(Maybe a)
   -- | The union of patterns
-  | PatternUnion ![Pattern a]
-  | PatternVariableArity !(Pattern a)
+  | PatternUnion ![Pattern]
+  | PatternVariableArity !Pattern
   deriving (Eq, Show)
 
-pattern PatternAny :: Pattern a
+pattern PatternAny :: Pattern
 pattern PatternAny = PatternVar Nothing
 
-pattern PatternEmpty :: Pattern a
+pattern PatternEmpty :: Pattern
 pattern PatternEmpty = PatternUnion []
-
-deriveShow1 ''Scope
-deriveEq1   ''Scope
-deriveShow1 ''Term
-deriveEq1   ''Term
-deriveShow1 ''Pattern
-deriveEq1   ''Pattern
 
 -- | The result of matching a pattern against a term. Example:
 --
 -- Pattern @lam(body)@ 'matches' term @lam(x. x)@, resulting in 'MatchResult'
 -- @body -> x. x@.
-newtype MatchResult a = MatchResult { _assignments :: Map Text (Scope a) }
+newtype MatchResult = MatchResult { _assignments :: Map Text Scope }
   deriving (Eq, Show, Semigroup, Monoid)
 
 -- | Is this pattern redundant?
@@ -527,23 +514,23 @@ data IsRedudant = IsRedudant | IsntRedundant
   deriving Eq
 
 -- | A sequence of patterns can be checked for uncovered patterns and overlap.
-data PatternCheckResult a = PatternCheckResult
-  { _uncovered   :: !(Pattern a)               -- ^ uncovered patterns
-  , _overlapping :: ![(Pattern a, IsRedudant)] -- ^ overlapping part, redundant?
+data PatternCheckResult = PatternCheckResult
+  { _uncovered   :: !Pattern
+  , _overlapping :: ![(Pattern, IsRedudant)] -- ^ overlapping part, redundant?
   }
 
-type instance Index   (Term a) = Int
-type instance IxValue (Term a) = Scope a
-instance Ixed (Term a) where
+type instance Index   Term = Int
+type instance IxValue Term = Scope
+instance Ixed Term where
   ix k f tm = case tm of
     Term name tms -> Term name <$> ix k f tms
     _             -> pure tm
 
 -- TODO: do we have to normalize here?
-isComplete :: Eq a => PatternCheckResult a -> Bool
+isComplete :: PatternCheckResult -> Bool
 isComplete (PatternCheckResult uc _) = uc == PatternUnion []
 
-hasRedundantPat :: PatternCheckResult a -> Bool
+hasRedundantPat :: PatternCheckResult -> Bool
 hasRedundantPat (PatternCheckResult _ overlaps)
   = any ((== IsRedudant) . snd) overlaps
 
@@ -553,7 +540,7 @@ hasRedundantPat (PatternCheckResult _ overlaps)
 -- * There are very few use cases.
 --
 -- Most of the time you want to hygienically open a term.
-applySubst :: Show a => MatchResult a -> Term a -> Term a
+applySubst :: MatchResult -> Term -> Term
 applySubst subst@(MatchResult assignments) tm = case tm of
   Term name subtms    -> Term name (applySubst' subst <$> subtms)
   Var name            -> case assignments ^? ix name of
@@ -561,17 +548,17 @@ applySubst subst@(MatchResult assignments) tm = case tm of
     _                  -> tm
   _                   -> tm
 
-applySubst' :: Show a => MatchResult a -> Scope a -> Scope a
+applySubst' :: MatchResult -> Scope -> Scope
 applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)
 
 -- | Match any instance of this operator
-toPattern :: Operator -> Pattern a
+toPattern :: Operator -> Pattern
 toPattern (Operator name (FixedArity valences) _layouts)
   = PatternTm name $ valences <&> \case
       VariableValence _n _ -> PatternVariableArity PatternAny
       _valence             -> PatternAny
 
-data MatchesEnv a = MatchesEnv
+data MatchesEnv = MatchesEnv
   { _envChart :: !SyntaxChart
   -- ^ The language we're working in
   , _envSort  :: !SortName
@@ -580,13 +567,13 @@ data MatchesEnv a = MatchesEnv
 
 makeLenses ''MatchesEnv
 
-type Matching a = ReaderT (MatchesEnv a) Maybe
+type Matching = ReaderT MatchesEnv Maybe
 
-noMatch, emptyMatch :: Matching a (MatchResult a)
+noMatch, emptyMatch :: Matching MatchResult
 noMatch    = lift Nothing
 emptyMatch = pure mempty
 
-matches :: (Show a, Eq a) => Pattern a -> Term a -> Matching a (MatchResult a)
+matches :: Pattern -> Term -> Matching MatchResult
 matches (PatternVar (Just name)) tm
   = pure $ MatchResult $ Map.singleton name (Scope [] tm)
 matches (PatternVar Nothing)     _
@@ -603,15 +590,6 @@ matches (PatternTm name1 subpatterns) (Term name2 subterms)
       subterms
     mconcat <$> lift mMatches
 
--- TODO: write context of var names?
-matches (PatternPrimVal pVal) (PrimValue val)
-  | pVal == Nothing
-  = emptyMatch
-  | pVal == Just val
-  = emptyMatch
-  | otherwise
-  = noMatch
-
 matches (PatternUnion pats) tm
   = do env <- ask
        lift $ getFirst $ foldMap
@@ -620,23 +598,23 @@ matches (PatternUnion pats) tm
 matches _ _
   = noMatch
 
-enscope :: [Text] -> Scope a -> Scope a
+enscope :: [Text] -> Scope -> Scope
 enscope binders (Scope binders' body) = Scope (binders' <> binders) body
 
-runMatches :: SyntaxChart -> SortName -> Matching b a -> Maybe a
+runMatches :: SyntaxChart -> SortName -> Matching a -> Maybe a
 runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
-getSort :: Matching a SortDef
+getSort :: Matching SortDef
 getSort = do
   MatchesEnv (SyntaxChart syntax) sortName <- ask
   lift $ syntax ^? ix sortName
 
-completePattern :: Matching a (Pattern a)
+completePattern :: Matching Pattern
 completePattern = do
   SortDef _vars operators <- getSort
   pure $ PatternUnion $ toPattern <$> operators
 
-minus :: Eq a => Pattern a -> Pattern a -> Matching a (Pattern a)
+minus :: Pattern -> Pattern -> Matching Pattern
 minus _ (PatternVar _) = pure PatternEmpty
 minus (PatternVar _) x = do
   pat <- completePattern
@@ -656,11 +634,6 @@ minus (PatternUnion pats) x = do
 
 -- remove each pattern from pat one at a time
 minus pat (PatternUnion pats) = foldlM minus pat pats
-
-minus x@(PatternPrimVal a) (PatternPrimVal b)
-  = pure $ if a == b then PatternEmpty else x
-minus x@PatternPrimVal{} _           = pure x
-minus x@PatternTm{} PatternPrimVal{} = pure x
 
 instance Pretty SyntaxChart where
   -- TODO: show start sort?

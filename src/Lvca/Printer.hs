@@ -9,7 +9,6 @@ import           Data.Maybe                (fromMaybe, isJust)
 import qualified Data.Sequence             as Seq
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding (space)
-import           Data.Void                 (Void)
 import           Prelude                   hiding (lookup)
 
 import           Lvca.Types
@@ -17,7 +16,7 @@ import           Lvca.Types
 type Printer = Reader (Int, SyntaxChart) (Doc ())
 
 -- | Pretty-print a term given its conrete syntax chart.
-prettyTm :: Term Void -> Printer
+prettyTm :: Term -> Printer
 prettyTm tm = do
   (envPrec, SyntaxChart sorts) <- ask
   case tm of
@@ -69,11 +68,10 @@ prettyTm tm = do
       pure $ if opPrec <= envPrec then parens <$> body else body
 
     Var name    -> pure $ pretty name
-    PrimValue a -> pure $ pretty a
 
 data PrintInfo = PrintInfo
   !MixfixDirective
-  !(Map Text (Scope Void))
+  !(Map Text Scope)
 
 prettyMixfix :: PrintInfo -> Printer
 prettyMixfix = \case
@@ -92,7 +90,7 @@ prettyMixfix = \case
   PrintInfo (SubTerm sym) m -> case m ^?! ix sym of
     Scope _ tm -> prettyTm tm
 
-prettyInfix :: Text -> Fixity -> [Term Void] -> Printer
+prettyInfix :: Text -> Fixity -> [Term] -> Printer
 prettyInfix str fixity subtms = case subtms of
   [l, r] -> do
     -- For infix operators, we call `pred` on the side that *should not* show a
@@ -106,7 +104,7 @@ prettyInfix str fixity subtms = case subtms of
       Infixr -> ret <$> prettyTm l         <*> assoc (prettyTm r)
   _ -> error "expected two subterms for infix directive"
 
-prettyAssoc :: Associativity -> [Term Void] -> Printer
+prettyAssoc :: Associativity -> [Term] -> Printer
 prettyAssoc assoc = \case
   [l, r] -> do
     -- We call `pred` on the side that *should not* show a paren in the case of

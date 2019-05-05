@@ -15,7 +15,6 @@ import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           Data.Traversable     (for)
-import           Data.Void            (Void)
 import           GHC.Stack            (HasCallStack)
 import           Prelude              hiding ((!!))
 import           Text.Earley
@@ -26,8 +25,8 @@ import           Lvca.Types           hiding (space, Var)
 import qualified Lvca.Types           as Types
 
 data Parsers r = Parsers
-  { _higherPrecParser :: !(Prod r Text Token (Term Void))
-  , _samePrecParser   :: !(Prod r Text Token (Term Void))
+  { _higherPrecParser :: !(Prod r Text Token Term)
+  , _samePrecParser   :: !(Prod r Text Token Term)
   }
 makeLenses ''Parsers
 
@@ -37,7 +36,7 @@ as !! i = case Seq.lookup i as of
   Nothing -> error "Invariant violation: sequence too short"
 
 -- | Parse 'Text' to a 'Term' for some 'ConcreteSyntax'
-concreteParser :: SyntaxChart -> SortName -> Parser Text [Token] (Term Void)
+concreteParser :: SyntaxChart -> SortName -> Parser Text [Token] Term
 concreteParser syntax startSort
   = parser $ concreteParserGrammar syntax startSort
 
@@ -45,7 +44,7 @@ concreteParserGrammar
   :: forall r.
      SyntaxChart
   -> SortName
-  -> Grammar r (Prod r Text Token (Term Void))
+  -> Grammar r (Prod r Text Token Term)
 concreteParserGrammar (SyntaxChart sorts) startSort = mdo
   sortParsers <- mfix $ \prods -> ifor sorts (parseSort prods)
 
@@ -59,7 +58,7 @@ parens p = token (Paren '(') *> p <* token (Paren ')')
 
 data MixfixResult = MixfixResult
   !(Map Text Text)
-  !(Map Text (Term Void))
+  !(Map Text Term)
 
 instance Semigroup MixfixResult where
   MixfixResult a1 b1 <> MixfixResult a2 b2 = MixfixResult (a1 <> a2) (b1 <> b2)
@@ -102,7 +101,7 @@ parseVar = terminal $ \case
   Var v -> Just v
   _     -> Nothing
 
-pattern BinaryTerm :: Text -> Term a -> Term a -> Term a
+pattern BinaryTerm :: Text -> Term -> Term -> Term
 pattern BinaryTerm name x y = Term name [Scope [] x, Scope [] y]
 
 -- | Parse an infix operator
@@ -110,7 +109,7 @@ parseInfix
   :: Text -- ^ Operator name (in abstract syntax), eg @"Add"@
   -> Text -- ^ Operator representation (in concrete syntax), eg @"+"@
   -> Fixity
-  -> Reader (Parsers r) (Prod r Text Token (Term Void))
+  -> Reader (Parsers r) (Prod r Text Token Term)
 parseInfix opName opRepr fixity
   = reader $ \(Parsers higherPrec samePrec) ->
     -- Allow expressions of the same precedence on the side we're associative
@@ -127,7 +126,7 @@ parseInfix opName opRepr fixity
 parseAssoc
   :: Text -- ^ Operator name (in abstract syntax), eg @"App"@
   -> Associativity
-  -> Reader (Parsers r) (Prod r Text Token (Term Void))
+  -> Reader (Parsers r) (Prod r Text Token Term)
 parseAssoc opName assoc = reader $ \(Parsers higherPrec samePrec) ->
     -- Allow expressions of the same precedence on the side we're associative
     -- on
@@ -137,8 +136,8 @@ parseAssoc opName assoc = reader $ \(Parsers higherPrec samePrec) ->
     in BinaryTerm opName <$> subparser1 <*> subparser2
 
 _unused ::
-  ( ALens' (Parsers r) (Prod r Text Token (Term Void))
-  , ALens' (Parsers r) (Prod r Text Token (Term Void))
+  ( ALens' (Parsers r) (Prod r Text Token Term)
+  , ALens' (Parsers r) (Prod r Text Token Term)
   )
 _unused = (samePrecParser, higherPrecParser)
 
@@ -154,9 +153,9 @@ valenceSlots = \case
 
 parseOperator
   :: forall r.
-     Map SortName (Prod r Text Token (Term Void))
+     Map SortName (Prod r Text Token Term)
   -> Operator
-  -> Grammar r (Prod r Text Token (Term Void))
+  -> Grammar r (Prod r Text Token Term)
 parseOperator sortParsers (Operator opName arity directives) = do
   operatorParses <- for directives $ \directive -> do
     let higherPrecP = undefined -- XXX
@@ -169,9 +168,9 @@ parseOperator sortParsers (Operator opName arity directives) = do
 
             let slots = aritySlots arity
 
-            -- convert @Map Text (Scope Void)@ to @[Scope Void]@ by
-            -- order names appear in @slots@ (which is the order
-            -- they occur in on the lhs of the concrete parser spec)
+            -- convert @Map Text Scope@ to @[Scope]@ by order names appear in
+            -- @slots@ (which is the order they occur in on the lhs of the
+            -- concrete parser spec)
             let prodList = prodMap <&>
                   \(MixfixResult varNameMap subTmMap) ->
                     slots <&> \(binders, tmName) ->
@@ -187,10 +186,10 @@ parseOperator sortParsers (Operator opName arity directives) = do
 
 parseSort
   :: forall r.
-     Map SortName (Prod r Text Token (Term Void))
+     Map SortName (Prod r Text Token Term)
   -> SortName
   -> SortDef
-  -> Grammar r (Prod r Text Token (Term Void))
+  -> Grammar r (Prod r Text Token Term)
 parseSort sortParsers sortName (SortDef sortVars operators) = do
   operators' <- traverse (parseOperator sortParsers) operators
   rule $ asum operators'

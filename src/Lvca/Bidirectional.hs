@@ -20,7 +20,6 @@ import Data.Monoid               (First(First, getFirst))
 import Data.Text                 (Text)
 import qualified Data.Text       as Text
 import Data.Traversable          (for)
-import Data.Void (Void)
 
 import qualified Lvca.Types as Types
 import Lvca.Util
@@ -34,7 +33,7 @@ import Lvca.Util
 --
 -- Bidirectional typechecking is, after all, a strategy for algorithmization.
 
-convert :: [Text] -> Types.Term Void -> Term
+convert :: [Text] -> Types.Term -> Term
 convert env = \case
   Types.Term tag scopes
     -> Term tag (fmap (convertScope env) scopes)
@@ -42,10 +41,8 @@ convert env = \case
     -> case elemIndex v env of
       Nothing -> Free v
       Just i  -> Bound i
-  Types.PrimValue{}
-    -> error "vacuous match"
 
-convertScope :: [Text] -> Types.Scope Void -> Scope
+convertScope :: [Text] -> Types.Scope -> Scope
 convertScope env (Types.Scope binders tm)
   = Scope binders (convert (binders <> env) tm)
 

@@ -8,7 +8,6 @@ import Data.Monoid (First(First, getFirst))
 import Data.String (IsString(fromString))
 import Data.Text (Text, unpack)
 import           Data.Text.Prettyprint.Doc
-import           Data.Void (Void)
 
 import Lvca.Types (pattern (:->))
 import qualified Lvca.Types as Types
@@ -42,7 +41,7 @@ data Val
   | ValLam ![Var] !Core
   deriving (Eq, Show)
 
-valToTerm :: Val -> Maybe (Types.Term Void)
+valToTerm :: Val -> Maybe Types.Term
 valToTerm = \case
   ValTm tag vals -> Types.Term tag <$>
     traverse (fmap (Types.Scope []) . valToTerm) vals
@@ -52,7 +51,7 @@ valToTerm = \case
     -> Types.Term "lam" . (:[]) . Types.Scope (unVar <$> binders)
       <$> coreToTerm body
 
-coreToTerm :: Core -> Maybe (Types.Term Void)
+coreToTerm :: Core -> Maybe Types.Term
 coreToTerm _ = pure $ Types.Term "TODO" []
 
 instance Num Val where
