@@ -2,11 +2,9 @@ module Lvca.Printer where
 
 import           Control.Lens              hiding (Empty, mapping, op, prism)
 import           Control.Monad.Reader
-import           Data.List                 (find)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
-import           Data.Maybe                (fromMaybe, isJust)
-import qualified Data.Sequence             as Seq
+import           Data.Maybe                (fromMaybe)
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding (space)
 import           Prelude                   hiding (lookup)
@@ -38,8 +36,8 @@ prettyTm tm = do
       let getValenceName = _sortName . _valenceResult
           slots :: [Text]
           slots = case arity of
-            FixedArity valences     -> getValenceName <$> valences
-            VariableArity _ valence -> [getValenceName valence]
+            FixedArity valences'     -> getValenceName <$> valences'
+            VariableArity _ valence' -> [getValenceName valence']
 
 --       ConcreteSyntaxRule _ slots directive
 --         <- findOf (traverse . traverse) sameName directives
@@ -86,7 +84,7 @@ prettyMixfix = \case
   PrintInfo (Group a)     m -> group <$> prettyMixfix (PrintInfo a m)
   PrintInfo (a :<+ _)     m -> prettyMixfix $ PrintInfo a m
 
-  PrintInfo (VarName absName) m -> pure $ pretty absName -- XXX convert name
+  PrintInfo (VarName absName) _ -> pure $ pretty absName -- XXX convert name
   PrintInfo (SubTerm sym) m -> case m ^?! ix sym of
     Scope _ tm -> prettyTm tm
 

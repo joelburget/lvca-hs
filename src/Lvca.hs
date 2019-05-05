@@ -6,7 +6,6 @@ module Lvca
   , module Lvca.ParseLanguage
   , module Lvca.ParseTerm
   , module Lvca.ParseSyntaxDescription
-  , module Lvca.ParseConcreteSyntaxDescription
   , module Lvca.ParseUtil
   , module Lvca.Printer
   , module Lvca.SyntaxComponents

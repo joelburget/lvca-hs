@@ -10,18 +10,14 @@ import           Control.Monad.Reader
 import           Data.Foldable        (asum)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
-import           Data.Sequence        (Seq(Empty, (:|>)))
-import qualified Data.Sequence        as Seq
 import           Data.Text            (Text)
-import qualified Data.Text            as Text
 import           Data.Traversable     (for)
-import           GHC.Stack            (HasCallStack)
 import           Prelude              hiding ((!!))
 import           Text.Earley
   (Grammar, Parser, Prod, parser, rule, terminal, token, (<?>))
 
 import           Lvca.TokenizeConcrete
-import           Lvca.Types           hiding (space, Var)
+import           Lvca.Types           hiding (Var, sortName, valence, valences)
 import qualified Lvca.Types           as Types
 
 data Parsers r = Parsers
@@ -29,11 +25,6 @@ data Parsers r = Parsers
   , _samePrecParser   :: !(Prod r Text Token Term)
   }
 makeLenses ''Parsers
-
-(!!) :: HasCallStack => Seq a -> Int -> a
-as !! i = case Seq.lookup i as of
-  Just a  -> a
-  Nothing -> error "Invariant violation: sequence too short"
 
 -- | Parse 'Text' to a 'Term' for some 'ConcreteSyntax'
 concreteParser :: SyntaxChart -> SortName -> Parser Text [Token] Term
@@ -50,11 +41,8 @@ concreteParserGrammar (SyntaxChart sorts) startSort = mdo
 
   case sortParsers ^? ix startSort of
     -- enter the lowest precedence parser
-    Just parser -> pure parser
-    Nothing -> error "TODO"
-
-parens :: Prod r e Token a -> Prod r e Token a
-parens p = token (Paren '(') *> p <* token (Paren ')')
+    Just parser' -> pure parser'
+    Nothing      -> error "TODO"
 
 data MixfixResult = MixfixResult
   !(Map Text Text)
@@ -190,6 +178,6 @@ parseSort
   -> SortName
   -> SortDef
   -> Grammar r (Prod r Text Token Term)
-parseSort sortParsers sortName (SortDef sortVars operators) = do
+parseSort sortParsers sortName (SortDef _ operators) = do
   operators' <- traverse (parseOperator sortParsers) operators
-  rule $ asum operators'
+  rule $ asum operators' <?> sortName

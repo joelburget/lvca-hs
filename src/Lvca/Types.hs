@@ -33,6 +33,7 @@ module Lvca.Types
   , Operator(..)
   , operatorName
   , operatorArity
+  , operatorSyntax
   , Arity(..)
   , arityIndex
   , valence
@@ -109,25 +110,17 @@ import           Data.Aeson
   (FromJSON(..), ToJSON(..), Value(..), withArray)
 import           Data.ByteString           (ByteString)
 import           Data.Data                 (Data)
-import           Data.Eq.Deriving
 import           Data.Foldable             (foldlM)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
--- import           Data.Maybe                (fromMaybe)
 import           Data.Monoid               (First(First, getFirst))
-import           Data.Sequence             (Seq)
-import qualified Data.Sequence             as Seq
-import           Data.Set                  (Set)
-import qualified Data.Set                  as Set
 import           Data.String               (IsString(fromString))
 import           Data.Text                 (Text)
-import qualified Data.Text                 as Text
 import           Data.Text.Prettyprint.Doc hiding (space)
 import qualified Data.Vector               as Vector
 import           GHC.Exts                  (IsList(..))
 import           GHC.Generics              (Generic)
 import           Prelude                   hiding (lookup)
-import           Text.Show.Deriving
 
 import           Lvca.Judgements
 import           Lvca.Util                 as Util
@@ -234,7 +227,8 @@ valenceSubst m = \case
   VariableValence index result
     -> VariableValence index (sortSubst' m result)
 
-  where sortSubst' m (NamedSort name sort) = NamedSort name (sortSubst m sort)
+  where sortSubst' m' (NamedSort name sort)
+          = NamedSort name (sortSubst m' sort)
 
 -- | Traverse the sorts of both binders and body.
 valenceSorts :: Traversal' Valence NamedSort
@@ -278,18 +272,6 @@ instance Pretty MixfixDirective where
     VarName name -> pretty name
     SubTerm name -> pretty name
 
-mixfixDirectiveKeywords :: MixfixDirective -> Set Text
-mixfixDirectiveKeywords = \case
-  Literal kw       -> Set.singleton kw
-  Sequence a b     -> Set.union (mdk a) (mdk b)
-  Line             -> Set.empty
-  Nest _ directive -> mdk directive
-  Group directive  -> mdk directive
-  a :<+ b          -> Set.union (mdk a) (mdk b)
-  VarName _        -> Set.empty
-  SubTerm _        -> Set.empty
-  where mdk = mixfixDirectiveKeywords
-
 infixr 5 >>:
 (>>:) :: MixfixDirective -> MixfixDirective -> MixfixDirective
 a >>: b = Sequence a b
@@ -330,12 +312,6 @@ data OperatorDirective
   | MixfixDirective !MixfixDirective
   | AssocDirective  !Associativity
   deriving (Eq, Show, Data)
-
-operatorDirectiveKeywords :: OperatorDirective -> Set Text
-operatorDirectiveKeywords = \case
-  InfixDirective kw _       -> Set.singleton kw
-  MixfixDirective directive -> mixfixDirectiveKeywords directive
-  AssocDirective{}          -> Set.empty
 
 instance Pretty OperatorDirective where
   pretty = \case
@@ -385,6 +361,24 @@ instance Pretty ConcreteSyntax where
 
 mkConcreteSyntax :: [[ConcreteSyntaxRule]] -> ConcreteSyntax
 mkConcreteSyntax = ConcreteSyntax . Seq.fromList
+
+operatorDirectiveKeywords :: OperatorDirective -> Set Text
+operatorDirectiveKeywords = \case
+  InfixDirective kw _       -> Set.singleton kw
+  MixfixDirective directive -> mixfixDirectiveKeywords directive
+  AssocDirective{}          -> Set.empty
+
+mixfixDirectiveKeywords :: MixfixDirective -> Set Text
+mixfixDirectiveKeywords = \case
+  Literal kw       -> Set.singleton kw
+  Sequence a b     -> Set.union (mdk a) (mdk b)
+  Line             -> Set.empty
+  Nest _ directive -> mdk directive
+  Group directive  -> mdk directive
+  a :<+ b          -> Set.union (mdk a) (mdk b)
+  VarName _        -> Set.empty
+  SubTerm _        -> Set.empty
+  where mdk = mixfixDirectiveKeywords
 -}
 
 data Scope = Scope ![Text] !Term
@@ -546,7 +540,6 @@ applySubst subst@(MatchResult assignments) tm = case tm of
   Var name            -> case assignments ^? ix name of
     Just (Scope _ tm') -> tm'
     _                  -> tm
-  _                   -> tm
 
 applySubst' :: MatchResult -> Scope -> Scope
 applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)

@@ -9,9 +9,8 @@ module Lvca.ParseTerm
   ) where
 
 import           Control.Lens         hiding (prism)
-import           Control.Lens.Extras  (is)
 import           Control.Monad.Reader
-import           Data.Foldable        (asum, for_, toList)
+import           Data.Foldable        (asum, toList)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
 import qualified Data.Sequence        as Seq
@@ -58,7 +57,7 @@ standardParser = do
   SyntaxChart syntax <- view parseChart
 
   let sortParsers :: Map SortName (Map Text Sort -> Parser a Term)
-      sortParsers = syntax <@&> \sortName (SortDef _vars ops) concreteSorts ->
+      sortParsers = syntax <@&> \sortName' (SortDef _vars ops) concreteSorts ->
 
         -- build a parser for each operator in this sort
         let opParsers = ops <&> \case
@@ -86,7 +85,7 @@ standardParser = do
               Operator _name (VariableArity _index _valence) _concreteSyntax
                 -> error "TODO"
 
-        in asum opParsers <?> unpack sortName ++ " operator"
+        in asum opParsers <?> unpack sortName' ++ " operator"
 
       -- parse an operator in the current sort or a variable
       parseTerm = do

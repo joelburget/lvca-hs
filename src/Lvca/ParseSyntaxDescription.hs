@@ -22,116 +22,91 @@ parseSyntaxDescription' :: SyntaxDescriptionParser SyntaxChart
 parseSyntaxDescription' = parseSyntaxDescription <* eof
 
 parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
-parseSyntaxDescription = undefined
+parseSyntaxDescription = SyntaxChart . Map.fromList <$> some parseSortDef
 
---  SyntaxChart . Map.fromList <$> some parseSortDef
+-- | Parse a sort definition, eg:
+--
+-- @
+-- Foo ::=
+--   Bar
+--   Baz
+-- @
+parseSortDef :: SyntaxDescriptionParser (SortName, SortDef)
+parseSortDef = L.nonIndented scn $ indentBlock scn $ do
+  name      <- parseName
+  variables <- many parseName
+  _         <- symbol "::="
 
----- | Parse a sort definition, eg:
-----
----- @
----- Foo ::=
-----   Bar
-----   Baz
----- @
---parseSortDef :: SyntaxDescriptionParser (SortName, SortDef)
---parseSortDef = L.nonIndented scn $ indentBlock scn $ do
---  name      <- parseName
---  variables <- many parseName
---  _         <- symbol "::="
+  asum
+    -- Try to parse the multiline version, eg:
+    --
+    -- @
+    -- Foo ::=
+    --   Bar
+    --   Baz
+    -- @
+    [ pure $ L.IndentMany Nothing (pure . (name,) . (SortDef variables))
+        parseOperator
 
---  asum
---    -- Try to parse the multiline version, eg:
---    --
---    -- @
---    -- Foo ::=
---    --   Bar
---    --   Baz
---    -- @
---    [ pure $ L.IndentMany Nothing (pure . (name,) . (SortDef variables))
---        parseOperator
+    -- TODO:
+    -- Failing that, try the single line version:
+    --
+    -- @
+    -- Foo ::= Bar | Baz
+    -- @
+    -- , L.IndentNone . (name,) . SortDef variables <$>
+    --     parseOperator `sepBy1` symbol "|"
+    ]
 
---    -- TODO:
---    -- Failing that, try the single line version:
---    --
---    -- @
---    -- Foo ::= Bar | Baz
---    -- @
---    -- , L.IndentNone . (name,) . SortDef variables <$>
---    --     parseOperator `sepBy1` symbol "|"
---    ]
+-- | Parse an operator.
+--
+-- The first two cases are sugar so you can write:
+--
+--   - @{Num}@ instead of
+--   - @Num{Num}@ instead of
+--   - @Num({Num})@.
+parseOperator :: SyntaxDescriptionParser Operator
+parseOperator = do
+  name <- parseName
+  Operator name <$> parseArity <*> pure []
 
----- | Parse an operator.
-----
----- The first two cases are sugar so you can write:
-----
-----   - @{Num}@ instead of
-----   - @Num{Num}@ instead of
-----   - @Num({Num})@.
---parseOperator :: SyntaxDescriptionParser Operator
---parseOperator = asum
---  [ do -- sugar for `{Num}`
---       name <- braces parseName
---       pure $ Operator name (ExternalArity "TODO: name" name) []
---  , do
---       name <- parseName
---       asum
---         [ -- sugar for `Num{Num}`
---           Operator name
---             <$> braces (ExternalArity "TODO: name" <$> parseName)
---             <*> pure []
---           -- unsweetened
---         , Operator name <$> parseArity <*> pure []
---         ]
---  ]
+-- | Parse an arity, which is a list of valences separated by @;@, eg:
+--
+-- @
+-- A; B; C
+-- A. B. C
+-- A. B. F A B
+-- A. B; C
+-- A
+-- @
+parseArity :: SyntaxDescriptionParser Arity
+parseArity = fmap FixedArity $ option [] $ -- TODO: variable arity
+  parens $ option [] $ parseValence `sepBy1` symbol ";"
 
----- | Parse an arity, which is a list of valences separated by @;@, eg:
-----
----- @
----- A; B; C
----- A. B. C
----- A. B. F A B
----- A. B; C
----- A
----- {External}
----- {External}; A
----- {External}. A
----- A. {External}
----- @
---parseArity :: SyntaxDescriptionParser Arity
---parseArity = fmap FixedArity $ option [] $ -- TODO: variable arity
---  parens $ option [] $ parseValence `sepBy1` symbol ";"
+-- | Parse a valence, which is a list of sorts separated by @.@, eg any of:
+--
+-- @
+-- A. B. C
+-- A. B. F A B
+-- A
+-- @
+parseValence :: SyntaxDescriptionParser Valence
+parseValence = do
+  names <- parseSort `sepBy1` symbol "."
+  let Just (sorts, result) = unsnoc names
+  pure $ FixedValence (NamedSort "TODO" <$> sorts) (NamedSort "TODO" result)
+  -- TODO: variable valence
 
----- | Parse a valence, which is a list of sorts separated by @.@, eg any of:
-----
----- @
----- A. B. C
----- A. B. F A B
----- A
----- {External}
----- {External}. A
----- A. {External}
----- @
---parseValence :: SyntaxDescriptionParser Valence
---parseValence = do
---  names <- parseSort `sepBy1` symbol "."
---  let Just (sorts, result) = unsnoc names
---  pure $ FixedValence "TODO: name" sorts result -- TODO: variable valence
-
----- | Parse a sort, which is a regular sort name or an external sort name in
----- braces, eg any of:
-----
----- @
----- A
----- F A B
----- {External}
----- @
---parseSort :: SyntaxDescriptionParser Sort
---parseSort = asum
---  [ braces $ External <$> parseName
---  , SortAp
---      <$> parseName
---      <*> many (asum
---        [ SortAp <$> parseName <*> pure []
---        , parens parseSort
---        ])
---  ]
+-- | Parse a sort, which is a regular sort name, eg:
+--
+-- @
+-- A
+-- F A B
+-- @
+parseSort :: SyntaxDescriptionParser Sort
+parseSort = SortAp
+  <$> parseName
+  <*> many (asum
+    [ SortAp <$> parseName <*> pure []
+    , parens parseSort
+    ])
