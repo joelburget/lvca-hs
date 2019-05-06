@@ -20,7 +20,7 @@ import Lvca.DenotationChart
 import Lvca.EarleyParseTerm
 import Lvca.ParseLanguage
 import Lvca.Printer (prettyTm)
-import Lvca.Types (keywords)
+import Lvca.Types
 import Lvca.TokenizeConcrete (tokenizeConcrete)
 
 interpretLanguage :: Lang -> IO ()
@@ -31,11 +31,11 @@ interpretLanguage lang@(Lang name _ _ _ _) = runInputT settings loop where
   loop = do
     minput <- getInputLine $ Text.unpack name ++ "> "
     case minput of
-      Nothing     -> return ()
-      Just input  -> do
+      Nothing    -> return ()
+      Just input -> do
         liftIO $ do
-          it <- runExceptT $ eval lang $ Text.pack input
-          case it of
+          result <- runExceptT $ eval lang $ Text.pack input
+          case result of
             Left err -> putStrLn err
             Right () -> pure ()
         loop
