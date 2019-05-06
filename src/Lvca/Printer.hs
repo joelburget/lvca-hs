@@ -16,7 +16,7 @@ type Printer = Reader (Int, SyntaxChart) (Doc ())
 -- | Pretty-print a term given its conrete syntax chart.
 prettyTm :: Term -> Printer
 prettyTm tm = do
-  (envPrec, SyntaxChart sorts) <- ask
+  (envPrec, SyntaxChart sorts _precedences) <- ask
   case tm of
     Term name subtms -> fromMaybe
 

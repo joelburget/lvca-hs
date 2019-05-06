@@ -25,6 +25,7 @@ module Lvca.Types
   , namedSort
   , SyntaxChart(..)
   , syntaxChartContents
+  , syntaxChartPrecedences
   -- , termSort
   , SortDef(..)
   , sortOperators
@@ -166,16 +167,20 @@ data NamedSort = NamedSort
 -- val := num                numeral
 --        str                literal
 -- @
-newtype SyntaxChart
-  = SyntaxChart { _syntaxChartContents :: Map SortName SortDef }
+data SyntaxChart = SyntaxChart
+  { _syntaxChartContents    :: !(Map SortName SortDef)
+  , _syntaxChartPrecedences :: ![[Text]]
+  -- ^ ordering of concrete operator name precedences, highest to lowest
+  -- precedence
+  }
   deriving (Eq, Show, Data)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
 -- languages often have a syntactic distinction between expressions and
 -- commands.
 data SortDef = SortDef
-  { _sortVariables :: ![Text]               -- ^ set of variables
-  , _sortOperators :: ![Operator]           -- ^ set of operators
+  { _sortVariables :: ![Text]     -- ^ set of variables
+  , _sortOperators :: ![Operator] -- ^ set of operators
   } deriving (Eq, Show, Data)
 
 -- | One of the fundamental constructions of a language. Operators are grouped
@@ -599,7 +604,7 @@ runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
 getSort :: Matching SortDef
 getSort = do
-  MatchesEnv (SyntaxChart syntax) sortName <- ask
+  MatchesEnv (SyntaxChart syntax _) sortName <- ask
   lift $ syntax ^? ix sortName
 
 completePattern :: Matching Pattern
@@ -607,6 +612,7 @@ completePattern = do
   SortDef _vars operators <- getSort
   pure $ PatternUnion $ toPattern <$> operators
 
+-- | Subtract one pattern from another.
 minus :: Pattern -> Pattern -> Matching Pattern
 minus _ (PatternVar _) = pure PatternEmpty
 minus (PatternVar _) x = do
@@ -629,8 +635,8 @@ minus (PatternUnion pats) x = do
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
 instance Pretty SyntaxChart where
-  -- TODO: show start sort?
-  pretty (SyntaxChart sorts) =
+  -- TODO: show start sort, operator precedences?
+  pretty (SyntaxChart sorts _) =
     let f (title, SortDef vars operators) = vsep
           [ let vars' = case vars of
                   [] -> ""

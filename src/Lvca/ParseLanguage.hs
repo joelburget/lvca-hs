@@ -69,11 +69,11 @@ translateCtor (SD.NonterminalCtor (SD.AbstractPat name mNat valences) matches) =
   pure $ Core.Operator name arity layouts
 
 translateSyntaxDesc :: SD.ConcreteSyntax -> Either String Core.SyntaxChart
-translateSyntaxDesc (SD.ConcreteSyntax terminals nonterminals)
-  = fmap (Core.SyntaxChart . Map.fromList) $
-    for nonterminals $ \(SD.NonterminalRule sortName args ctors) -> do
-      operators <- for ctors translateCtor
-      pure (sortName, Core.SortDef args operators)
+translateSyntaxDesc (SD.ConcreteSyntax terminals nonterminals) = do
+  sorts <- for nonterminals $ \(SD.NonterminalRule sortName args ctors) -> do
+    operators <- for ctors translateCtor
+    pure (sortName, Core.SortDef args operators)
+  pure $ Core.SyntaxChart (Map.fromList sorts) [] -- TODO: precedences
 
 parseHeader :: MonadParsec e Text m => m b -> m b
 parseHeader parseBody = symbol' "=" *> parseBody <* sc <* symbol "="

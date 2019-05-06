@@ -22,12 +22,28 @@ parseSyntaxDescription' :: SyntaxDescriptionParser SyntaxChart
 parseSyntaxDescription' = parseSyntaxDescription <* eof
 
 parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
-parseSyntaxDescription = SyntaxChart . Map.fromList <$> some parseSortDef
+parseSyntaxDescription = do
+  sortDefs    <- some parseSortDef
+  precedences <- option [] parsePrecedences
+  pure $ SyntaxChart (Map.fromList sortDefs) precedences
+
+-- | Parse a set of precedences, eg:
+--
+-- @
+-- precedence:
+--   ^
+--   &&
+--   ||
+-- @
+parsePrecedences :: SyntaxDescriptionParser [[Text]]
+parsePrecedences = L.nonIndented scn $ do
+  _ <- symbol "precedence:"
+  indentBlock scn $ pure $ L.IndentMany Nothing pure $ some parseName
 
 -- | Parse a sort definition, eg:
 --
 -- @
--- Foo ::=
+-- Foo :=
 --   Bar
 --   Baz
 -- @
@@ -35,13 +51,13 @@ parseSortDef :: SyntaxDescriptionParser (SortName, SortDef)
 parseSortDef = L.nonIndented scn $ indentBlock scn $ do
   name      <- parseName
   variables <- many parseName
-  _         <- symbol "::="
+  _         <- symbol ":="
 
   asum
     -- Try to parse the multiline version, eg:
     --
     -- @
-    -- Foo ::=
+    -- Foo :=
     --   Bar
     --   Baz
     -- @
@@ -52,7 +68,7 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
     -- Failing that, try the single line version:
     --
     -- @
-    -- Foo ::= Bar | Baz
+    -- Foo := Bar | Baz
     -- @
     -- , L.IndentNone . (name,) . SortDef variables <$>
     --     parseOperator `sepBy1` symbol "|"

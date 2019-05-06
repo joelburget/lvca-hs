@@ -36,7 +36,7 @@ concreteParserGrammar
      SyntaxChart
   -> SortName
   -> Grammar r (Prod r Text Token Term)
-concreteParserGrammar (SyntaxChart sorts) startSort = mdo
+concreteParserGrammar (SyntaxChart sorts _precedences) startSort = mdo
   sortParsers <- mfix $ \prods -> ifor sorts (parseSort prods)
 
   case sortParsers ^? ix startSort of

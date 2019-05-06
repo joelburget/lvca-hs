@@ -54,7 +54,7 @@ standardParser' = standardParser <* eof
 -- > )
 standardParser :: forall a. Parser a Term
 standardParser = do
-  SyntaxChart syntax <- view parseChart
+  SyntaxChart syntax _precedences <- view parseChart
 
   let sortParsers :: Map SortName (Map Text Sort -> Parser a Term)
       sortParsers = syntax <@&> \sortName' (SortDef _vars ops) concreteSorts ->
