@@ -4,26 +4,27 @@ A simple language of booleans and functions.
 
 == syntax ==
 
-WHITESPACE := \s+
-TRUE       := true
-FALSE      := false
-VAR        := [a-zA-Z_][a-zA-Z_0-9]*
-
 tm :=
-  | var(var)                    ~ var
-  | annot(tm; ty)               ~ tm ":" ty
-  | ite(t1: tm; t2: tm; t3: tm) ~ "if" t1 "then" t2 "else" t3
-  | app(t1: tm; t2: tm)         ~ assocl t1 t2
-  | val(val)                    ~ val
+  | var(var)
+  | annot(tm; ty)
+  | ite(t1: tm; t2: tm; t3: tm)
+  | app(t1: tm; t2: tm)
+  | val(val)
+  | binary-op(binary-op)
+
+binary-op :=
+  | or(t1: tm; t2: tm)
+  | xor(t1: tm; t2: tm)
+  | and(t1: tm; t2: tm)
 
 val :=
-  | true() ~  TRUE
-  | false() ~ FALSE
-  | lam(val; tm) ~ "lam" (val. "." tm)
+  | true()
+  | false()
+  | lam(val. tm)
 
 ty :=
-  | bool: "bool"
-  | arr:  infixr ty "->" ty
+  | bool()
+  | arr(ty; ty)
 
 == statics ==
 
@@ -70,7 +71,7 @@ ctx >> tm <= ty
 
 == dynamics ==
 
-[[_]] : tm -> core(val)
+// [[_]] : tm -> core(val)
 
 [[ value(v)        ]] = v
 [[ annot(tm; ty)   ]] = [[ tm ]]

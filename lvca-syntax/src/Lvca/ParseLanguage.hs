@@ -1,4 +1,4 @@
-module Lvca.ParseLanguage where
+module Lvca.Syntax.ParseLanguage where
 
 import qualified Data.Map                      as Map
 import           Data.Text                     (Text)

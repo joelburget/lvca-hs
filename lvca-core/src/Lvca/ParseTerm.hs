@@ -54,14 +54,14 @@ standardParser' = standardParser <* eof
 -- > )
 standardParser :: forall a. Parser a Term
 standardParser = do
-  SyntaxChart syntax _precedences <- view parseChart
+  SyntaxChart syntax <- view parseChart
 
   let sortParsers :: Map SortName (Map Text Sort -> Parser a Term)
       sortParsers = syntax <@&> \sortName' (SortDef _vars ops) concreteSorts ->
 
         -- build a parser for each operator in this sort
         let opParsers = ops <&> \case
-              Operator name (FixedArity valences') _concreteSyntax
+              Operator name (FixedArity valences')
                 -> label (unpack name) $ do
                   _ <- try $ do
                     _ <- string name
@@ -82,7 +82,7 @@ standardParser = do
                   -- TODO: convert Term to just use Sequence
                   pure $ Term name $ toList subTms
 
-              Operator _name (VariableArity _index _valence) _concreteSyntax
+              Operator _name (VariableArity _index _valence)
                 -> error "TODO"
 
         in asum opParsers <?> unpack sortName' ++ " operator"

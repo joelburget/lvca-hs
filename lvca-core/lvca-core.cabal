@@ -14,7 +14,6 @@ extra-source-files:  ChangeLog.md
 
 common core-deps
   build-depends:
-    Earley >= 0.13,
     aeson,
     base >=4.11 && <4.13,
     brick >= 0.41,
@@ -72,18 +71,14 @@ library
     Lvca.Brick
     Lvca.Core
     Lvca.DenotationChart
-    Lvca.EarleyParseTerm
     Lvca.Judgements
     Lvca.ParseBidirectional
-    Lvca.ParseConcreteSyntaxDescription
     Lvca.ParseDenotationChart
     Lvca.ParseLanguage
     Lvca.ParseTerm
     Lvca.ParseSyntaxDescription
     Lvca.ParseUtil
-    Lvca.Printer
     Lvca.SyntaxComponents
-    Lvca.TokenizeConcrete
     Lvca.Types
     Lvca.Util
     Text.Megaparsec.Char.LexerAlt
@@ -122,4 +117,4 @@ test-suite tests
 
 executable futamura
   main-is: Futamura.hs
-  build-depends: base, containers, Earley, lvca, megaparsec, mtl, text, prettyprinter, haskeline
+  build-depends: base, containers, lvca, megaparsec, mtl, text, prettyprinter, haskeline

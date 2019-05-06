@@ -24,21 +24,7 @@ parseSyntaxDescription' = parseSyntaxDescription <* eof
 parseSyntaxDescription :: SyntaxDescriptionParser SyntaxChart
 parseSyntaxDescription = do
   sortDefs    <- some parseSortDef
-  precedences <- option [] parsePrecedences
-  pure $ SyntaxChart (Map.fromList sortDefs) precedences
-
--- | Parse a set of precedences, eg:
---
--- @
--- precedence:
---   ^
---   &&
---   ||
--- @
-parsePrecedences :: SyntaxDescriptionParser [[Text]]
-parsePrecedences = L.nonIndented scn $ do
-  _ <- symbol "precedence:"
-  indentBlock scn $ pure $ L.IndentMany Nothing pure $ some parseName
+  pure $ SyntaxChart (Map.fromList sortDefs)
 
 -- | Parse a sort definition, eg:
 --
@@ -75,16 +61,10 @@ parseSortDef = L.nonIndented scn $ indentBlock scn $ do
     ]
 
 -- | Parse an operator.
---
--- The first two cases are sugar so you can write:
---
---   - @{Num}@ instead of
---   - @Num{Num}@ instead of
---   - @Num({Num})@.
 parseOperator :: SyntaxDescriptionParser Operator
 parseOperator = do
   name <- parseName
-  Operator name <$> parseArity <*> pure []
+  Operator name <$> parseArity
 
 -- | Parse an arity, which is a list of valences separated by @;@, eg:
 --

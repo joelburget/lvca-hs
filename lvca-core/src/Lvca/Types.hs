@@ -24,8 +24,6 @@ module Lvca.Types
   , sortName
   , namedSort
   , SyntaxChart(..)
-  , syntaxChartContents
-  , syntaxChartPrecedences
   -- , termSort
   , SortDef(..)
   , sortOperators
@@ -34,7 +32,6 @@ module Lvca.Types
   , Operator(..)
   , operatorName
   , operatorArity
-  , operatorSyntax
   , Arity(..)
   , arityIndex
   , valence
@@ -43,16 +40,6 @@ module Lvca.Types
   , Valence(..)
   , valenceSubst
   , valenceSorts
-
-  -- | Concrete syntax charts
-  , MixfixDirective(..)
-  , (>>:)
-  , OperatorDirective(..)
-  , Fixity(..)
-  , Associativity(..)
-  -- , ConcreteSyntax(..)
-  -- , keywords
-  -- , mkConcreteSyntax
 
   -- * Denotation charts
   -- | Denotational semantics definition.
@@ -78,6 +65,8 @@ module Lvca.Types
   , _PatternTm
   , _PatternVar
   , _PatternUnion
+  , variableArityArity
+  , variableArityValues
   -- ** PatternCheckResult
   , PatternCheckResult(..)
   , IsRedudant(..)
@@ -115,6 +104,7 @@ import           Data.Foldable             (foldlM)
 import           Data.Map.Strict           (Map)
 import qualified Data.Map.Strict           as Map
 import           Data.Monoid               (First(First, getFirst))
+import           Data.Sequence             (Seq)
 import           Data.String               (IsString(fromString))
 import           Data.Text                 (Text)
 import           Data.Text.Prettyprint.Doc hiding (space)
@@ -167,12 +157,7 @@ data NamedSort = NamedSort
 -- val := num                numeral
 --        str                literal
 -- @
-data SyntaxChart = SyntaxChart
-  { _syntaxChartContents    :: !(Map SortName SortDef)
-  , _syntaxChartPrecedences :: ![[Text]]
-  -- ^ ordering of concrete operator name precedences, highest to lowest
-  -- precedence
-  }
+newtype SyntaxChart = SyntaxChart (Map SortName SortDef)
   deriving (Eq, Show, Data)
 
 -- | Sorts divide ASTs into syntactic categories. For example, programming
@@ -188,8 +173,6 @@ data SortDef = SortDef
 data Operator = Operator
   { _operatorName   :: !OperatorName -- ^ operator name
   , _operatorArity  :: !Arity        -- ^ arity
-  , _operatorSyntax :: ![OperatorDirective]
-    -- ^ layouts (in order of preference / compactness)
   } deriving (Eq, Show, Data)
 
 -- | An /arity/ specifies the sort of an operator and the number and valences
@@ -253,141 +236,14 @@ instance IsString Valence where
 exampleArity :: Arity
 exampleArity = FixedArity [ FixedValence ["exp", "exp"] "exp" ]
 
--- | Parsing / pretty-printing directive
-data MixfixDirective
-  = Literal !Text
-  | Sequence !MixfixDirective !MixfixDirective
-  | Line
-  -- TODO: should this be called Indent?
-  | Nest !Int !MixfixDirective
-  | Group !MixfixDirective
-  | (:<+) !MixfixDirective !MixfixDirective
-  | VarName !Text
-  | SubTerm !Text
-  deriving (Eq, Show, Data)
-
-instance Pretty MixfixDirective where
-  pretty = \case
-    Literal str  -> dquotes $ pretty str
-    Sequence a b -> hsep [pretty a, pretty b]
-    Line         -> hardline
-    Nest i a     -> "nest" <+> pretty i <+> pretty a
-    Group d      -> "group(" <> pretty d <> ")"
-    a :<+ b      -> pretty a <+> "<" <+> pretty b
-    VarName name -> pretty name
-    SubTerm name -> pretty name
-
-infixr 5 >>:
-(>>:) :: MixfixDirective -> MixfixDirective -> MixfixDirective
-a >>: b = Sequence a b
-
-instance IsString MixfixDirective where
-  fromString = Literal . fromString
-
--- TODO:
--- + block model / smart spacing
-
--- | Whether a binary operator is left-, right-, or non-associative
-data Fixity
-  = Infixl -- ^ An operator associating to the left:
-           -- (@x + y + z ~~ (x + y) + z@)
-  | Infixr -- ^ An operator associating to the right:
-           -- (@x $ y $ z ~~ x $ (y $ z)@)
-  | Infix  -- ^ A non-associative operator
-  deriving (Eq, Show, Data)
-
-instance Pretty Fixity where
-  pretty = \case
-    Infixl -> "infixl"
-    Infixr -> "infixr"
-    Infix  -> "infix"
-
-data Associativity
-  = Assocl
-  | Assocr
-  deriving (Show, Eq, Data)
-
-instance Pretty Associativity where
-  pretty = \case
-    Assocl -> "assocl"
-    Assocr -> "assocr"
-
-data OperatorDirective
-  = InfixDirective  !Text !Fixity
-  | MixfixDirective !MixfixDirective
-  | AssocDirective  !Associativity
-  deriving (Eq, Show, Data)
-
-instance Pretty OperatorDirective where
-  pretty = \case
-    InfixDirective name fixity
-      -> hsep [ pretty fixity, "x", dquotes (pretty name), "y" ]
-    MixfixDirective dir
-      -> pretty dir
-    AssocDirective fixity
-      -> hsep [ pretty fixity, "x", "y" ]
-
-{-
-ruleKeywords :: ConcreteSyntaxRule -> Set Text
-ruleKeywords (ConcreteSyntaxRule _ _ directive)
-  = operatorDirectiveKeywords directive
-
--- | A concrete syntax chart specifies how to parse and pretty-print a language
---
--- Each level of the chart corresponds to a precendence level, starting with
--- the highest precendence and droping to the lowest. Example:
---
--- > ConcreteSyntax
--- >   [ [ "Z"   :-> "Z" ]
--- >   , [ "S"   :-> "S" >>: space >>: Arith ]
--- >   , [ "Mul" :-> InfixDirective "*" Infixl ]
--- >   , [ "Add" :-> InfixDirective "+" Infixl
--- >     , "Sub" :-> InfixDirective "-" Infixl
--- >     ]
--- >   ]
-newtype ConcreteSyntax = ConcreteSyntax (Seq [ConcreteSyntaxRule])
-  deriving (Eq, Show)
-
-keywords :: ConcreteSyntax -> Set Text
-keywords (ConcreteSyntax rules)
-  = Set.unions $ fmap (Set.unions . fmap ruleKeywords) rules
-
-instance Pretty ConcreteSyntax where
-  pretty (ConcreteSyntax precLevels) = vsep $
-    toList precLevels <&> \decls -> indent 2 $
-      ("-" <+>) $ align $ vsep $ decls <&>
-        \(ConcreteSyntaxRule op slots directive) -> hsep
-          [ pretty op <> encloseSep "(" ")" "; " (map prettySlot slots)
-          , "~"
-          , pretty directive
-          ]
-    where prettySlot (binderNames, bodyName)
-            = sep $ punctuate "." $ fmap pretty $ binderNames <> [bodyName]
-
-mkConcreteSyntax :: [[ConcreteSyntaxRule]] -> ConcreteSyntax
-mkConcreteSyntax = ConcreteSyntax . Seq.fromList
-
-operatorDirectiveKeywords :: OperatorDirective -> Set Text
-operatorDirectiveKeywords = \case
-  InfixDirective kw _       -> Set.singleton kw
-  MixfixDirective directive -> mixfixDirectiveKeywords directive
-  AssocDirective{}          -> Set.empty
-
-mixfixDirectiveKeywords :: MixfixDirective -> Set Text
-mixfixDirectiveKeywords = \case
-  Literal kw       -> Set.singleton kw
-  Sequence a b     -> Set.union (mdk a) (mdk b)
-  Line             -> Set.empty
-  Nest _ directive -> mdk directive
-  Group directive  -> mdk directive
-  a :<+ b          -> Set.union (mdk a) (mdk b)
-  VarName _        -> Set.empty
-  SubTerm _        -> Set.empty
-  where mdk = mixfixDirectiveKeywords
--}
-
 data Scope = Scope ![Text] !Term
   deriving (Eq, Show, Generic)
+
+data Primitive
+  = PrimInteger  !Integer
+  | PrimString   !Text
+  | PrimBool     !Bool
+  deriving (Show, Eq, Generic)
 
 -- | An evaluated or unevaluated term
 data Term
@@ -396,6 +252,8 @@ data Term
     , _subterms :: ![Scope] -- ^ subterms
     }
   | Var !Text
+  | Sequence !(Seq Term)
+  | Primitive !Primitive
   deriving (Eq, Show, Generic)
 
 arr :: [Value] -> Value
@@ -404,10 +262,25 @@ arr = Array . Vector.fromList
 instance ToJSON Scope where
   toJSON (Scope names tm) = arr [toJSON names, toJSON tm]
 
+instance ToJSON Primitive where
+  toJSON = \case
+    PrimInteger i -> arr [String "i", toJSON i]
+    PrimString  s -> arr [String "s", toJSON s]
+    PrimBool    b -> arr [String "b", toJSON b]
+
 instance ToJSON Term where
   toJSON = \case
     Term name subtms -> arr [String "t", toJSON name, toJSON subtms]
     Var name         -> arr [String "v", toJSON name]
+    Sequence tms     -> arr [String "s", toJSON tms]
+    Primitive prim   -> arr [String "p", toJSON prim]
+
+instance FromJSON Primitive where
+  parseJSON = withArray "Primitive" $ \v -> case Vector.toList v of
+    [String "i", i] -> PrimInteger <$> parseJSON i
+    [String "s", s] -> PrimString  <$> parseJSON s
+    [String "b", b] -> PrimBool    <$> parseJSON b
+    _               -> fail "unexpected JSON format for Primitive"
 
 instance FromJSON Scope where
   parseJSON = withArray "Scope" $ \v -> case Vector.toList v of
@@ -419,8 +292,27 @@ instance FromJSON Term where
   parseJSON = withArray "Term" $ \v -> case Vector.toList v of
     [String "t", a, b] -> Term      <$> parseJSON a <*> parseJSON b
     [String "v", a   ] -> Var       <$> parseJSON a
+    [String "s", a   ] -> Sequence  <$> parseJSON a
+    [String "p", a   ] -> Primitive <$> parseJSON a
     -- TODO: better message
     _                  -> fail "unexpected JSON format for Term"
+
+instance Serialise Primitive where
+  encode prim =
+    let (tag, content) = case prim of
+          PrimInteger i -> (0, encode i)
+          PrimString  s -> (1, encode s)
+          PrimBool    b -> (2, encode b)
+    in encodeListLen 2 <> encodeWord tag <> content
+
+  decode = do
+    decodeListLenOf 2
+    tag <- decodeWord
+    case tag of
+      0 -> PrimInteger <$> decode
+      1 -> PrimString  <$> decode
+      2 -> PrimBool    <$> decode
+      _ -> fail "invalid Primitive encoding"
 
 instance Serialise Scope where
   encode (Scope names tm) = encodeListLen 2 <> encode names <> encode tm
@@ -434,6 +326,8 @@ instance Serialise Term where
     let (tag, content) = case tm of
           Term      name  subtms -> (0, encode name <> encode subtms)
           Var       name         -> (1, encode name                 )
+          Sequence  tms          -> (2, encode tms                  )
+          Primitive prim         -> (3, encode prim                 )
     in encodeListLen 2 <> encodeWord tag <> content
 
   decode = do
@@ -442,6 +336,8 @@ instance Serialise Term where
     case tag of
       0 -> Term      <$> decode <*> decode
       1 -> Var       <$> decode
+      2 -> Sequence  <$> decode
+      3 -> Primitive <$> decode
       _ -> fail "invalid Term encoding"
 
 newtype Sha256 = Sha256 ByteString
@@ -454,27 +350,40 @@ instance Pretty Scope where
   pretty (Scope names tm)
     = hsep $ punctuate dot $ fmap pretty names <> [pretty tm]
 
+instance Pretty Primitive where
+  pretty = \case
+    PrimInteger i -> pretty i
+    PrimString  s -> pretty s
+    PrimBool    b -> pretty b
+
 instance Pretty Term where
   pretty = \case
     Term name subtms
       -> pretty name <> parens (hsep $ punctuate semi $ fmap pretty subtms)
     Var name
       -> pretty name
+    Sequence tms
+      -> list $ fmap pretty $ toList tms
+    Primitive prim
+      -> pretty prim
 
 instance Pretty Pattern where
   pretty = \case
     PatternTm name subpats
       -> pretty name <> parens (hsep $ punctuate semi $ fmap pretty subpats)
-    PatternVar Nothing
-      -> "_"
-    PatternVar (Just name)
-      -> pretty name
+    PatternVar mName -> prettyMaybeName mName
     PatternUnion pats
       -> group $ encloseSep
       (flatAlt "( " "(")
       (flatAlt " )" ")")
       " | "
       (pretty <$> pats)
+    PatternVariableArity arity values ->
+      prettyMaybeName values <> "[" <> prettyMaybeName arity <> "]"
+
+    where prettyMaybeName = \case
+            Nothing   -> "_"
+            Just name -> pretty name
 
 -- | A pattern matches a term.
 --
@@ -492,7 +401,12 @@ data Pattern
   | PatternVar !(Maybe Text)
   -- | The union of patterns
   | PatternUnion ![Pattern]
-  | PatternVariableArity !Pattern
+  | PatternVariableArity
+    { _variableArityArity  :: !(Maybe Text)
+    , _variableArityValues :: !(Maybe Text)
+    }
+  | PatternSequence ![Pattern]
+  | PatternPrimitive !Primitive
   deriving (Eq, Show)
 
 pattern PatternAny :: Pattern
@@ -551,10 +465,11 @@ applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)
 
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern
-toPattern (Operator name (FixedArity valences) _layouts)
+toPattern (Operator name (FixedArity valences))
   = PatternTm name $ valences <&> \case
-      VariableValence _n _ -> PatternVariableArity PatternAny
-      _valence             -> PatternAny
+      -- XXX
+      -- VariableValence index _ -> PatternVariableArity (Just index)
+      _valence                -> PatternAny
 
 data MatchesEnv = MatchesEnv
   { _envChart :: !SyntaxChart
@@ -604,7 +519,7 @@ runMatches chart sort = flip runReaderT (MatchesEnv chart sort)
 
 getSort :: Matching SortDef
 getSort = do
-  MatchesEnv (SyntaxChart syntax _) sortName <- ask
+  MatchesEnv (SyntaxChart syntax) sortName <- ask
   lift $ syntax ^? ix sortName
 
 completePattern :: Matching Pattern
@@ -635,8 +550,8 @@ minus (PatternUnion pats) x = do
 minus pat (PatternUnion pats) = foldlM minus pat pats
 
 instance Pretty SyntaxChart where
-  -- TODO: show start sort, operator precedences?
-  pretty (SyntaxChart sorts _) =
+  -- TODO: show start sort?
+  pretty (SyntaxChart sorts) =
     let f (title, SortDef vars operators) = vsep
           [ let vars' = case vars of
                   [] -> ""
@@ -647,10 +562,8 @@ instance Pretty SyntaxChart where
     in vsep $ f <$> Map.toList sorts
 
 instance Pretty Operator where
-  pretty (Operator name arity layouts) =
-    let line1 = ("|" <+>) $ pretty name <> pretty arity
-        layoutLines = fmap (\layout -> "~" <+> pretty layout) layouts
-    in vsep $ line1 : layoutLines
+  -- TODO: I think we need parens
+  pretty (Operator name arity) = pretty name <> pretty arity
 
 instance Pretty Arity where
   pretty = \case
