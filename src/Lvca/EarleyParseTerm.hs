@@ -44,6 +44,49 @@ concreteParserGrammar (SyntaxChart sorts _precedences) startSort = mdo
     Just parser' -> pure parser'
     Nothing      -> error "TODO"
 
+parseSort
+  :: forall r.
+     Map SortName (Prod r Text Token Term)
+  -> SortName
+  -> SortDef
+  -> Grammar r (Prod r Text Token Term)
+parseSort sortParsers sortName (SortDef _ operators) = do
+  operators' <- traverse (parseOperator sortParsers) operators
+  rule $ asum operators' <?> sortName
+
+parseOperator
+  :: forall r.
+     Map SortName (Prod r Text Token Term)
+  -> Operator
+  -> Grammar r (Prod r Text Token Term)
+parseOperator sortParsers (Operator opName arity directives) = do
+  operatorParses <- for directives $ \directive -> do
+    let higherPrecP = undefined -- XXX
+        samePrecP = undefined -- XXX
+        parser' = case directive of
+          InfixDirective str fixity -> parseInfix opName str fixity
+          AssocDirective assoc      -> parseAssoc opName assoc
+          MixfixDirective directive' -> do
+            prodMap <- parseMixfixDirective directive'
+
+            let slots = aritySlots arity
+
+            -- convert @Map Text Scope@ to @[Scope]@ by order names appear in
+            -- @slots@ (which is the order they occur in on the lhs of the
+            -- concrete parser spec)
+            let prodList = prodMap <&>
+                  \(MixfixResult varNameMap subTmMap) ->
+                    slots <&> \(binders, tmName) ->
+                      let binders' = binders <&> \varName ->
+                            varNameMap ^?! ix varName
+                          body = subTmMap ^?! ix tmName
+                      in Scope binders' body
+
+            pure $ Term opName <$> prodList
+    pure $ runReader parser' $ Parsers higherPrecP samePrecP
+
+  rule $ asum operatorParses
+
 data MixfixResult = MixfixResult
   !(Map Text Text)
   !(Map Text Term)
@@ -123,12 +166,6 @@ parseAssoc opName assoc = reader $ \(Parsers higherPrec samePrec) ->
           Assocr -> (higherPrec, samePrec  )
     in BinaryTerm opName <$> subparser1 <*> subparser2
 
-_unused ::
-  ( ALens' (Parsers r) (Prod r Text Token Term)
-  , ALens' (Parsers r) (Prod r Text Token Term)
-  )
-_unused = (samePrecParser, higherPrecParser)
-
 aritySlots :: Arity -> [([Text], Text)]
 aritySlots = \case
   FixedArity valences     -> valenceSlots <$> valences
@@ -139,45 +176,8 @@ valenceSlots = \case
   FixedValence args result -> (_sortName <$> args, _sortName result)
   VariableValence _ result -> ([],                 _sortName result)
 
-parseOperator
-  :: forall r.
-     Map SortName (Prod r Text Token Term)
-  -> Operator
-  -> Grammar r (Prod r Text Token Term)
-parseOperator sortParsers (Operator opName arity directives) = do
-  operatorParses <- for directives $ \directive -> do
-    let higherPrecP = undefined -- XXX
-        samePrecP = undefined -- XXX
-        parser' = case directive of
-          InfixDirective str fixity -> parseInfix opName str fixity
-          AssocDirective assoc      -> parseAssoc opName assoc
-          MixfixDirective directive' -> do
-            prodMap <- parseMixfixDirective directive'
-
-            let slots = aritySlots arity
-
-            -- convert @Map Text Scope@ to @[Scope]@ by order names appear in
-            -- @slots@ (which is the order they occur in on the lhs of the
-            -- concrete parser spec)
-            let prodList = prodMap <&>
-                  \(MixfixResult varNameMap subTmMap) ->
-                    slots <&> \(binders, tmName) ->
-                      let binders' = binders <&> \varName ->
-                            varNameMap ^?! ix varName
-                          body = subTmMap ^?! ix tmName
-                      in Scope binders' body
-
-            pure $ Term opName <$> prodList
-    pure $ runReader parser' $ Parsers higherPrecP samePrecP
-
-  rule $ asum operatorParses
-
-parseSort
-  :: forall r.
-     Map SortName (Prod r Text Token Term)
-  -> SortName
-  -> SortDef
-  -> Grammar r (Prod r Text Token Term)
-parseSort sortParsers sortName (SortDef _ operators) = do
-  operators' <- traverse (parseOperator sortParsers) operators
-  rule $ asum operators' <?> sortName
+_unused ::
+  ( ALens' (Parsers r) (Prod r Text Token Term)
+  , ALens' (Parsers r) (Prod r Text Token Term)
+  )
+_unused = (samePrecParser, higherPrecParser)
