@@ -75,7 +75,6 @@ module Lvca.Types
   , isComplete
   , hasRedundantPat
   -- ** Functions
-  , applySubst
   , toPattern
   , MatchesEnv(..)
   , Matching
@@ -371,15 +370,20 @@ instance Pretty Pattern where
   pretty = \case
     PatternTm name subpats
       -> pretty name <> parens (hsep $ punctuate semi $ fmap pretty subpats)
-    PatternVar mName -> prettyMaybeName mName
+    PatternVar mName
+      -> prettyMaybeName mName
     PatternUnion pats
       -> group $ encloseSep
       (flatAlt "( " "(")
       (flatAlt " )" ")")
       " | "
       (pretty <$> pats)
-    PatternVariableArity arity values ->
-      prettyMaybeName values <> "[" <> prettyMaybeName arity <> "]"
+    PatternVariableArity arity values
+      -> prettyMaybeName values <> "[" <> prettyMaybeName arity <> "]"
+    PatternSequence pats
+      -> list $ fmap pretty pats
+    PatternPrimitive prim
+      -> pretty prim
 
     where prettyMaybeName = \case
             Nothing   -> "_"
@@ -447,29 +451,13 @@ hasRedundantPat :: PatternCheckResult -> Bool
 hasRedundantPat (PatternCheckResult _ overlaps)
   = any ((== IsRedudant) . snd) overlaps
 
--- | The inverse of 'matches'. Use caution when using this function:
---
--- * It's unhygienic and subject to variable capture.
--- * There are very few use cases.
---
--- Most of the time you want to hygienically open a term.
-applySubst :: MatchResult -> Term -> Term
-applySubst subst@(MatchResult assignments) tm = case tm of
-  Term name subtms    -> Term name (applySubst' subst <$> subtms)
-  Var name            -> case assignments ^? ix name of
-    Just (Scope _ tm') -> tm'
-    _                  -> tm
-
-applySubst' :: MatchResult -> Scope -> Scope
-applySubst' subst (Scope names subtm) = Scope names (applySubst subst subtm)
-
 -- | Match any instance of this operator
 toPattern :: Operator -> Pattern
-toPattern (Operator name (FixedArity valences))
-  = PatternTm name $ valences <&> \case
-      -- XXX
-      -- VariableValence index _ -> PatternVariableArity (Just index)
-      _valence                -> PatternAny
+toPattern = \case
+  Operator name (FixedArity valences)
+    -> PatternTm name $ const PatternAny <$> valences
+  Operator name (VariableArity arityIndex _valence)
+    -> PatternTm name [ PatternVariableArity (Just arityIndex) Nothing ]
 
 data MatchesEnv = MatchesEnv
   { _envChart :: !SyntaxChart

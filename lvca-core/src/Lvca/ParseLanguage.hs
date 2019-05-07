@@ -1,19 +1,18 @@
 module Lvca.ParseLanguage where
 
-import qualified Data.Map                      as Map
 import           Data.Text                     (Text)
 import           Data.Void                     (Void)
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
-import Data.Traversable (for)
 
 import qualified Lvca.Bidirectional as Bidir
-import Lvca.DenotationChart
+import           Lvca.DenotationChart
 import qualified Lvca.Types as Core
-import Lvca.ParseBidirectional
-import Lvca.ParseDenotationChart
-import Lvca.ParseSyntaxDescription
-import Lvca.ParseUtil (symbol, symbol', parseName, sc, scn)
+import           Lvca.ParseBidirectional
+import           Lvca.ParseDenotationChart
+import           Lvca.ParseSyntaxDescription
+import           Lvca.ParseUtil
+  (symbol, symbol', parseName, sc, scn)
 
 type LanguageParser a = Parsec
   Void -- error type
@@ -26,7 +25,6 @@ data Lang = Lang
   , _statics        :: ![Bidir.Rule]
   , _dynamics       :: !DenotationChart
   }
-
 
 parseHeader :: MonadParsec e Text m => m b -> m b
 parseHeader parseBody = symbol' "=" *> parseBody <* sc <* symbol "="
