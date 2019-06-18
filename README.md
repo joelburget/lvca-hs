@@ -37,8 +37,8 @@ tm :=
   | ite(tm; tm; tm)
 
   // ... or a function or function application. Note the `tm. tm` syntax means
-  that we bind a `tm` in the body of the function (also a `tm`). Contrast with
-  `tm; tm` which means there are two `tm` children.
+  // that we bind a `tm` in the body of the function (also a `tm`). Contrast
+  // with `tm; tm` which means there are two `tm` children.
   | lam(tm. tm)
   | app(tm; tm)
 
